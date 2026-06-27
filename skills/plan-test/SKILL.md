@@ -1,6 +1,6 @@
 ---
 name: plan-test
-description: 端到端"需求澄清→架构基线→写plan→子代理挑战迭代→并行执行→100%完成度校验→测试策略路由(MCP真人测试/自动化脚本)→收尾DoD"全流程编排。当用户要对项目做优化/升级/重构、说"调研升级方向""写个能100%执行的plan并迭代""按计划并行执行并测试""做完要真人点击测试"时使用。Use for end-to-end research→plan→execute→verify→test workflows.
+description: 端到端"需求澄清→架构基线→写plan→子代理挑战迭代→并行执行→100%完成度校验→测试策略路由(MCP真人测试/自动化脚本)→收尾DoD"全流程编排。当用户要对项目做优化/升级/重构、说"调研升级方向""写个能100%执行的plan并迭代""按计划并行执行并测试""做完要真人点击测试""帮我写一个计划，是关于：""帮我写一个plan"时使用。Use for end-to-end research→plan→execute→verify→test workflows.
 ---
 
 # plan-test
