@@ -1,0 +1,17 @@
+{
+  "name": "plan-test",
+  "version": "0.1.0",
+  "description": "端到端工作流编排 skill：需求澄清 → 架构基线 → 写 plan → 子代理挑战迭代 → 并行执行 → 100% 完成度校验 → 测试策略路由（MCP 真人测试 / 自动化脚本）→ 收尾 DoD。引擎、路径、轮次均可配置。",
+  "author": {
+    "name": "DennyWanye"
+  },
+  "keywords": [
+    "plan",
+    "workflow",
+    "testing",
+    "subagent",
+    "orchestration",
+    "architecture",
+    "acceptance-criteria"
+  ]
+}
