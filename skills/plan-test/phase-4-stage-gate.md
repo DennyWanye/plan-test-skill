@@ -30,7 +30,8 @@
 ## ④ 100% 完成度审计（走可追溯矩阵）
 
 - 派 `{AUDITOR_ENGINE}`，对照 `{ACCEPTANCE_FILE}`：每条 AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 测试结果，逐条确认闭环。
-- 有断点 → 补完 → 复审。超 `{MAX_ROUNDS}` → BLOCKED 升级。
+- 按 SKILL.md"上下文包"规则派发；以末行 `VERDICT` 判定，缺结论行按 FAIL 处理。
+- 有断点 → 补完 → 复审（复审只核上轮断点与新改动）。超 `{MAX_ROUNDS}` → BLOCKED 升级。
 
 ## 执行测试与修复
 

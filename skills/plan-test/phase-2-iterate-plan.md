@@ -6,6 +6,12 @@
 
 循环（最少 `{PLAN_ITERATIONS}` 轮，受 `{MAX_ROUNDS}` 兜底）：派 `{CHALLENGER_ENGINE}` 子代理，用 `prompts/plan-challenger.md` 挑战 plan → 我据结果优化。
 
+**每轮派发规矩**（见 SKILL.md"上下文包"）：
+
+- 附上 acceptance.md 相关条款原文、plan 原文、**上一轮已闭环的问题清单**——声明不必重复挑战已闭环项，只挑战新增与未闭环部分。
+- 以挑战者输出末行 `VERDICT` 判定：FAIL → 继续迭代；PASS 且已满最少轮数 → 定稿。缺结论行按 FAIL 处理。
+- 迭代中的补充调研遵循 `methods/research-method.md`：读代码读不出来的不确定项（运行时行为、三方库真实表现），用可丢弃的 spike 跑一下闭环，结论写回 plan——这就是"实践—认识—再实践"，不许用措辞把洞圆过去。
+
 ### 收敛判据（全部满足才定稿）
 
 1. **100% 代码可执行** —— 即：

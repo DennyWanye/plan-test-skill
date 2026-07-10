@@ -16,6 +16,10 @@
 - **每个声明可验证**：不靠"看起来做完了"，而是走可追溯矩阵 `AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 结果`。
 - **每个失败有出口**：所有"循环直到 100%"都有 `MAX_ROUNDS` 上限，超限标记 BLOCKED 升级，不空转烧 token。
 - **功能只增不减**，**便宜的测试门在前、贵的真人测试在后**。
+- **调研有方法论**：调研阶段遵循毛选式问题解决纪律（没有调查没有发言权、抓主要矛盾、具体问题具体分析、解剖麻雀、实践—认识—再实践、集中优势兵力），见 `skills/plan-test/methods/research-method.md`。
+- **循环判定结构化**：挑战/审计子代理末行统一 `VERDICT: PASS/FAIL`，编排者只按结论行判定循环去留，缺失按 FAIL 处理，不靠解读语气。
+- **子代理带上下文包冷启动**：派发时嵌入验收条款、plan 片段与上轮结论，圈定读取范围；多轮迭代只挑战未闭环项，不重复烧 token。
+- **架构文档增量校准**：ARCHITECTURE.md 带 `last-calibrated` commit 锚点，按 git diff 圈定过期章节增量更新，避免每次全仓重建。
 
 ## 安装
 
@@ -73,7 +77,9 @@ skills/plan-test/
 ├── phase-4-stage-gate.md           阶段门禁 + 测试策略路由
 ├── phase-5-testcase.md             testcase 维护
 ├── phase-final-dod.md              收尾 DoD + 文档回写
-├── prompts/                        各子代理提示词
+├── methods/
+│   └── research-method.md          调研方法论（毛选式：主要矛盾/反本本/解剖麻雀/实践论）
+├── prompts/                        各子代理提示词（末行统一 VERDICT: PASS/FAIL 结论行）
 └── checklists/                     幂等审查 / MCP 真人测试规程
 ```
 

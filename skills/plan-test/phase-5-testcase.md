@@ -18,9 +18,10 @@
 
 4. **子代理迭代**
    - 派 `{CHALLENGER_ENGINE}`，用 `prompts/testcase-iterator.md` 挑战并迭代 testcase（最少 `{TESTCASE_ITERATIONS}` 轮），直到覆盖率能测出各种 bug 与边界情况。
+   - 按 SKILL.md"上下文包"规则派发（附 acceptance.md 条款与上轮已补齐的场景清单）；以末行 `VERDICT` 判定去留，缺结论行按 FAIL 处理。
 
 5. **终审**
-   - 派 `{AUDITOR_ENGINE}` 确认 testcase 覆盖了 `{ACCEPTANCE_FILE}` 全部条款。
+   - 派 `{AUDITOR_ENGINE}` 确认 testcase 覆盖了 `{ACCEPTANCE_FILE}` 全部条款，以末行 `VERDICT` 为准。
 
 ## 测试目标
 
