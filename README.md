@@ -1,12 +1,20 @@
 # plan-test
 
-一个 Claude Code **插件 skill**，把"优化 / 升级 / 重构需求"走完整闭环：
+一个 Claude Code **插件**，含三个 skill，把"优化 / 升级 / 重构需求"走完整闭环：
 
 ```
 需求澄清 & 验收标准  →  架构基线  →  写 plan  →  子代理挑战迭代
   →  并行执行 + 100% 完成度审计  →  测试策略路由(MCP真人测试 / 自动化脚本)
   →  收尾 DoD + 文档回写
 ```
+
+| Skill | 覆盖范围 | 适用场景 |
+|-------|---------|---------|
+| `/plan-bs` | 头脑风暴对话 → 验收标准 → 架构基线 → 共创 plan → 挑战迭代 → 用户 review 定稿 | 想先和 AI 讨论清楚再定计划，**不执行代码** |
+| `/plan-task` | 校验定稿 plan → 绿色基线 → 并行执行 + 审计 → 阶段门禁测试 → testcase → DoD | 已有定稿 plan（通常来自 plan-bs），只要执行 + 测试 |
+| `/plan-test` | 上面两段的一条龙自动版（需求澄清不走头脑风暴对话，走快速确认） | 需求已基本清楚，直接端到端做完 |
+
+三个 skill 共享 `skills/plan-test/` 下的阶段文档、子代理提示词与配置。plan-bs 定稿时会在 `plan.md` 头部写 `<!-- plan-status: finalized -->` 标记，plan-task 开工前校验它——这是两段之间的交接契约。
 
 灵感来自 superpowers 的 plan / test 系列 skill，针对"代码级可执行 plan + 子代理对抗迭代 + 真人测试"的工作流做了端到端编排。
 
@@ -40,15 +48,19 @@ git clone https://github.com/DennyWanye/<repo>.git
 
 装载后，三种触发方式：
 
-1. **斜杠触发（推荐）** —— 斜杠后的文字就是需求：
+1. **斜杠触发（推荐）**：
    ```
+   /plan-bs 我想给登录模块加 OAuth，但没想清楚方案，和我讨论一下
+   /plan-task plans/oauth-login          # 执行 plan-bs 定稿的 plan
    /plan-test 把登录模块从短信验证码升级为 OAuth + 短信双通道，要求：1.保留旧入口 2.……
    ```
 2. **自然语言自动触发**：
    ```
-   帮我调研支付模块的升级方向，出一份能 100% 执行的 plan，迭代好后并行执行，再做真人测试
+   和我头脑风暴一下支付模块怎么升级，讨论好了出一份能 100% 执行的 plan   → plan-bs
+   按 plans/pay-upgrade 这份计划并行执行，做完真人测试                  → plan-task
+   帮我调研支付模块的升级方向，出 plan 并迭代好后并行执行，再做真人测试     → plan-test
    ```
-3. **手动指名**："用 plan-test 这个 skill 处理 XX"。
+3. **手动指名**："用 plan-bs / plan-task / plan-test 这个 skill 处理 XX"。
 
 ## 配置
 
@@ -66,8 +78,12 @@ MANUAL_TEST: required
 
 ```
 .claude-plugin/plugin.json          插件清单
+skills/plan-bs/
+└── SKILL.md                        头脑风暴 & 计划共创入口（引用 plan-test 的共享文档）
+skills/plan-task/
+└── SKILL.md                        执行 + 测试闭环入口（引用 plan-test 的共享文档）
 skills/plan-test/
-├── SKILL.md                        主编排入口（带 frontmatter）
+├── SKILL.md                        端到端一条龙入口（带 frontmatter）
 ├── config.md                       可配置默认值
 ├── phase-A-acceptance.md           需求澄清 & 验收标准
 ├── phase-0-architecture.md         架构基线

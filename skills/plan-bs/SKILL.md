@@ -1,0 +1,62 @@
+---
+name: plan-bs
+description: 头脑风暴式计划共创：通过多轮对话引导用户澄清需求与核心矛盾，共创出初始 plan，再用子代理挑战迭代到"100% 代码可执行"，最后和用户 review 定稿。当用户说"头脑风暴""和我一起讨论这个需求""一起想想怎么做""共创一份计划""帮我把想法变成可执行的 plan""/plan-bs"时使用。产出定稿 plan，不执行代码——执行与测试交给 plan-task。注意：用户不想对话讨论、只要直接出一份 plan → 用 writing-plans；用户要"一条龙做完（含执行测试）"→ 用 plan-test。
+---
+
+# plan-bs — 头脑风暴 & 计划共创
+
+和用户**对话共创**出一份定稿 plan：头脑风暴澄清需求 → 验收标准 → 架构基线 → 共创初始 plan → 子代理挑战迭代 → 用户 review 定稿。**本 skill 不改业务代码、不执行 plan**——定稿后交给 `/plan-task`。
+
+本 skill 与 plan-test 共享阶段文档与配置，共享文件都在 `../plan-test/` 下。
+
+## 开场（每次必做）
+
+1. **Announce**：输出 "I'm using the plan-bs skill to brainstorm and co-create the plan with you."
+2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
+3. **建 TodoWrite**：按下面 6 步建 todo。
+
+## 流程
+
+### 1. 头脑风暴（对话引导，不许跳过）
+
+这一步的产出是**想清楚**，不是文档。引导规矩：
+
+- **一次只问 1–2 个问题**，跟着用户的回答走，不许一次甩一张问卷。
+- 引导顺序（灵活，不机械）：
+  1. **目标与动机**：想解决什么问题？不做会怎样？（挖到"为什么"，别停在"做什么"）
+  2. **主要矛盾**（`../plan-test/methods/research-method.md` 第 2 条）：这件事里**决定成败的核心问题是哪一个**？引导用户亲口说出来或和用户一起推出来。
+  3. **现状与约束**：现有代码/系统什么样？什么不能动？时间/兼容/性能的硬约束？
+  4. **边界**：明确不做什么（防蔓延）。
+  5. **备选方案**：摆 2–3 个可行方向 + 各自权衡，让用户拍板方向性选择。方案级分歧**由用户决定**，不自决。
+- 对模糊回答要追问（"好用一点"→"具体指什么场景下的什么行为？"）；用户明显没想清楚的地方，用具体例子帮他想。
+
+### 2. 收敛为验收标准
+
+- 把头脑风暴结论按 `../plan-test/phase-A-acceptance.md` 的模板收敛为 `{ACCEPTANCE_FILE}`（含主要矛盾、范围、逐条可验证的 AC、非功能边界）。
+- **给用户过目确认**后才继续。
+
+### 3. 架构基线
+
+- 按 `../plan-test/phase-0-architecture.md` 执行（含 last-calibrated 锚点增量校准、子代理挑战、VERDICT 判定）。
+
+### 4. 共创初始 plan
+
+- 按 `../plan-test/phase-1-plan.md` 写初始 plan（含最佳实践调研、主要矛盾、代码级任务、AC 追溯）。
+- **共创原则**：方案级选择（选哪个技术方向、砍不砍某功能）在头脑风暴已和用户定了，这里不推翻；代码级细节（改哪个文件怎么改）由我调研后自主写，不逐条打扰用户。
+
+### 5. 迭代 plan
+
+- 按 `../plan-test/phase-2-iterate-plan.md` 的 **A 节**执行：challenger 子代理挑战（`../plan-test/prompts/plan-challenger.md`）、上下文包派发、VERDICT 判定、收敛判据"100% 代码可执行"、`{MAX_ROUNDS}` 兜底。
+- **注意**：B 节"锁定绿色基线"不在本 skill 做——那是执行前动作，归 plan-task。
+
+### 6. 和用户 review 定稿
+
+- 把定稿 plan 给用户 review：主要矛盾、方案选择及理由、任务清单概览、迭代中被挑战出的关键改动。
+- 用户通过后，在 `plan.md` 头部写入标记：`<!-- plan-status: finalized (plan-bs) -->`。
+- 收尾输出：plan 与 acceptance 的路径 + 提示"执行与测试请运行 `/plan-task <plan 文件夹路径>`"。
+
+## 何时不要用
+
+- 用户不想讨论、直接要一份 plan → `writing-plans`。
+- 用户要一条龙做完（plan + 执行 + 测试）→ `plan-test`。
+- 已有定稿 plan，只要执行和测试 → `plan-task`。

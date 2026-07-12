@@ -28,7 +28,7 @@
   - testcase 迭代最少轮数。
 - `AUDIT_RETRY`: until-100
   - 完成度未达 100% 就循环补完（受 `MAX_ROUNDS` 兜底）。
-- `MAX_ROUNDS`: 6
+- `MAX_ROUNDS`: 15
   - 任一"循环直到"的硬上限。超限 → 标记 BLOCKED，升级给用户，**不再空转烧 token**。
 
 ## 测试
