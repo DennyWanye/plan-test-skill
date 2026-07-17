@@ -33,7 +33,7 @@
 
 ## B. 完成度审计（循环至 100%）
 
-1. 派 `{AUDITOR_ENGINE}` 子代理，用 `prompts/completion-auditor.md` 评估完成度。
+1. 派 `{AUDITOR_ENGINE}` 子代理，用 `prompts/completion-auditor.md` 评估完成度，**派发时声明 `MODE: code-audit`**（本阶段测试还没跑，只审"AC→任务→代码"前半链 + plan 层缺陷 + 主要矛盾；全链终审在 phase-4 ④）。
    - **审计锚点是原始需求，不是 plan 打勾**：以 `{ACCEPTANCE_FILE}` 的 AC 达成为准。plan 任务全 ✅ 但某条必须 AC 达不成 → 该 AC 判 FAIL 并标注"plan 层缺陷"，走 A2 回炉——**不许因为"任务都做了"给过**。
    - **主要矛盾优先**：先单独审"主要矛盾"对应的 AC 是否真达成（业务上可用）；未达成 → 整个审计直接 FAIL，其余任务完成度不必再数——"90% 任务完成但主要矛盾没解决"的正确结论是 FAIL，不是 90%。
    - 审计走**可追溯矩阵**：`{ACCEPTANCE_FILE}` 的每条 AC ↔ plan 任务 ↔ 实际代码改动，逐条核对有无断点。
