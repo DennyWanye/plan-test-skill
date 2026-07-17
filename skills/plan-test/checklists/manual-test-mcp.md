@@ -36,9 +36,11 @@
 - `parent_run_id`（retry/continuation 必填）、`expected_terminal`
 
 **完成后**记录：
-- `run_id`、`actual_terminal`（completed/partial/insufficient/failed）
+- `run_id`、`actual_terminal_engine`（workflow 终态）、`actual_terminal_business`（业务终态：completed/partial/insufficient/failed——两者分开记，engine completed ≠ 业务成功）
 - 证据：截图 + 关键 log 位置
 - `result`：PASS / FAIL / PARTIAL
+
+**证据强绑定（防缓存旧帧/张冠李戴）**：每份截图必须绑定 testcase ID + 输入文本 + run/session ID + 时间 + 文件 SHA-256，且**截图中要看得到本次输入对应的关键结果**（不是只有个界面壳）。截图前确认页面已刷新到本次 run 的实际状态；多份截图 hash 相同 = 无效证据，重截。有 DB/log 可对时，记录对应行位置。
 
 **计数纪律**：同一个 `input_class` + 归一化后相同意图的输入（含改写），只能记为 retry/replay，**不得记为新的 root run 场景**。判断标准："换个问法"不算新场景，"换领域/难度/风险形态"才算。
 

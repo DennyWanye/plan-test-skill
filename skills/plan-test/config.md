@@ -52,6 +52,10 @@
   - 适用时额外包含 1 个错误态/低证据/对抗场景（验证诚实降级），计入类别数之外。
 - `MANUAL_REQUIRED_PENDING_POLICY`: block
   - 任何 required 场景处于 PENDING/PARTIAL/NOT RUN 时，门禁与 DoD 一律 FAIL/BLOCKED，不得用"核心 PASS"掩盖。
+- `MANUAL_MIN_POSITIVE_SAMPLES`: 1
+  - **正向价值样本**下限：自然用户语言、走真实生产入口、真实 provider、得到**非空有效业务结果**、内容经人工检查、达到 acceptance 声明的最低质量线。所有样本都是 partial/insufficient/空结果时，**即使系统没崩也不得完成**——"诚实降级成功"只是负向安全门 PASS，不等于产品质量 PASS。
+- `VALUE_SMOKE_GATE`: required
+  - 价值优先 smoke：输入敏感功能在进入打包、全量回归、完整真人矩阵等**昂贵步骤之前**，必须先跑 2–5 个自然语言正向 smoke 验证主要矛盾（核心价值真的可用）；失败 → 立即 BLOCKED 早停，不继续投入昂贵收尾。
 
 ## 行为开关
 

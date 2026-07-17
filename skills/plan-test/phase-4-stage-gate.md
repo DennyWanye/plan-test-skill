@@ -35,11 +35,17 @@
 
 1. **账本**（对照 acceptance 的场景矩阵逐行记）：
 
-   | scenario_id | input_class | root runs | retry runs | continuation runs | 终态 | 状态 |
-   |-------------|------------|-----------|------------|-------------------|------|------|
-   | S-1 | …… | 1 | 2 | 1 | completed | ✅ |
+   | scenario_id | gate_type | input_class | root runs | retry runs | continuation runs | engine 终态 | 业务终态 | 状态 |
+   |-------------|-----------|------------|-----------|------------|-------------------|-------------|----------|------|
+   | S-1 | positive-value | …… | 1 | 2 | 1 | completed | completed+有效报告 | ✅ |
 
    末尾一行汇总计数：`distinct_scenarios=N / ui_submissions=N / root_runs=N / retry=N / continuation=N / completed=N / partial=N / insufficient=N / failed=N`。
+
+   **engine 终态 ≠ 业务成功**：workflow `status=completed` 只表示流程图正常收敛，业务结果可能是 completed/partial/insufficient。**必须按业务终态判定**：
+   - `positive-value` 场景：业务终态必须是"非空有效结果 + 达 quality_bar（人工检查过）"才算 ✅；engine completed 但业务 insufficient/空结果 → **安全行为 PASS、产品质量 FAIL**，场景记 ❌。
+   - `negative-safety` 场景：insufficient/诚实失败才是预期 ✅。
+   - **insufficient_evidence 不得被拿来证明任何正向 AC**。
+   - **fallback 成功 ≠ 功能正确**：fallback 不崩只是可靠性 PASS；fallback 后的**语义是否仍然正确**（没把专业意图退化成 generic 查询）是独立判定项，语义错了场景记 ❌。
 
 2. **计数纪律（不许自行解释）**：
    - **retry/重放/同意图改写只证可靠性**，不增加 distinct scenario 数；
@@ -52,12 +58,18 @@
    - **修复后的复测广度**：修好某场景后，除复测该场景外，**至少再复测 1 个未受影响的类别**（防修复引入回归）。
    - 确定性 UI（判定见 config）不适用本节，不许反向强套。
 
-## ② 门的顺序（红则先修，不进下一层）
+## ② 门的顺序（红则先修，不进下一层；主要矛盾优先于昂贵收尾）
 
 1. 类型检查（tsc --noEmit / dart analyze 等）
 2. lint
 3. 单元 / 集成测试脚本
-4. （以上全绿后）→ 昂贵层：MCP 真人测试
+4. **核心价值 smoke（`VALUE_SMOKE_GATE = required`，输入敏感功能必做）**：跑 2–5 个自然语言正向问题，走真实入口 + 真实 provider，验证主要矛盾（核心价值真的能产出有效结果）。**失败 → 立即 BLOCKED 早停**，不进入打包、全量回归、完整真人矩阵等昂贵步骤——别在核心价值未证实前先烧几 GB 的构建。
+5. **真实 provider 契约门（含 LLM 结构化输出的功能必做）**：用**当前真实 provider 的实际输出**过一遍生产 validator，确认 schema 兼容（字段、枚举值、大小写不漂移）。手工构造的合法/非法 payload 只能测 validator 本身，**不能证明真实输出能通过**。
+6. （以上全绿后）→ 昂贵层：MCP 真人完整矩阵测试
+
+**昂贵层前置：testcase 冻结**。进入第 6 层前，本阶段要执行的 testcase 必须已**编写完成并通过 challenger 挑战**（即 phase-5 的编写与迭代动作前移到此刻完成）；不许拿临时、未经挑战的 testcase 跑昂贵验收，测完再补定义。phase-5 收尾时只做实际结果回写与回归登记。
+
+**Blocker 早停铁律**：一旦"主要矛盾"对应的必须 AC 判 FAIL，**立即停止一切完成收尾**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED；可以继续做诊断与修复，修复后从本门序重新过。**已知 BLOCKER 还继续收尾 = 谎报进度**。
 
 ## ③ 测试环境就绪（真人测试前必做）
 

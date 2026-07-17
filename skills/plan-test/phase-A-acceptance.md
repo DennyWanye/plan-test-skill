@@ -16,6 +16,12 @@
 3. **标注边界与非功能要求**：错误态、空态、并发、幂等、性能阈值、兼容性。
 4. **测试场景矩阵**（输入语义敏感功能必做，判定见 config"真人测试广度门禁"）：
    - 为真人测试预先定义**语义不等价的输入类别**，至少 `{MANUAL_MIN_DISTINCT_CLASSES}` 个代表类别；适用时额外含 1 个错误态/低证据/对抗场景（`{MANUAL_REQUIRE_NEGATIVE_CLASS}`）。
+   - **门分两类，缺一不可**：每个场景标注 `gate_type`——
+     - `positive-value`（正向价值门）：普通高证据问题确实能接纳证据、生成**非空有效业务结果**且达到本表声明的最低质量线。required 场景中至少 `{MANUAL_MIN_POSITIVE_SAMPLES}` 个。
+     - `negative-safety`（负向安全门）：没有证据/异常输入时诚实失败、不编造。
+     - **只有负向安全门通过，不能宣布功能完成**——durable、fail-closed、诚实降级都只是安全行为 PASS。
+   - **正向价值场景必须声明最低质量线**（terminal_expectation 之外再写一行"quality_bar"：什么样的结果算可用，人工按它 review）。
+   - **exact_input 用自然用户语言**：写真实用户会打的话（口语、简写、中英混合、"最强/前10/优缺点"这类表达），**禁止照实现关键词写"容易通过"的 prompt**（latest/compare/benchmark 这类贴 fixture 的措辞）。
    - **计数纪律**：重试、重放、同一意图的改写、continuation 都**不增加** distinct scenario 数——换领域/难度/风险形态才算新类别。
    - 确定性 UI（设置页/开关/CRUD/导航）不适用此矩阵，常规 AC 覆盖即可。
 5. **和用户确认**：把 `{ACCEPTANCE_FILE}` 草稿（**含场景矩阵**）给用户过一遍，确认后才进 phase-0。用户确认 acceptance 即同时确认了场景矩阵的范围。
@@ -42,12 +48,12 @@
 - 兼容：……
 
 ## 测试场景矩阵（输入语义敏感功能必填；确定性 UI 删除本节）
-| scenario_id | input_class（语义类别） | exact_input（固定输入或生成规则） | primary_risk（验证什么） | required | manual_required | terminal_expectation |
-|-------------|------------------------|----------------------------------|--------------------------|----------|-----------------|----------------------|
-| S-1 | 例：教育知识类 | …… | 常规链路正确性 | 是 | 是 | completed |
-| S-2 | 例：时效新闻类 | …… | 搜索链路时效性 | 是 | 是 | completed |
-| S-3 | 例：跨域比较决策类 | …… | 多源综合能力 | 是 | 是 | completed |
-| S-N | 例：冷门低证据类（负向态） | …… | 诚实降级不编造 | 是 | 是 | insufficient_evidence 可接受 |
+| scenario_id | input_class（语义类别） | exact_input（自然用户语言） | primary_risk（验证什么） | gate_type | required | manual_required | terminal_expectation | quality_bar（正向门必填） |
+|-------------|------------------------|------------------------------|--------------------------|-----------|----------|-----------------|----------------------|---------------------------|
+| S-1 | 例：教育知识类 | …… | 常规链路正确性 | positive-value | 是 | 是 | completed + 非空有效报告 | 例：≥N 条有效证据、结论人工可用 |
+| S-2 | 例：时效新闻类 | …… | 搜索链路时效性 | positive-value | 是 | 是 | completed + 非空有效报告 | …… |
+| S-3 | 例：跨域比较决策类（口语表达） | 例："这几个哪个最强？优缺点呢" | 多源综合 + 自然表达路由 | positive-value | 是 | 是 | completed + 非空有效报告 | …… |
+| S-N | 例：冷门低证据类 | …… | 诚实降级不编造 | negative-safety | 是 | 是 | insufficient_evidence 是预期 | 不适用 |
 
 ## 完成的定义（DoD 摘要）
 - 全部"必须"条款通过测试
