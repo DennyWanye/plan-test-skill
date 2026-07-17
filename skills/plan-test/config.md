@@ -40,6 +40,19 @@
 - `TEST_STRATEGY`: route
   - route = 按被测对象路由（见 phase-4）：UI→手工；API/CLI/库/管道→脚本；两者皆有→都做。
 
+## 真人测试广度门禁（只对"输入语义敏感"功能生效）
+
+> **输入语义敏感的判定**：功能的输出质量随输入语义变化——LLM 对话/生成、搜索、调研/agent、推荐、分类等。反之，设置页、开关、单按钮、CRUD 表单、导航等**确定性 UI 不适用**，一个场景即可，不许把多问题门槛错误套给它们。
+
+- `MANUAL_SCENARIO_MATRIX`: required-for-input-sensitive
+  - 输入敏感功能必须在 acceptance 里有"测试场景矩阵"（见 phase-A）；没有 → plan-task 开工即 BLOCKED。
+- `MANUAL_MIN_DISTINCT_CLASSES`: 3
+  - 真人测试最少覆盖的**语义不等价输入类别**数。重试、重放、同意图改写、continuation 都不增加此计数。
+- `MANUAL_REQUIRE_NEGATIVE_CLASS`: when-applicable
+  - 适用时额外包含 1 个错误态/低证据/对抗场景（验证诚实降级），计入类别数之外。
+- `MANUAL_REQUIRED_PENDING_POLICY`: block
+  - 任何 required 场景处于 PENDING/PARTIAL/NOT RUN 时，门禁与 DoD 一律 FAIL/BLOCKED，不得用"核心 PASS"掩盖。
+
 ## 行为开关
 
 - `EXECUTE_AUTONOMY`: high

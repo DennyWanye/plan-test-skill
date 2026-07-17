@@ -28,6 +28,20 @@
 3. 报错 → 修复 → **复测该条**。
 4. 链接安全：邮件/消息里的链接默认可疑，不要用 computer-use 直接点；先看清完整 URL，用 Chrome MCP 打开。
 
+## 每个真人 case 的记录规程（输入语义敏感功能必做，写进 phase-4 ①c 账本）
+
+**开始前**记录：
+- `scenario_id`（对应 acceptance 场景矩阵）、`input_class`、`exact_input`
+- `run_type`：root（新问题首跑）/ retry（同输入重跑）/ continuation（接续补研）
+- `parent_run_id`（retry/continuation 必填）、`expected_terminal`
+
+**完成后**记录：
+- `run_id`、`actual_terminal`（completed/partial/insufficient/failed）
+- 证据：截图 + 关键 log 位置
+- `result`：PASS / FAIL / PARTIAL
+
+**计数纪律**：同一个 `input_class` + 归一化后相同意图的输入（含改写），只能记为 retry/replay，**不得记为新的 root run 场景**。判断标准："换个问法"不算新场景，"换领域/难度/风险形态"才算。
+
 ## 测试后
 
 - 全部 testcase 通过后，派终审子代理确认"是否真按 testcase 跑了全部任务"，漏的补齐。

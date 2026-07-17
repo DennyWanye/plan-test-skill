@@ -29,6 +29,29 @@
 2. **禁止静默降级**：任何 `required` 真人测试**无法执行**（环境受阻、设备缺失、数据造不出、标记删不掉等）→ **必须标 BLOCKED 升级给用户**，讲清卡点与解锁条件。**不许自行改用代码审计/等价验证替代**；确需等价方案，须用户在 chat 中**显式批准**，并在兑现表注明"用户批准降级"。
 3. **"功能通过 ≠ 测试充分"**：核心链路跑通只覆盖了少数 AC。兑现表要照见**每一条**，尤其设置项、开关态、角色/权限隔离、空态、错误态——这些最容易被"主流程通过"掩盖。
 
+## ①c 真人覆盖账本（输入语义敏感功能必做，接在兑现表之下）
+
+**病根**：同一个问题重复跑 4 次 + 一次 continuation，很容易被写成"真人验收充分"。深度（失败→重试→恢复）和广度（语义不等价的输入）是两回事，**必须分开记账**。
+
+1. **账本**（对照 acceptance 的场景矩阵逐行记）：
+
+   | scenario_id | input_class | root runs | retry runs | continuation runs | 终态 | 状态 |
+   |-------------|------------|-----------|------------|-------------------|------|------|
+   | S-1 | …… | 1 | 2 | 1 | completed | ✅ |
+
+   末尾一行汇总计数：`distinct_scenarios=N / ui_submissions=N / root_runs=N / retry=N / continuation=N / completed=N / partial=N / insufficient=N / failed=N`。
+
+2. **计数纪律（不许自行解释）**：
+   - **retry/重放/同意图改写只证可靠性**，不增加 distinct scenario 数；
+   - **continuation 只证 lineage/补研**，不算新问题；
+   - 每个 required distinct scenario **至少 1 次真实 UI root run**（含证据）。
+
+3. **门禁规则**：
+   - distinct 已执行数 < 矩阵 required 数，或 < `{MANUAL_MIN_DISTINCT_CLASSES}` → **Gate FAIL**；
+   - 任何 required 场景 PENDING/PARTIAL/NOT RUN → **Gate FAIL/BLOCKED**（`{MANUAL_REQUIRED_PENDING_POLICY} = block`），不得以"核心交付 PASS"表述掩盖；
+   - **修复后的复测广度**：修好某场景后，除复测该场景外，**至少再复测 1 个未受影响的类别**（防修复引入回归）。
+   - 确定性 UI（判定见 config）不适用本节，不许反向强套。
+
 ## ② 门的顺序（红则先修，不进下一层）
 
 1. 类型检查（tsc --noEmit / dart analyze 等）
