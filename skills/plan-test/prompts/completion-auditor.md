@@ -40,6 +40,10 @@ AC-x → plan 任务 → 代码改动(文件:行) → testcase → distinct scen
 - 只有"可以测试/理论上能验证"，但没有实际执行记录
 - 用 `insufficient_evidence` 的 run 证明正向质量 AC
 - fallback 正常运行的记录（只证可靠性，不证 fallback 后语义正确）
+- 仅暖状态证据：功能依赖异步初始化/远程配置/登录态，而全部真机证据都在
+  "已安装已登录服务就绪"状态下取得（冷启动路径零覆盖；暖重启不算冷路径）
+- LLM 驱动流程仅单次 root run 通过（无第二次独立完整 run / 无长上下文会话 run，
+  违反 `STOCHASTIC_MIN_RUNS`）
 
 **证据绑定校验**：每份 UI 证据必须能对上 testcase ID、输入文本、run/session ID、截图中可见的关键结果、时间、文件 hash、对应 DB/log 记录。多份截图 hash 相同或内容对不上输入 → 判无效证据（缓存旧帧病灶）。
 
