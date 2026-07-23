@@ -75,6 +75,28 @@
     冷路径场景：**全新安装（或清数据）→ 首次登录 → 直达功能页**，断言功能
     在该路径可用。**暖重启（杀进程重进）不算冷路径。**
 
+## 交付一致性门禁（防"半截提交"：验证过的代码 ≠ 提交了的代码）
+
+> **病根**：多代理 + git worktree 工作法下，验证可以在一棵脏工作树上全绿，而关键文件（尤其"把服务层接到端点上"的路由接线层）未提交，随后被 worktree 清理 / `git clean` / 硬 reset 抹掉——git 里留下**能编译、能过类型检查、单测也绿**的"半截健康"状态，但用户路径根本没接通。以下门专堵这条路。
+
+- `COMMIT_STATE_GATE`: required
+  - 提交态硬门：宣布完成前 `git status --porcelain` 必须为空，且验证针对的是 HEAD 的代码；
+    **对未提交工作树的任何 PASS 一律不作数**。多代理/worktree 参与实现时，
+    额外要求"干净态复验"（见 phase-final-dod）。
+- `FULL_SURFACE_SMOKE`: required
+  - 全表面冒烟：对**每一个用户可达的端点/入口**（含历史功能，不只本次改动链路）
+    各打最小一枪（一条 curl 或一次 MCP 点击），断言非 404 / 非 500 / 非"未接通"降级码。
+    脚本存盘、可复跑、纳入回归套件（见 phase-4 ②）。
+    会话续接/压缩恢复/换 agent 接手时，推进前先跑一遍（见 SKILL.md 推进规则）。
+- `WIRING_CHECK`: required
+  - 服务层-路由接线断言：services / prompts 等处新 `export` 的函数/枚举/新增入参，
+    routes / 入口层必须有真实引用；运行时白名单数组必须与对应类型全集同步
+    （`satisfies` + exhaustiveness 断言测试，见 phase-4 ②）。
+- `INCREMENTAL_AC_MODE`: on
+  - 增量 AC 模式：后续会话增量加功能时，新 AC 必须先进 `{ACCEPTANCE_FILE}` 唯一真相；
+    允许只跑受影响 AC 的兑现表与 DoD 对应行，但**全表面冒烟 + 提交态硬门不得豁免**。
+    "小功能就不走流程"不被允许。
+
 ## 行为开关
 
 - `EXECUTE_AUTONOMY`: high
