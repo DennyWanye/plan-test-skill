@@ -2,12 +2,13 @@ DIAG REQUIRED_SCENARIO_NOT_RUN: required 场景 S-2 状态=NOT_RUN（须 PASS）
 DIAG REQUIRED_SCENARIO_NOT_RUN: required 场景 S-3 状态=NOT_RUN（须 PASS）
 DIAG REQUIRED_SCENARIO_NOT_RUN: required 场景 S-4 状态=NOT_RUN（须 PASS）
 DIAG REQUIRED_SCENARIO_NOT_RUN: required 场景 S-5 状态=NOT_RUN（须 PASS）
-DIAG REQUIRED_SCENARIO_NOT_RUN: required 场景 S-6 状态=NOT_RUN（须 PASS）
+DIAG REQUIRED_SCENARIO_NOT_RUN: required 场景 S-8 状态=NOT_RUN（须 PASS）
+DIAG STATUS_CONFLICT: testcase/manual-test.md 声称 S-1=PARTIAL，但账本重算=PASS——文档未同步
 DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-2=PASS，但账本重算=NOT_RUN
 DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-3=PASS，但账本重算=NOT_RUN
 DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-4=PASS，但账本重算=NOT_RUN
 DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-5=PASS，但账本重算=NOT_RUN
-DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-6=PASS，但账本重算=NOT_RUN
+DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-8=PASS，但账本重算=NOT_RUN
 DIAG DELIVERY_VERDICT_CONTRADICTS_LEDGER: 交付结论 'SHIP' 与账本冲突（required 未全 PASS 或无场景）
 DIAG EVIDENCE_DEPENDENCY_CYCLE: 证据循环引用: ev-results -> ev-audit -> ev-results
 DIAG RELEASE_UNIT_TOO_LARGE: must_ac_count=16 超过阈值 8——拆成 program plan + 垂直 slice

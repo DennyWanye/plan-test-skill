@@ -5,8 +5,13 @@
 {"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-3", "--status", "PASS"]}
 {"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-4", "--status", "PASS"]}
 {"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-5", "--status", "PASS"]}
-{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-6", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-8", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "testcase/manual-test.md", "--scenario", "S-1", "--status", "PARTIAL"]}
 {"cmd": "declare-status", "args": ["--source", "testcase/manual-test.md", "--scenario", "S-2", "--status", "NOT RUN"]}
+{"cmd": "declare-status", "args": ["--source", "testcase/manual-test.md", "--scenario", "S-3", "--status", "NOT RUN"]}
+{"cmd": "declare-status", "args": ["--source", "testcase/manual-test.md", "--scenario", "S-4", "--status", "NOT RUN"]}
+{"cmd": "declare-status", "args": ["--source", "testcase/manual-test.md", "--scenario", "S-5", "--status", "NOT RUN"]}
+{"cmd": "declare-status", "args": ["--source", "testcase/manual-test.md", "--scenario", "S-8", "--status", "NOT RUN"]}
 {"cmd": "attach-evidence", "args": ["--path", "artifacts/manual-results.md", "--kind", "derived", "--id", "ev-results", "--depends-on", "ev-audit"]}
 {"cmd": "attach-evidence", "args": ["--path", "artifacts/task16-delivery-audit.md", "--kind", "derived", "--id", "ev-audit", "--depends-on", "ev-results"]}
 {"cmd": "set-delivery", "args": ["--verdict", "SHIP"]}

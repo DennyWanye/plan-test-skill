@@ -7,6 +7,7 @@
 dogfood，以及一条完整 PASS 路径。全部经 canonical CLI 路径执行，不绕过 finalize。
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -17,6 +18,19 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GATE = os.path.join(HERE, "plan_test_gate.py")
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def read_utf8(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
 
 def run_gate(args, cwd=None):
@@ -124,18 +138,18 @@ class GateTestCase(unittest.TestCase):
         r1 = self.finalize()
         self.assertEqual(r1.returncode, 0, r1.stdout + r1.stderr)
         self.assertIn("GATE RECEIPT:", r1.stdout)
-        with open(os.path.join(self.run_dir, "gate-receipt.json")) as f:
+        with open(os.path.join(self.run_dir, "gate-receipt.json"), encoding="utf-8") as f:
             receipt1 = json.load(f)
         r2 = self.finalize()  # 幂等：同输入同 digest，复用首次 finalized_at
         self.assertEqual(r2.returncode, 0)
-        with open(os.path.join(self.run_dir, "gate-receipt.json")) as f:
+        with open(os.path.join(self.run_dir, "gate-receipt.json"), encoding="utf-8") as f:
             receipt2 = json.load(f)
         self.assertEqual(receipt1["content_digest"], receipt2["content_digest"])
         self.assertEqual(receipt1["finalized_at"], receipt2["finalized_at"])
         self.assertTrue(receipt1["fixture_only"])
         rr = run_gate(["render", "--run-dir", self.run_dir])
         self.assertEqual(rr.returncode, 0, rr.stdout)
-        with open(os.path.join(self.run_dir, "report.md")) as f:
+        with open(os.path.join(self.run_dir, "report.md"), encoding="utf-8") as f:
             report = f.read()
         self.assertIn("STATE: SHIPPABLE", report)
         self.assertIn("FIXTURE-ONLY", report)
@@ -183,9 +197,19 @@ class GateTestCase(unittest.TestCase):
     def test_evidence_missing_and_hash_mismatch(self):
         self.init([{"scenario_id": "S-1", "required": True}])
         p = self.artifact("artifacts/log.txt", "original")
-        self.attach("artifacts/log.txt", scenario="S-1")
+        escaped = run_gate(["attach-evidence", "--run-dir", self.run_dir,
+                            "--path", "..\\outside.txt", "--kind", "primary"])
+        self.assertEqual(escaped.returncode, 2)
+        self.assertIn("逃逸 run-dir", escaped.stderr)
+        absolute = run_gate(["attach-evidence", "--run-dir", self.run_dir,
+                             "--path", p, "--kind", "primary"])
+        self.assertEqual(absolute.returncode, 2)
+        self.assertIn("不能是绝对路径", absolute.stderr)
+        self.attach("artifacts\\log.txt", scenario="S-1")
         self.record("S-1")
-        with open(p, "w") as f:
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["evidence"][0]["path"], "artifacts/log.txt")
+        with open(p, "w", encoding="utf-8") as f:
             f.write("tampered")  # 篡改
         r = self.finalize(check_only=True)
         self.assertEqual(r.returncode, 1)
@@ -242,7 +266,7 @@ class GateTestCase(unittest.TestCase):
         tc = self.write("testcase/s1.md", "预期：点击新话题创建新 UUID Session")
         self.init([{"scenario_id": "S-1", "required": True}],
                   testcase_files=[tc])
-        with open(tc, "w") as f:
+        with open(tc, "w", encoding="utf-8") as f:
             f.write("预期：同一 Session 新 root（same-session）")  # 反转 oracle
         self.record("S-1")
         r = self.finalize(check_only=True)
@@ -409,7 +433,7 @@ class TimingTestCase(GateTestCase):
                       "--exec", "--", sys.executable, "-c", "pass"])
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("measured=true", r.stdout)
-        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
             t = json.load(f)["timing"][0]
         self.assertTrue(t["measured"])
         self.assertGreaterEqual(t["elapsed_ms"], 0)
@@ -421,7 +445,7 @@ class TimingTestCase(GateTestCase):
                       "--phase", "phase-4", "--activity-class", "automated_test",
                       "--exec", "--", sys.executable, "-c", "import sys; sys.exit(7)"])
         self.assertEqual(r.returncode, 7)  # 如实透传，但 timing fact 已入账
-        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
             self.assertEqual(len(json.load(f)["timing"]), 1)
 
     def test_declared_mode_forced_unmeasured(self):
@@ -431,7 +455,7 @@ class TimingTestCase(GateTestCase):
                       "--declared-start", "2026-07-27T09:00:00Z",
                       "--declared-end", "2026-07-27T09:10:00Z"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
             t = json.load(f)["timing"][0]
         self.assertFalse(t["measured"])
         self.assertEqual(t["elapsed_ms"], 600000)
@@ -483,7 +507,7 @@ class TimingTestCase(GateTestCase):
         self.assertIn("ADVISORY TIMING_GAP", r.stdout)
         rr = run_gate(["render", "--run-dir", self.run_dir])
         self.assertEqual(rr.returncode, 0, rr.stdout)
-        with open(os.path.join(self.run_dir, "report.md")) as f:
+        with open(os.path.join(self.run_dir, "report.md"), encoding="utf-8") as f:
             report = f.read()
         self.assertIn("耗时分解", report)
         self.assertIn("manual_e2e", report)
@@ -491,10 +515,10 @@ class TimingTestCase(GateTestCase):
     def test_schema_major_mismatch_rejected(self):
         self.init([{"scenario_id": "S-1", "required": True}])
         p = os.path.join(self.run_dir, "plan-test-run.json")
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             ledger = json.load(f)
         ledger["schema_version"] = "2.0.0"
-        with open(p, "w") as f:
+        with open(p, "w", encoding="utf-8") as f:
             json.dump(ledger, f)
         r = self.finalize(check_only=True)
         self.assertEqual(r.returncode, 1)
@@ -526,13 +550,62 @@ class TimingTestCase(GateTestCase):
         r = run_gate(["checkpoint", "--run-dir", self.run_dir,
                       "--slice", "slice-1a", "--note", "测试中"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
             evs = [e for e in json.load(f)["events"] if e["type"] == "checkpoint"]
         self.assertEqual(len(evs), 1)
         self.assertEqual(evs[0]["slice"], "slice-1a")
 
 
 FIXTURES_DIR = os.path.join(os.path.dirname(HERE), "fixtures", "gate")
+
+
+def _verify_companion_normalization(fx, sources, steps):
+    """在来源可达的机器上复核 normalized fixture 与三份历史原文逐项对应。"""
+    manifest = json.loads(read_utf8(os.path.join(fx, "manifest.json")))
+    expected_scenarios = ["S-1", "S-2", "S-3", "S-4", "S-5", "S-8"]
+    actual_scenarios = [s["scenario_id"] for s in manifest["scenarios"]]
+    assert actual_scenarios == expected_scenarios, (
+        "normalized 场景集合须对应历史 required 真人场景 S-1～S-5、S-8: %r"
+        % actual_scenarios)
+
+    by_name = {os.path.basename(s["source_path"]): s["source_path"] for s in sources}
+    manual_test = read_utf8(by_name["manual-test.md"])
+    manual_results = read_utf8(by_name["manual-results.md"])
+    delivery_audit = read_utf8(by_name["task16-delivery-audit.md"])
+    compact_test = " ".join(manual_test.split())
+    assert "S-1 只能 记 `PARTIAL / BLOCKED`" in compact_test
+    assert "S-2～S-5/S-8 保持 `NOT RUN`" in compact_test
+    assert "真人 required 场景：S-1～S-5、S-8，`6/6 PASS`" in manual_results
+    for sid in expected_scenarios:
+        assert any(line.startswith("| %s " % sid) and line.rstrip().endswith("| PASS |")
+                   for line in manual_results.splitlines()), (
+                       "manual-results.md 缺少 %s 的 PASS 行" % sid)
+    assert "结论：`DECISION: SHIP`" in delivery_audit
+    assert "| S-1～S-5、S-8 required 真人场景 | `6/6 PASS` |" in delivery_audit
+
+    declarations = [
+        (step["args"][step["args"].index("--source") + 1],
+         step["args"][step["args"].index("--scenario") + 1],
+         step["args"][step["args"].index("--status") + 1])
+        for step in steps if step["cmd"] == "declare-status"
+    ]
+    expected_declarations = [
+        ("evidence/manual-results.md", sid, "PASS") for sid in expected_scenarios
+    ] + [
+        ("testcase/manual-test.md", "S-1", "PARTIAL"),
+    ] + [
+        ("testcase/manual-test.md", sid, "NOT RUN")
+        for sid in ["S-2", "S-3", "S-4", "S-5", "S-8"]
+    ]
+    assert declarations == expected_declarations, (
+        "declared_statuses 未与历史状态行一一对应:\n实际=%r\n期望=%r"
+        % (declarations, expected_declarations))
+    root_runs = [step for step in steps if step["cmd"] == "record-run"]
+    assert len(root_runs) == 1
+    assert root_runs[0]["args"] == [
+        "--scenario", "S-1", "--kind", "root", "--result", "pass"]
+    deliveries = [step for step in steps if step["cmd"] == "set-delivery"]
+    assert len(deliveries) == 1 and deliveries[0]["args"] == ["--verdict", "SHIP"]
 
 
 def replay_fixture(name, run_dir):
@@ -549,21 +622,35 @@ def replay_fixture(name, run_dir):
             shutil.copy(os.path.join(fx, f), os.path.join(run_dir, f))
     unverified = False
     prov = os.path.join(fx, "provenance.json")
+    steps = []
+    with open(os.path.join(fx, "steps.jsonl"), encoding="utf-8") as fh:
+        steps = [json.loads(line) for line in fh if line.strip()]
     if os.path.exists(prov):
-        with open(prov) as fh:
+        with open(prov, encoding="utf-8") as fh:
             data = json.load(fh)
         unverified = any(s.get("source_sha256") is None for s in data.get("sources", []))
         if unverified:
             print("PROVENANCE: UNVERIFIED (%s)" % name)
+        else:
+            for source in data.get("sources", []):
+                assert source.get("captured_at"), "provenance 缺 captured_at"
+                assert source.get("captured_on"), "provenance 缺 captured_on"
+                path = source["source_path"]
+                if os.path.exists(path):
+                    assert sha256_file(path) == source["source_sha256"], (
+                        "provenance hash 不匹配: %s" % path)
+            if name == "fail-companion-conflict" and all(
+                    os.path.exists(s["source_path"]) for s in data.get("sources", [])):
+                _verify_companion_normalization(fx, data["sources"], steps)
+            print("PROVENANCE: VERIFIED (%s)" % name)
     last = None
-    with open(os.path.join(fx, "steps.jsonl")) as fh:
-        for line in fh:
-            step = json.loads(line)
-            args = [a.replace("{FIXTURE}", fx) for a in step["args"]]
-            last = run_gate([step["cmd"], "--run-dir", run_dir] + args, cwd=fx)
-            if step["cmd"] not in ("finalize", "render"):
-                assert last.returncode == 0, "%s 步骤失败: %s\n%s" % (
-                    name, step["cmd"], last.stderr)
+    for step in steps:
+        args = [a.replace("{FIXTURE}", fx).replace("{PYTHON}", sys.executable)
+                for a in step["args"]]
+        last = run_gate([step["cmd"], "--run-dir", run_dir] + args, cwd=fx)
+        if step["cmd"] not in ("finalize", "render"):
+            assert last.returncode == 0, "%s 步骤失败: %s\n%s" % (
+                name, step["cmd"], last.stderr)
     return last, unverified
 
 
@@ -580,14 +667,14 @@ class FixtureReplayTestCase(unittest.TestCase):
 
     def assert_expected(self, name, result):
         fx = os.path.join(FIXTURES_DIR, name)
-        with open(os.path.join(fx, "expected-diagnostics.txt")) as f:
+        with open(os.path.join(fx, "expected-diagnostics.txt"), encoding="utf-8") as f:
             expected = [l for l in f.read().splitlines() if l.strip()]
         # 只比对 DIAG（error）行；ADVISORY 含运行时实测值（如 TIMING_GAP 分钟数），
         # 不可逐字节冻结（fixture-contract.md §1）
         got = [l for l in result.stdout.splitlines() if l.startswith("DIAG")]
         self.assertEqual(got, expected,
                          "%s DIAG 序列与冻结期望不符:\n%s" % (name, result.stdout))
-        with open(os.path.join(fx, "expected-state.txt")) as f:
+        with open(os.path.join(fx, "expected-state.txt"), encoding="utf-8") as f:
             state = f.read().strip()
         self.assertIn(state, result.stdout)
 
@@ -600,7 +687,7 @@ class FixtureReplayTestCase(unittest.TestCase):
 
     def test_fail_companion_conflict(self):
         r, unverified = replay_fixture("fail-companion-conflict", self.run_dir)
-        self.assertTrue(unverified, "provenance 未采集时必须标 UNVERIFIED")
+        self.assertFalse(unverified, "1D-delta 后 provenance 必须已采集并复核")
         self.assertEqual(r.returncode, 1)
         self.assert_expected("fail-companion-conflict", r)
         # handoff §10 冻结的前三类顺序

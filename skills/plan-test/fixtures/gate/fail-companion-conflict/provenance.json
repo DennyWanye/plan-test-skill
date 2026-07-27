@@ -1,15 +1,21 @@
 {
   "sources": [
     {"source_path": "F:\\projects\\deskpet\\testcase\\2026-07-24-human-anchored-companion-growth\\manual-test.md",
-     "source_sha256": null, "captured_at": null, "captured_on": null,
+     "source_sha256": "72dc6ecfd0eac731044045ee4558a1ef631bfd350f246def2d39cbadf7898ec1",
+     "captured_at": "2026-07-27T12:07:30Z",
+     "captured_on": "windows-host-sha256:917427da446e0456",
      "role": "frozen testcase（PARTIAL/BLOCKED/NOT RUN 口径）"},
     {"source_path": "F:\\projects\\deskpet\\plans\\2026-07-24-human-anchored-companion-growth\\evidence\\manual-results.md",
-     "source_sha256": null, "captured_at": null, "captured_on": null,
+     "source_sha256": "81bd495f33dc612a8c9c7467ba205b88e9432fcf2b5093d45bf0b776c7838d24",
+     "captured_at": "2026-07-27T12:07:30Z",
+     "captured_on": "windows-host-sha256:917427da446e0456",
      "role": "RESULTS（6/6 PASS 口径；与 delivery-audit 互引）"},
     {"source_path": "F:\\projects\\deskpet\\plans\\2026-07-24-human-anchored-companion-growth\\evidence\\task16-delivery-audit.md",
-     "source_sha256": null, "captured_at": null, "captured_on": null,
+     "source_sha256": "f63607be9438267f86425bf6202eee05c389406afdd85ed46dea49d4b4b7dc4b",
+     "captured_at": "2026-07-27T12:07:30Z",
+     "captured_on": "windows-host-sha256:917427da446e0456",
      "role": "交付审计（100% COMPLETE / SHIP 口径；与 RESULTS 互引）"}
   ],
-  "normalized_by": "手工规范化（slice-1a）；1D-delta importer 版本号回填",
-  "normalization_rules": "declared_statuses 逐条对应原文状态行；scenario 集合取 manual-test.md 的 S-1..S-6；不修改任何历史结论"
+  "normalized_by": "plan-test 1D-delta provenance verifier v1（Windows source host）",
+  "normalization_rules": "declared_statuses 逐条对应原文状态行；required 真人 scenario 集合取 S-1..S-5、S-8；S-6/S-7 是已 PASS 的自动化场景，不伪装为 NOT_RUN；不修改任何历史结论"
 }

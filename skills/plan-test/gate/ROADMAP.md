@@ -34,11 +34,22 @@
   前三类为 handoff 冻结序列）；回放器 + provenance null-hash → `PROVENANCE: UNVERIFIED`
   强制标注。自测 57 用例全绿。
 
+## 已完成（第三轮，2026-07-27：1D-delta，Windows 溯源与兼容闭环）
+
+- **Companion provenance 已实采**：三份 F:\ 历史来源的 SHA-256、RFC 3339 UTC
+  `captured_at` 与匿名 Windows host 标识已写入
+  `fixtures/gate/fail-companion-conflict/provenance.json`；回放在来源可达时复算 hash。
+- **normalized fixture 已纠偏**：required 真人集合改为真实的 `S-1～S-5、S-8`；
+  manual-test 的 S-1=`PARTIAL`、S-2～S-5/S-8=`NOT RUN` 与 manual-results 的
+  `6/6 PASS` 逐项入账；不再把已自动化 PASS 的 S-6 伪装成 NOT_RUN。
+- **Windows 自测兼容**：所有文本 fixture 显式 UTF-8；静态 PASS fixture 使用当前
+  `sys.executable`，不再写死 `python3`；evidence 路径统一规范化为 run-dir 相对 POSIX
+  形式并拒绝绝对路径/目录逃逸。Windows 自测 57 用例全绿。
+
 ## 未完成（后续独立 slice，勿打包成超大 plan）
 
-- **1D-delta（依赖 F:\ 可达的 Windows 机器）**：Companion 三份来源文件 sha256 采集回填
-  `fail-companion-conflict/provenance.json`；Windows 路径归一化自测；TIMING_GAP 升级
-  决策（收集真实 gap 分布后交用户拍板）。
+- **TIMING_GAP 升级决策**：仍保持 advisory；待积累首批真实 plan-test run 的 gap
+  分布后交用户拍板，在此之前不得擅自升级为阻塞。
 
 - **2A 行为契约批准 artifact 细化**：目前 `behavior_contract`/`behavior_changes` 已有 schema
   与校验，但批准事件的采集流程（用户消息 event ID/hash 自动采集）仍是手工填 manifest。

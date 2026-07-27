@@ -96,6 +96,25 @@ def sha256_text(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def normalize_run_relative_path(path):
+    """把 run-dir 内路径规范化为相对 POSIX 形式，并拒绝绝对路径/目录逃逸。"""
+    if not isinstance(path, str) or not path:
+        raise ValueError("路径不能为空")
+    portable = path.replace("\\", "/")
+    if (portable.startswith("/") or re.match(r"^[A-Za-z]:", portable)
+            or portable.startswith("//")):
+        raise ValueError("路径须相对 run-dir，不能是绝对路径: %s" % path)
+    normalized = os.path.normpath(portable).replace("\\", "/")
+    if normalized in ("", ".", "..") or normalized.startswith("../"):
+        raise ValueError("路径不能逃逸 run-dir: %s" % path)
+    return normalized
+
+
+def run_relative_abspath(run_dir, path):
+    normalized = normalize_run_relative_path(path)
+    return os.path.join(run_dir, *normalized.split("/"))
+
+
 def canonical_json(obj):
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -278,7 +297,15 @@ def structural_check(ledger):
             errors.append("SCHEMA_INVALID: runs[%d].result=%r 非法" % (i, result))
     for i, e in enumerate(ledger.get("evidence") or []):
         _req(e, "evidence_id", str, "evidence[%d]" % i, errors)
-        _req(e, "path", str, "evidence[%d]" % i, errors)
+        path = _req(e, "path", str, "evidence[%d]" % i, errors)
+        if path is not None:
+            try:
+                normalized = normalize_run_relative_path(path)
+                if path != normalized:
+                    errors.append("SCHEMA_INVALID: evidence[%d].path 须为规范化 POSIX 相对路径（应为 %s）"
+                                  % (i, normalized))
+            except ValueError as exc:
+                errors.append("SCHEMA_INVALID: evidence[%d].path 非法（%s）" % (i, exc))
         _req(e, "sha256", str, "evidence[%d]" % i, errors)
         kind = _req(e, "kind", str, "evidence[%d]" % i, errors)
         if kind is not None and kind not in ("primary", "derived"):
@@ -394,7 +421,10 @@ def validate(run_dir, ledger, mode="full", fixture=False):
 
     # 4. 证据存在性 + hash + 依赖图
     for e in evidence:
-        p = os.path.join(run_dir, e.get("path", ""))
+        try:
+            p = run_relative_abspath(run_dir, e.get("path", ""))
+        except ValueError:
+            continue  # structural_check 已输出 SCHEMA_INVALID
         if not os.path.exists(p):
             diags.append(Diag("EVIDENCE_MISSING", "证据文件不存在: %s" % e.get("path"), hint=e.get("path")))
         elif sha256_file(p) != e.get("sha256"):
@@ -796,12 +826,16 @@ def cmd_record_run(args):
 
 
 def cmd_attach_evidence(args):
-    p = os.path.join(args.run_dir, args.path)
+    try:
+        rel_path = normalize_run_relative_path(args.path)
+    except ValueError as exc:
+        die(str(exc))
+    p = run_relative_abspath(args.run_dir, rel_path)
     if not os.path.exists(p):
         die("证据文件不存在: %s（路径须相对 run-dir）" % p)
     ev = {
         "evidence_id": args.id or ("ev-" + sha256_file(p)[:12]),
-        "path": args.path,
+        "path": rel_path,
         "sha256": sha256_file(p),
         "kind": args.kind,
         "scenario_id": args.scenario,
@@ -816,7 +850,7 @@ def cmd_attach_evidence(args):
         ledger["evidence"].append(ev)
 
     _append(args.run_dir, mutate)
-    print("ATTACHED %s kind=%s sha256=%s" % (args.path, args.kind, ev["sha256"][:12]))
+    print("ATTACHED %s kind=%s sha256=%s" % (rel_path, args.kind, ev["sha256"][:12]))
 
 
 def cmd_declare_status(args):

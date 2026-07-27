@@ -11,6 +11,6 @@
     {"scenario_id": "S-3", "required": true},
     {"scenario_id": "S-4", "required": true},
     {"scenario_id": "S-5", "required": true},
-    {"scenario_id": "S-6", "required": true}
+    {"scenario_id": "S-8", "required": true}
   ]
 }
