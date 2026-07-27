@@ -1,7 +1,7 @@
 {
   "name": "plan-test",
-  "version": "0.2.0",
-  "description": "三个 skill 的工作流插件：plan-bs（头脑风暴共创 plan → 挑战迭代 → review 定稿）、plan-task（执行定稿 plan → 100% 完成度审计 → 测试策略路由 → DoD）、plan-test（两段一条龙）。含毛选式调研方法论、VERDICT 结构化循环判定、增量架构校准。引擎、路径、轮次均可配置。",
+  "version": "0.3.0",
+  "description": "三个 skill 的工作流插件：plan-bs（头脑风暴共创 plan → 挑战迭代 → review 定稿）、plan-task（执行定稿 plan → 100% 完成度审计 → 测试策略路由 → DoD）、plan-test（两段一条龙）。含机器门禁（唯一状态账本 + deterministic validator + gate receipt，手写 SHIP 无效）、冻结 black-box oracle、行为契约冻结、毛选式调研方法论、VERDICT 结构化循环判定、增量架构校准。引擎、路径、轮次均可配置。",
   "author": {
     "name": "DennyWanye"
   },

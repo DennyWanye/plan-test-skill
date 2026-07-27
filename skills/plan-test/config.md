@@ -97,6 +97,34 @@
     允许只跑受影响 AC 的兑现表与 DoD 对应行，但**全表面冒烟 + 提交态硬门不得豁免**。
     "小功能就不走流程"不被允许。
 
+## 机器门禁（唯一状态 authority，见 `gate/PROTOCOL.md`）
+
+> **病根**：此前所有严格规则只是 Markdown——代理仍可以在详细 testcase 写着
+> `PARTIAL/BLOCKED/NOT RUN` 时手工写出 `100% COMPLETE / SHIP`。Markdown 从此只是
+> 给人读的视图；状态 authority 是结构化账本 + deterministic validator。
+
+- `GATE_SCRIPT`: `skills/plan-test/scripts/plan_test_gate.py`
+  - canonical gate command。plan-task/plan-test 的**最终交付判定只接受**
+    `python {GATE_SCRIPT} finalize --run-dir <run-dir>` 的 exit code 与结构化 stdout，
+    不接受代理手写结论。没有有效 `gate-receipt.json` 的手写 SHIP/100% COMPLETE 一律视为
+    `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
+- `RUN_DIR`: `<plan-folder>/verification/<run-id>/`
+  - 每次验证的固定 run 目录；唯一状态账本 `plan-test-run.json` 只存原始 fact，
+    所有 status/state 由 validator 重算。目录布局与稳定诊断码见 `gate/PROTOCOL.md`。
+- `ORACLE_FREEZE`: required
+  - 实现前 init 冻结 black-box testcase 逐文件 hash（`testcase_lock`）。任何 byte 变化
+    默认 `FROZEN_ORACLE_CHANGED`；唯一例外是绑定 exact old/new + 用户消息 hash +
+    scope/expiry 的 `behavior_changes` 批准 artifact。失败后不许把 expected result
+    改成当前实现结果。
+- `RELEASE_UNIT_LIMITS`: MUST AC ≤ 8 / Task ≤ 10 / plan ≤ 2000 行 / 高风险子系统 ≤ 3 /
+  同时改 UI、Session、Harness、Provider、权限 ≤ 3 类
+  - 超限 → validator 返回 `RELEASE_UNIT_TOO_LARGE`，要求拆 program plan + 垂直 slice，
+    每个 slice 独立验收。阈值可在 manifest `thresholds` 覆盖（须用户知情），不许为卡数字压缩文字。
+- `EVIDENCE_CLASSES`: primary / derived
+  - 截图、原始日志、命令回执、DB 记录是 primary；auditor 报告与交付汇总是 derived。
+    derived 只辅助审计，不能单独满足 AC/testcase；证据依赖图存在环 →
+    `EVIDENCE_DEPENDENCY_CYCLE`（两份互引汇总不构成独立证据）。
+
 ## 行为开关
 
 - `EXECUTE_AUTONOMY`: high

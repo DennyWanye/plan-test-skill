@@ -9,6 +9,11 @@
    - 多代理并行写文件时用 git worktree 隔离，避免冲突。
 2. `EXECUTE_AUTONOMY = high`：遇分歧按最佳实践自决，不打断用户（BLOCKED 例外）。**自决范围仅限实现层**（换个写法、局部结构微调）；plan 层缺陷不在自决范围内，走 A2 回炉，派发执行子代理时必须把这条写进其 prompt。
 3. `FEATURE_POLICY = only-add`：不少做。
+3b. **frozen oracle 不可动**（派发执行子代理时必须写进其 prompt）：phase-2 冻结的
+   black-box testcase 与既有 black-box 断言，执行子代理**无权删除、反转、放宽**——测试
+   失败只有两条路：改实现，或上报"疑似行为变更"走 `behavior_changes` 用户批准。私自把
+   "创建新 UUID Session"的断言改成"same-session"这类反转，会被 gate 的
+   `FROZEN_ORACLE_CHANGED` 拦截并整体 FAIL。
 4. 频繁提交（每个任务一个 commit），保留可回滚点。
    - **接线与服务层同 commit（防半截提交）**：把服务层能力接到用户入口上的改动——路由文件、index 挂载、入参透传、运行时白名单——必须和服务层实现进**同一个 commit**。合并各 worktree 产出后，`git status --porcelain` 必须为空再继续：只 `git add` 服务层、把未跟踪的路由文件留在工作树里，随后 worktree 清理/回退就会把它抹掉——留下能编译、能过类型检查、但用户路径根本没接通的"半截健康"状态。
 5. **与本机 hook 共处**（用户环境常挂 PostToolUse 类型检查 hook，每次编辑后自动跑 tsc/analyze）：

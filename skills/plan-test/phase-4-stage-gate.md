@@ -85,6 +85,14 @@
 
 **昂贵层前置：testcase 冻结**。进入昂贵层（末层 MCP 真人完整矩阵）前，本阶段要执行的 testcase 必须已**编写完成并通过 challenger 挑战**（即 phase-5 的编写与迭代动作前移到此刻完成）；不许拿临时、未经挑战的 testcase 跑昂贵验收，测完再补定义。phase-5 收尾时只做实际结果回写与回归登记。
 
+**昂贵层前置 2：gate run-dir init（机器账本开账）**。testcase 冻结完成后、执行任何昂贵测试前，用 canonical gate 开账（见 `gate/PROTOCOL.md`）：
+
+```bash
+python {GATE_SCRIPT} init --run-dir <plan-folder>/verification/<run-id> --manifest manifest.json
+```
+
+manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、场景矩阵（含 required/ui/gate_type/expected_run_created/required_lanes/min_root_runs）、release_unit 体量指标、baseline HEAD。init 自动把全部 required 场景建为 `NOT_RUN`——**此后状态只能靠 `record-run` + `attach-evidence` 记录的事实由 validator 重算**，任何手写 PASS 不作数。
+
 **Blocker 早停铁律**：一旦"主要矛盾"对应的必须 AC 判 FAIL，**立即停止一切完成收尾**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED；可以继续做诊断与修复，修复后从本门序重新过。**已知 BLOCKER 还继续收尾 = 谎报进度**。
 
 ## ③ 测试环境就绪（真人测试前必做）
@@ -97,15 +105,21 @@
 ## 执行测试与修复
 
 - 严格按已冻结的 testcase 逐条测：UI 用 MCP 真人点击，逻辑用脚本断言。
-- 报错 → 修复 → **复测**（含"至少复测 1 个未受影响类别"的广度要求，见 ①c）。
-- 全部通过后 → 进入 ④ 全链终审（"是否真按 testcase 跑了全部任务"并入终审核查，不再单独派发确认代理）。
+- **每条测试当场入账**：每次执行 `record-run`（scenario / kind=root|retry|continuation / lane / driver / engine 终态 / 业务终态 / Session ID / Run ID），每份截图/日志/命令回执 `attach-evidence --kind primary`（UI 场景加 `--ui-action`，负向断言加 `--negative-assertion`）。**事后凭印象补账 = 无账**。多阶段场景（如"新话题"）必须断言**状态序列与身份**（Session ID 改变、新 root Run 创建、中间态可见），不只终点回答——`expected_run_created` 会被 validator 正反向核对。
+- 报错 → 修复 → **复测**（含"至少复测 1 个未受影响类别"的广度要求，见 ①c）。修复动过代码 → tested HEAD 已变，相关场景须重跑入账（旧 run 记录保留为历史事实）。
+- 全部执行完 → 进入 ④ 机器预检。
 
-## ④ 100% 完成度终审（测试全部执行完后走全链）
+## ④ 机器预检（finalize --check-only）
 
-- 派 `{AUDITOR_ENGINE}`，用 `prompts/completion-auditor.md`，**派发时声明 `MODE: full-audit`**：每条 AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 场景 ↔ root run ↔ 证据 ↔ 业务终态，逐条确认闭环；含场景计数、状态一致性、整体可用性、"是否真按 testcase 跑全"核查。
-- 按 SKILL.md"上下文包"规则派发；以末行 `VERDICT` 判定，缺结论行按 FAIL 处理。
-- 有断点 → 补完 → 复审（复审只核上轮断点与新改动）。超 `{MAX_ROUNDS}` → BLOCKED 升级。
+> **时序修正**：full-audit 不再在本阶段执行——此前 full-audit 在 phase-4、而结果回写与状态一致性修正在 phase-5，审计后输入仍可变化却继续沿用旧 PASS。现在顺序是：phase-4 只执行测试并写账本 → phase-5 校验证据、回写状态、冻结 artifact → **phase-5 末尾才跑独立 full-audit** → final DoD 只跑机器 validator 生成 receipt。full-audit 后代码、配置、testcase 或结果有任何变化，旧 auditor PASS 与 receipt 自动失效（`AUDITOR_INPUT_STALE` / `RECEIPT_STALE`）。
+
+```bash
+python {GATE_SCRIPT} finalize --run-dir <run-dir> --check-only
+```
+
+- 输出 `READY_FOR_AUDIT` 才能进入 phase-5；任何 DIAG（`REQUIRED_SCENARIO_NOT_RUN` / `STATUS_CONFLICT` / `UI_EVIDENCE_MISSING` / `RISK_CLOSURE_MISSING` 等）→ 回去补测或补证据，不许"先进下一阶段再补"。
+- 预检**不要求** auditor 已执行（否则永远无法进入审计阶段）；它检查的是除 auditor/receipt 外的全部输入与测试完整性。
 
 ## 出口
 
-- 所有测试通过 + full-audit 终审 100% → 进入 phase-5。
+- 所有测试通过 + `finalize --check-only` 输出 `READY_FOR_AUDIT` → 进入 phase-5（full-audit 在 phase-5 末尾执行）。

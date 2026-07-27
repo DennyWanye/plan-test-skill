@@ -46,6 +46,32 @@
 
 > 挑战者提示词已加入"这是真架构问题吗、plan 是不是在用补丁绕过它"的质疑项；我据其结论按上面判定。
 
+### 行为契约冻结（P0：防"单入口"被扩张成"单 Session"式语义跳跃）
+
+需求触及**易混实体**（Session、Run、Task、话题、窗口、Profile、Driver 等）或会改变既有行为时，定稿前必须：
+
+1. 产出**结构化行为契约**并让用户逐行确认——不能用"用户已经说认可"代替具体行为确认：
+   - 术语表与实体关系（一个入口 ≠ 一个 Session；一个 Session 可有多个 Run……）；
+   - **before / after 行为表**：现有行为 vs 目标行为逐行对照；
+   - 明确**保留、删除、改变**的旧行为清单。
+2. 把原始用户消息 hash、行为契约、用户批准事件写进 gate 账本（init manifest 的
+   `behavior_contract` / `source_request`，见 `gate/PROTOCOL.md`）。acceptance 的每个行为
+   断言都要能回溯到这张表——**acceptance 事实源写错，后面 100% 只会更稳定地做错**。
+3. 可选派 `prompts/acceptance-challenger.md`（qualitative reviewer）挑战语义遗漏；它只产出
+   风险与建议，**不能替代**上述结构化批准与 deterministic gate。
+
+### black-box oracle 冻结（P0：防测试被反转成验证错误行为）
+
+- 定稿后、实现前，把外部 black-box testcase 的逐文件 hash 冻结进 gate 账本
+  （init manifest 的 `testcase_files` → `testcase_lock`）。
+- **frozen oracle 任何 byte 变化默认 FAIL**（`FROZEN_ORACLE_CHANGED`），不能以"看起来只是
+  重写文案"自动放行。唯一例外：`behavior_changes` 批准 artifact——绑定 exact old/new、
+  原始用户消息 hash、acceptance revision、scope 与 expiry。
+- 实现后**新增**测试可单独记录；**删除、反转、放宽** frozen oracle 必须走上述批准。
+  失败后不许把 expected result 改成当前实现结果。repo 内部 unit/integration test 的
+  mutation report 只能作审计信号，不能替代冻结的 black-box oracle，也不能单独证明行为
+  变更获得授权。
+
 定稿后**和用户 review**；通过后在 `plan.md` 头部写入标记 `<!-- plan-status: finalized -->`（plan-task 开工前会校验此标记）。
 
 ## B. 锁定绿色基线（执行前必做）

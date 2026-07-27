@@ -41,15 +41,23 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 ### 4. 验收门禁（测试策略路由）
 
 - 按 `../plan-test/phase-4-stage-gate.md` 执行：便宜的门在前（类型检查→lint→接线断言→脚本测试→核心价值 smoke→全表面冒烟→provider 契约门），贵的真人测试在后；UI 走 MCP 真人点击（`MANUAL_TEST = required` 不可降级），逻辑走可复跑脚本。
-- **⚠️ 时序：进入昂贵层（真人完整矩阵）之前，先完成 phase-5 的步骤 1–4**（testcase 编写 + 幂等/语义等价/状态一致审查 + challenger 迭代定稿）——这就是 phase-4 的"testcase 冻结"前置。测试全部执行完后走 ④ full-audit 终审。
+- **⚠️ 时序：进入昂贵层（真人完整矩阵）之前，先完成 phase-5 的步骤 1–4**（testcase 编写 + 幂等/语义等价/状态一致审查 + challenger 迭代定稿），并执行 **gate run-dir init**（冻结 acceptance/testcase/场景矩阵，required 场景自动 NOT_RUN）。测试期间每条执行 `record-run` + `attach-evidence` 当场入账。
+- 测试全部执行完 → `finalize --check-only` 输出 `READY_FOR_AUDIT` 才进下一步；full-audit 已移到 phase-5 末尾（结果回写与证据冻结之后），不在本步执行。
 
-### 5. testcase 收尾维护
+### 5. testcase 收尾维护 + 独立 full-audit
 
-- testcase 的编写与挑战已在步骤 4 前完成（见上）；本步按 `../plan-test/phase-5-testcase.md` 收尾：把**实际执行结果回写**进 testcase、修正与现实的出入、脚本登记回归套件、终审覆盖确认、index.md/README 同步。
+- testcase 的编写与挑战已在步骤 4 前完成（见上）；本步按 `../plan-test/phase-5-testcase.md` 收尾：把**实际执行结果回写**进 testcase、修正与现实的出入（各文档口径用 `declare-status` 入账对账）、脚本登记回归套件、index.md/README 同步。
+- **最后一步跑独立 full-audit** 并 `audit` 入账——审计之后任何 fact 再变化，旧 PASS 自动 stale，须重审。
 
 ### 6. 收尾 DoD + 文档回写
 
-- 按 `../plan-test/phase-final-dod.md` 执行：DoD 全绿才宣布完成；回写 ARCHITECTURE.md（推进 last-calibrated 锚点）、README、changelog。
+- 按 `../plan-test/phase-final-dod.md` 执行：**先过机器门**——
+
+  ```bash
+  python {GATE_SCRIPT} finalize --run-dir <run-dir>
+  ```
+
+  **本 skill 的最终交付状态只取该命令的 exit code 与结构化 stdout**；exit 0 + `GATE RECEIPT` 才存在"完成"。没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。然后 DoD 清单全绿才宣布完成；交付措辞用 phase-final-dod 的 receipt 模板（含 TESTED HEAD/SCOPE/各 lane/KNOWN GAPS/GATE RECEIPT）。回写 ARCHITECTURE.md（推进 last-calibrated 锚点）、README、changelog。
 - 任何 DoD 项达不成 → BLOCKED 升级，**不谎报完成**。
 
 ## 推进规则

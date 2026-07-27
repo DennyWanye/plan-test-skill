@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plan-test-run.schema.json",
+  "title": "plan-test verification run ledger",
+  "description": "唯一状态账本。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。",
+  "type": "object",
+  "required": ["schema_version", "run_id", "source_request", "scenarios", "runs", "evidence"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "created_at": { "type": "string" },
+    "repo_root": { "type": "string" },
+    "fixture_only": {
+      "type": "boolean",
+      "description": "true = 测试 fixture，跳过 git HEAD 校验；receipt/report 永远标注 FIXTURE-ONLY，不可作为真实交付证据"
+    },
+    "revision": { "type": "integer", "description": "CAS 并发控制版本号，每次写 +1" },
+
+    "source_request": {
+      "type": "object",
+      "description": "冻结的原始用户请求（不可被派生文档替代）",
+      "properties": {
+        "path": { "type": "string" },
+        "inline": { "type": "boolean" },
+        "sha256": { "type": "string" }
+      }
+    },
+
+    "behavior_contract": {
+      "type": "object",
+      "description": "术语表 + before/after 行为表 + 保留/删除/改变清单 + 用户批准事件",
+      "properties": {
+        "terms": { "type": "array", "items": { "type": "object" } },
+        "before_after": { "type": "array", "items": { "type": "object" } },
+        "preserved": { "type": "array", "items": { "type": "string" } },
+        "removed": { "type": "array", "items": { "type": "string" } },
+        "approval": {
+          "type": "object",
+          "properties": {
+            "user_message_sha256": { "type": "string" },
+            "approved_at": { "type": "string" },
+            "scope": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "behavior_changes": {
+      "type": "array",
+      "description": "行为变更授权：修改/删除/反转 frozen oracle 的唯一合法通道",
+      "items": {
+        "type": "object",
+        "required": ["behavior_change_id"],
+        "properties": {
+          "behavior_change_id": { "type": "string" },
+          "old_behavior": { "type": "string" },
+          "new_behavior": { "type": "string" },
+          "approval": {
+            "type": "object",
+            "required": ["user_message_sha256"],
+            "properties": {
+              "user_message_sha256": { "type": "string" },
+              "acceptance_revision": { "type": "string" },
+              "scope": { "type": "string" },
+              "expiry": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string" }
+      }
+    },
+
+    "testcase_lock": {
+      "type": "object",
+      "description": "实现前冻结的 black-box oracle；任何 byte 变化默认 FROZEN_ORACLE_CHANGED",
+      "properties": {
+        "locked_at": { "type": ["string", "null"] },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "type": "string" },
+              "abs_path": { "type": "string" },
+              "sha256": { "type": "string" },
+              "behavior_change_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "scenarios": {
+      "type": "array",
+      "description": "init 时从冻结输入自动创建；validator 重算状态，初始即 NOT_RUN",
+      "items": {
+        "type": "object",
+        "required": ["scenario_id", "required"],
+        "properties": {
+          "scenario_id": { "type": "string" },
+          "required": { "type": "boolean" },
+          "title": { "type": "string" },
+          "gate_type": { "enum": ["positive-value", "negative-safety", "regression", "exploratory"] },
+          "ui": { "type": "boolean" },
+          "expected_run_created": { "type": "boolean" },
+          "required_lanes": {
+            "type": "array",
+            "items": { "enum": ["fresh", "history-upgrade", "temporal-fault", "exploratory"] }
+          },
+          "min_root_runs": { "type": "integer", "minimum": 1 },
+          "ac_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "runs": {
+      "type": "array",
+      "description": "原始执行 fact。retry/replay/continuation 不计 distinct，只有 root 计入场景状态",
+      "items": {
+        "type": "object",
+        "required": ["scenario_id", "kind", "result"],
+        "properties": {
+          "scenario_id": { "type": "string" },
+          "kind": { "enum": ["root", "retry", "continuation", "replay"] },
+          "result": { "enum": ["pass", "fail", "partial", "blocked", "not_run"] },
+          "lane": { "enum": ["fresh", "history-upgrade", "temporal-fault", "exploratory"] },
+          "driver": { "enum": ["ai", "human"] },
+          "command": { "type": "string" },
+          "engine_terminal": { "type": "string" },
+          "business_terminal": { "type": "string" },
+          "session_id": { "type": "string" },
+          "run_id_under_test": { "type": "string" },
+          "recorded_at": { "type": "string" }
+        }
+      }
+    },
+
+    "evidence": {
+      "type": "array",
+      "description": "primary（截图/日志/命令回执/DB 记录）才能作证；derived（汇总报告）只辅助审计。depends_on 构成依赖图，validator 拒绝环",
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "path", "sha256", "kind"],
+        "properties": {
+          "evidence_id": { "type": "string" },
+          "path": { "type": "string", "description": "相对 run-dir" },
+          "sha256": { "type": "string" },
+          "kind": { "enum": ["primary", "derived"] },
+          "scenario_id": { "type": "string" },
+          "ui_action": { "type": "boolean" },
+          "negative_assertion": { "type": "boolean" },
+          "depends_on": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "declared_statuses": {
+      "type": "array",
+      "description": "各文档（README/testcase 头/RESULTS/Gate 报告）口头声明的状态，仅用于对账；与重算结果冲突 → STATUS_CONFLICT",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string" },
+          "scenario_id": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+
+    "delivery": {
+      "type": "object",
+      "description": "手写交付结论登记处；与账本冲突 → DELIVERY_VERDICT_CONTRADICTS_LEDGER",
+      "properties": { "verdict": { "type": "string" } }
+    },
+
+    "auditor": {
+      "type": "object",
+      "description": "独立 full-audit 结果；facts_digest 冻结审计时的账本，此后任何 fact 变化 → AUDITOR_INPUT_STALE",
+      "properties": {
+        "verdict": { "enum": ["PASS", "FAIL"] },
+        "engine": { "type": "string" },
+        "input_path": { "type": "string" },
+        "input_sha256": { "type": "string" },
+        "output_path": { "type": "string" },
+        "output_sha256": { "type": "string" },
+        "facts_digest": { "type": "string" }
+      }
+    },
+
+    "baseline": {
+      "type": "object",
+      "properties": {
+        "head": { "type": "string" },
+        "dirty_patch_sha256": { "type": "string" }
+      }
+    },
+
+    "runtime_attestation": {
+      "type": "object",
+      "description": "被测运行物身份（project adapter 输出）；adapter_status=UNKNOWN 时真实 E2E 只能 BLOCKED",
+      "properties": {
+        "head": { "type": "string" },
+        "dirty_patch_sha256": { "type": "string" },
+        "adapter_status": { "enum": ["OK", "UNKNOWN"] },
+        "components": { "type": "array" },
+        "user_data_mode": { "enum": ["fresh", "history-upgrade"] }
+      }
+    },
+
+    "release_unit": {
+      "type": "object",
+      "description": "交付体量指标；超 thresholds → RELEASE_UNIT_TOO_LARGE",
+      "properties": {
+        "must_ac_count": { "type": "integer" },
+        "task_count": { "type": "integer" },
+        "plan_lines": { "type": "integer" },
+        "high_risk_subsystems": { "type": "integer" },
+        "concurrent_layer_kinds": { "type": "integer" }
+      }
+    },
+
+    "thresholds": { "type": "object" },
+    "events": { "type": "array" }
+  }
+}

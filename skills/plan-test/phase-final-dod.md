@@ -2,6 +2,19 @@
 
 **目的**：合上闭环。全部勾选才宣布完成；并把文档回写，让下次从最新基线起步。
 
+## ⓪ 机器门（唯一完成 authority——先过这道，再看清单）
+
+```bash
+python {GATE_SCRIPT} finalize --run-dir <run-dir>
+python {GATE_SCRIPT} render   --run-dir <run-dir>
+```
+
+- **最终交付判定只接受 `finalize` 的 exit code 与结构化 stdout**（诊断码清单见 `gate/PROTOCOL.md`），不接受代理手写结论。exit 0 + `GATE RECEIPT: <digest>` 才存在"完成"这个状态。
+- `finalize` 会在 auditor 结束后**重新读取并校验所有文件与 hash**（证据、testcase lock、auditor 输入输出、tested HEAD/dirty 指纹）；`render` 重新跑同一 validator 并复验 receipt digest，失效时不渲染 SHIPPABLE。
+- 没有有效 receipt 的手写 `SHIP / 100% COMPLETE` = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。下面的人工清单是对机器门的**补充复核**，不是替代——机器门 FAIL 时任何人工打勾都不算数。
+- full-audit 之后代码、配置、testcase 或结果有任何变化 → 旧 auditor PASS 与 receipt 自动失效（`AUDITOR_INPUT_STALE` / `RECEIPT_STALE`），须重审后重新 finalize。
+- 用户后续发现生产缺陷 → `invalidate --reason` 使 receipt 失效；修复 + 永久回归 + 受影响 lane 复测完成后才生成新 receipt。
+
 ## DoD 清单（全绿才算完成——每条必须附证据，不许口头打勾）
 
 > **逐条列出并在每条后附证据位置**（文件路径 / 截图 / log 行 / 命令输出）。任何一条附不上证据 → 标 BLOCKED 升级，**不得宣布完成**。"我确认过了""逻辑上没问题""同类已验证"都不算证据。
@@ -49,5 +62,20 @@
 
 - 任何 DoD 项无法达成 → 标记 BLOCKED，说明卡点，交给用户决策，**不谎报完成**。
 - **汇总措辞硬规则**：任一必须 AC 为 FAIL/PENDING/无证据 → 总体结论只能写 BLOCKED/FAIL；局部 PASS 必须标注作用域（"安装链路 PASS"）；**禁止用多个基础设施 PASS 稀释一个核心产品 FAIL**——不许写成"核心功能完成，只剩少量待办"。
+- **交付措辞模板（有有效 receipt 才能填；禁止无作用域的"100% COMPLETE，DECISION: SHIP"）**：
+
+  ```text
+  REQUIRED GATES: PASS
+  TESTED HEAD: <sha>
+  TESTED SCOPE: <AC / slice>
+  FRESH LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
+  HISTORY/UPGRADE LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
+  TEMPORAL/FAULT LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
+  EXPLORATORY LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
+  KNOWN GAPS: 0 / 明确列表
+  GATE RECEIPT: <content_digest>
+  ```
+
+  "100%" 只表示 **TESTED SCOPE 内 required gates 全绿**，不表示未来绝无缺陷。
 - **已知失败版本的交付警告**：总体为 BLOCKED 时用户要求"启动让我测试"，必须先明确告知——①这是**已知失败版本**；②启动目的是复现/补证据，**不是修复后的验收版本**；③已知会失败的场景清单。不许只说"已启动，可以测试"。
 - 全绿 → 输出最终总结：做了什么、覆盖哪些 AC、测试证据在哪、文档更新在哪、回归套件新增了什么。

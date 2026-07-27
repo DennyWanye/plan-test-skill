@@ -10,10 +10,12 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 **姊妹 skill**：本插件还提供两个拆分入口，共享本目录的阶段文档与配置——`plan-bs`（头脑风暴共创 plan → 迭代 + spike 验证 → review 定稿，不实现业务代码）和 `plan-task`（执行已定稿 plan + 测试闭环）。plan-test = plan-bs + plan-task 的一条龙自动版。
 
 **核心原则**
-- **唯一真相来源**：一切（plan 收敛、完成度审计、testcase 覆盖）都回溯到 `acceptance.md` 里的验收标准。
+- **唯一真相来源**：一切（plan 收敛、完成度审计、testcase 覆盖）都回溯到 `acceptance.md` 里的验收标准。事实源本身要过**行为契约冻结**（phase-2）——acceptance 写错，100% 只会更稳定地做错。
+- **机器门是唯一完成 authority**（见 `gate/PROTOCOL.md` + `config.md`"机器门禁"）：Markdown 是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `scripts/plan_test_gate.py` 重算；**最终交付判定只接受 `finalize` 的 exit code**，没有有效 `gate-receipt.json` 的手写 SHIP/100% 一律无效。qualitative auditor 负责发现未知问题，deterministic validator 负责阻止已知违规，两者不可互替。
 - **每个声明可验证**：不说"看起来做完了"，而是逐条核对可追溯矩阵。
 - **每个失败有出口**：所有"循环直到 100%"都有 `MAX_ROUNDS`，超限 → 标记 BLOCKED 升级给用户。
 - **功能只增不减**：遇分歧按最佳实践自决（**自决仅限实现层**——plan 层缺陷走 phase-3 A2 回炉，不许打补丁绕），但绝不少做。
+- **小 slice 交付**：交付体量超 `RELEASE_UNIT_LIMITS`（16 条复合 MUST AC / 4676 行 plan 式的超大 release unit）→ validator 直接 `RELEASE_UNIT_TOO_LARGE`，拆 program plan + 垂直 slice，每个 slice 独立验收。
 
 ## 开场（每次必做）
 
@@ -30,9 +32,9 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 | 1 | 写 plan | `phase-1-plan.md` | `{PLANS_DIR}/<feature>/plan.md` |
 | 2 | 迭代 plan（含锁定绿色基线） | `phase-2-iterate-plan.md` | 定稿 plan + 基线快照 |
 | 3 | 并行执行 + 完成度审计 | `phase-3-execute.md` | 代码 + 审计报告 |
-| 4 | 验收门禁（测试策略路由；昂贵层前先冻结 testcase，见 phase-5 时序说明） | `phase-4-stage-gate.md` | 测试通过证据 |
-| 5 | testcase 收尾维护（编写与挑战已前移至 phase-4 昂贵层前） | `phase-5-testcase.md` | `{TESTCASE_DIR}/` + index.md |
-| █ | 收尾 DoD + 文档回写 | `phase-final-dod.md` | DoD 清单全绿 |
+| 4 | 验收门禁（测试策略路由；昂贵层前先冻结 testcase + gate init，出口是 `finalize --check-only`） | `phase-4-stage-gate.md` | 账本内的测试事实 + READY_FOR_AUDIT |
+| 5 | testcase 收尾维护（编写与挑战已前移至 phase-4 昂贵层前；**独立 full-audit 在本阶段末尾**） | `phase-5-testcase.md` | `{TESTCASE_DIR}/` + index.md + audit 入账 |
+| █ | 收尾 DoD + 文档回写 | `phase-final-dod.md` | `finalize` exit 0 + gate receipt + DoD 清单全绿 |
 
 **推进规则**：严格顺序执行。**每个阶段收尾必须过"100% 完成度审计 + 该阶段对应测试"才能进入下一阶段**（阶段门禁铁律）。任何阶段卡在"循环直到 100%"超过 `MAX_ROUNDS`，立即停下、标记 BLOCKED、带"卡在哪/试过什么/需要什么解锁"升级给用户。
 

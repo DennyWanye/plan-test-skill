@@ -20,7 +20,8 @@
 
 ## 设计原则
 
-- **唯一真相来源**：一切（plan 收敛、完成度审计、testcase 覆盖）都回溯到 `acceptance.md` 的验收标准。
+- **机器门是唯一完成 authority**：Markdown 规则是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `skills/plan-test/scripts/plan_test_gate.py`（deterministic validator）重算；最终交付判定只接受 `finalize` 的 exit code 与 `gate-receipt.json`，没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为 `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。稳定诊断码、状态机与 run 目录契约见 `skills/plan-test/gate/PROTOCOL.md`；schema 见 `skills/plan-test/schemas/plan-test-run.schema.json`；自测 `python skills/plan-test/scripts/test_plan_test_gate.py`。
+- **唯一真相来源**：一切（plan 收敛、完成度审计、testcase 覆盖）都回溯到 `acceptance.md` 的验收标准；事实源本身要过行为契约冻结 + acceptance challenger（防"单入口"被扩张成"单 Session"式语义跳跃），实现前冻结 black-box oracle（反转/放宽须用户批准的 `behavior_change_id`）。
 - **每个声明可验证**：不靠"看起来做完了"，而是走可追溯矩阵 `AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 结果`。
 - **每个失败有出口**：所有"循环直到 100%"都有 `MAX_ROUNDS` 上限，超限标记 BLOCKED 升级，不空转烧 token。
 - **功能只增不减**，**便宜的测试门在前、贵的真人测试在后**。
