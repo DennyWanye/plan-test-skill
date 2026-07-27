@@ -398,5 +398,221 @@ class GateTestCase(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.run_dir, "gate-receipt.json")))
 
 
+class TimingTestCase(GateTestCase):
+    """timing contract（slice-1a plan §2）与诊断排序（§3）。"""
+
+    def test_exec_mode_measures_monotonic(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "phase-4", "--task", "t", "--test-count", "1",
+                      "--activity-class", "automated_test",
+                      "--exec", "--", sys.executable, "-c", "pass"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("measured=true", r.stdout)
+        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+            t = json.load(f)["timing"][0]
+        self.assertTrue(t["measured"])
+        self.assertGreaterEqual(t["elapsed_ms"], 0)
+        self.assertTrue(t["started_at"].endswith("Z"))
+
+    def test_exec_failure_propagates_exit_code(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "phase-4", "--activity-class", "automated_test",
+                      "--exec", "--", sys.executable, "-c", "import sys; sys.exit(7)"])
+        self.assertEqual(r.returncode, 7)  # 如实透传，但 timing fact 已入账
+        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+            self.assertEqual(len(json.load(f)["timing"]), 1)
+
+    def test_declared_mode_forced_unmeasured(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "phase-4", "--activity-class", "manual_e2e",
+                      "--declared-start", "2026-07-27T09:00:00Z",
+                      "--declared-end", "2026-07-27T09:10:00Z"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+            t = json.load(f)["timing"][0]
+        self.assertFalse(t["measured"])
+        self.assertEqual(t["elapsed_ms"], 600000)
+
+    def test_declared_rejects_bad_rfc3339_and_negative(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "p", "--activity-class", "manual_e2e",
+                      "--declared-start", "2026/07/27 09:00",
+                      "--declared-end", "2026-07-27T09:10:00Z"])
+        self.assertEqual(r.returncode, 2)
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "p", "--activity-class", "manual_e2e",
+                      "--declared-start", "2026-07-27T09:10:00Z",
+                      "--declared-end", "2026-07-27T09:00:00Z"])
+        self.assertEqual(r.returncode, 2)
+
+    def test_activity_class_and_wait_reason_enforced(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "p", "--activity-class", "coffee_break",
+                      "--declared-start", "2026-07-27T09:00:00Z",
+                      "--declared-end", "2026-07-27T09:01:00Z"])
+        self.assertEqual(r.returncode, 2)
+        # provider_wait 缺 wait_reason → 拒绝
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "p", "--activity-class", "provider_wait",
+                      "--declared-start", "2026-07-27T09:00:00Z",
+                      "--declared-end", "2026-07-27T09:01:00Z"])
+        self.assertEqual(r.returncode, 2)
+        # 非 wait 类给了 wait_reason → 拒绝
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "p", "--activity-class", "implementation",
+                      "--wait-reason", "quota_limit",
+                      "--declared-start", "2026-07-27T09:00:00Z",
+                      "--declared-end", "2026-07-27T09:01:00Z"])
+        self.assertEqual(r.returncode, 2)
+
+    def test_timing_gap_advisory_does_not_block(self):
+        self.full_pass_run()
+        for s, e in (("2026-07-27T09:00:00Z", "2026-07-27T09:05:00Z"),
+                     ("2026-07-27T13:00:00Z", "2026-07-27T13:05:00Z")):  # 中隔 >120min
+            run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "phase-4", "--activity-class", "manual_e2e",
+                      "--declared-start", s, "--declared-end", e])
+        self.audit_pass()  # timing 追加改变了 facts，须重审
+        r = self.finalize()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)  # advisory 不拦截
+        self.assertIn("ADVISORY TIMING_GAP", r.stdout)
+        rr = run_gate(["render", "--run-dir", self.run_dir])
+        self.assertEqual(rr.returncode, 0, rr.stdout)
+        with open(os.path.join(self.run_dir, "report.md")) as f:
+            report = f.read()
+        self.assertIn("耗时分解", report)
+        self.assertIn("manual_e2e", report)
+
+    def test_schema_major_mismatch_rejected(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        p = os.path.join(self.run_dir, "plan-test-run.json")
+        with open(p) as f:
+            ledger = json.load(f)
+        ledger["schema_version"] = "2.0.0"
+        with open(p, "w") as f:
+            json.dump(ledger, f)
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("SCHEMA_INVALID", r.stdout)
+
+    def test_diag_order_canonical_and_idempotent(self):
+        """Companion 组合下 DIAG 顺序 = canonical 序，且两次重跑逐字节相同。"""
+        scenarios = [{"scenario_id": "S-%d" % i, "required": True} for i in range(1, 4)]
+        self.init(scenarios, release_unit={"must_ac_count": 16})
+        self.record("S-1")
+        run_gate(["declare-status", "--run-dir", self.run_dir,
+                  "--source", "results.md", "--scenario", "S-2", "--status", "PASS"])
+        run_gate(["set-delivery", "--run-dir", self.run_dir, "--verdict", "SHIP"])
+        r1 = self.finalize(check_only=True)
+        r2 = self.finalize(check_only=True)
+        self.assertEqual(r1.stdout, r2.stdout)  # 幂等
+        lines = [l for l in r1.stdout.splitlines() if l.startswith("DIAG")]
+        codes = [l.split()[1].rstrip(":") for l in lines]
+        self.assertEqual(codes, sorted(codes, key=lambda c:
+            ["REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
+             "DELIVERY_VERDICT_CONTRADICTS_LEDGER", "RELEASE_UNIT_TOO_LARGE"].index(c)))
+        # 类别内第二键：S-2 在 S-3 之前
+        req = [l for l in lines if "REQUIRED_SCENARIO_NOT_RUN" in l]
+        self.assertIn("S-2", req[0])
+        self.assertIn("S-3", req[1])
+
+    def test_checkpoint_recorded(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        r = run_gate(["checkpoint", "--run-dir", self.run_dir,
+                      "--slice", "slice-1a", "--note", "测试中"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.run_dir, "plan-test-run.json")) as f:
+            evs = [e for e in json.load(f)["events"] if e["type"] == "checkpoint"]
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]["slice"], "slice-1a")
+
+
+FIXTURES_DIR = os.path.join(os.path.dirname(HERE), "fixtures", "gate")
+
+
+def replay_fixture(name, run_dir):
+    """按 fixture-contract.md §1 回放：终结命令由 steps.jsonl 显式声明。
+    返回 (终结命令结果, provenance_unverified)。"""
+    fx = os.path.join(FIXTURES_DIR, name)
+    os.makedirs(os.path.join(run_dir, "artifacts"), exist_ok=True)
+    art = os.path.join(fx, "artifacts")
+    if os.path.isdir(art):
+        for f in os.listdir(art):
+            shutil.copy(os.path.join(art, f), os.path.join(run_dir, "artifacts", f))
+    for f in ("auditor-input.json", "auditor-output.json"):
+        if os.path.exists(os.path.join(fx, f)):
+            shutil.copy(os.path.join(fx, f), os.path.join(run_dir, f))
+    unverified = False
+    prov = os.path.join(fx, "provenance.json")
+    if os.path.exists(prov):
+        with open(prov) as fh:
+            data = json.load(fh)
+        unverified = any(s.get("source_sha256") is None for s in data.get("sources", []))
+        if unverified:
+            print("PROVENANCE: UNVERIFIED (%s)" % name)
+    last = None
+    with open(os.path.join(fx, "steps.jsonl")) as fh:
+        for line in fh:
+            step = json.loads(line)
+            args = [a.replace("{FIXTURE}", fx) for a in step["args"]]
+            last = run_gate([step["cmd"], "--run-dir", run_dir] + args, cwd=fx)
+            if step["cmd"] not in ("finalize", "render"):
+                assert last.returncode == 0, "%s 步骤失败: %s\n%s" % (
+                    name, step["cmd"], last.stderr)
+    return last, unverified
+
+
+class FixtureReplayTestCase(unittest.TestCase):
+    """静态 fixture 回放（fixture-contract.md）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="gate-fixture-")
+        self.run_dir = os.path.join(self.tmp, "run")
+        os.makedirs(self.run_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def assert_expected(self, name, result):
+        fx = os.path.join(FIXTURES_DIR, name)
+        with open(os.path.join(fx, "expected-diagnostics.txt")) as f:
+            expected = [l for l in f.read().splitlines() if l.strip()]
+        # 只比对 DIAG（error）行；ADVISORY 含运行时实测值（如 TIMING_GAP 分钟数），
+        # 不可逐字节冻结（fixture-contract.md §1）
+        got = [l for l in result.stdout.splitlines() if l.startswith("DIAG")]
+        self.assertEqual(got, expected,
+                         "%s DIAG 序列与冻结期望不符:\n%s" % (name, result.stdout))
+        with open(os.path.join(fx, "expected-state.txt")) as f:
+            state = f.read().strip()
+        self.assertIn(state, result.stdout)
+
+    def test_pass_minimal(self):
+        r, unverified = replay_fixture("pass-minimal", self.run_dir)
+        self.assertFalse(unverified)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assert_expected("pass-minimal", r)
+        self.assertIn("GATE RECEIPT:", r.stdout)
+
+    def test_fail_companion_conflict(self):
+        r, unverified = replay_fixture("fail-companion-conflict", self.run_dir)
+        self.assertTrue(unverified, "provenance 未采集时必须标 UNVERIFIED")
+        self.assertEqual(r.returncode, 1)
+        self.assert_expected("fail-companion-conflict", r)
+        # handoff §10 冻结的前三类顺序
+        codes = [l.split()[1].rstrip(":") for l in r.stdout.splitlines()
+                 if l.startswith("DIAG")]
+        dedup = []
+        for c in codes:
+            if c not in dedup:
+                dedup.append(c)
+        self.assertEqual(dedup[:3], ["REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
+                                     "DELIVERY_VERDICT_CONTRADICTS_LEDGER"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

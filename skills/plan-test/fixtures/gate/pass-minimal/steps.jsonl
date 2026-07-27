@@ -1,0 +1,7 @@
+{"cmd": "init", "args": ["--manifest", "{FIXTURE}/manifest.json"]}
+{"cmd": "attach-evidence", "args": ["--path", "artifacts/s1-click.png", "--kind", "primary", "--scenario", "S-1", "--ui-action"]}
+{"cmd": "record-run", "args": ["--scenario", "S-1", "--kind", "root", "--result", "pass", "--business-terminal", "completed+valid", "--session-id", "sess-new", "--run-id-under-test", "run-uuid-1"]}
+{"cmd": "record-timing", "args": ["--phase", "phase-4", "--task", "S-1 自动化", "--activity-class", "automated_test", "--test-count", "1", "--exec", "--", "python3", "-c", "pass"]}
+{"cmd": "record-timing", "args": ["--phase", "phase-4", "--task", "S-1 真人复核", "--activity-class", "manual_e2e", "--command", "真人在 UI 点击新话题并核对 Session ID", "--declared-start", "2026-07-27T09:00:00Z", "--declared-end", "2026-07-27T09:10:00Z"]}
+{"cmd": "audit", "args": ["--verdict", "PASS", "--engine", "fixture", "--input", "auditor-input.json", "--output", "auditor-output.json"]}
+{"cmd": "finalize", "args": []}

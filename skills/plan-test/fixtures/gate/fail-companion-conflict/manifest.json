@@ -1,0 +1,16 @@
+{
+  "run_id": "fixture-companion-2026-07-24",
+  "fixture_only": true,
+  "source_request_text": "normalized：2026-07-24 human-anchored-companion-growth 交付矛盾复刻",
+  "acceptance_file": "acceptance.md",
+  "baseline": {"head": "c0mp4n10n0000000000000000000000000000000"},
+  "release_unit": {"must_ac_count": 16, "task_count": 17, "plan_lines": 4676},
+  "scenarios": [
+    {"scenario_id": "S-1", "required": true},
+    {"scenario_id": "S-2", "required": true},
+    {"scenario_id": "S-3", "required": true},
+    {"scenario_id": "S-4", "required": true},
+    {"scenario_id": "S-5", "required": true},
+    {"scenario_id": "S-6", "required": true}
+  ]
+}

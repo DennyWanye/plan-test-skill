@@ -22,6 +22,9 @@ skills/plan-test/fixtures/gate/<fixture-name>/
 `finalize`），回放器不隐含追加；断言该终结命令 stdout 的 DIAG 序列与
 expected-diagnostics.txt 逐字节相同、STATE 行与 expected-state.txt 相同。
 **同一 fixture 重跑两次输出必须全等**（诊断排序契约见 plan.md §3）。
+冻结比对只针对 `DIAG`（error）行与 STATE 行；`ADVISORY` 行（如 TIMING_GAP）包含运行时
+实测值（分钟数随 --exec 实测时刻变化），**不入逐字节冻结比对**——advisory 本就不拦截，
+其存在性由专门用例断言而非 fixture 期望文件。
 状态可达性约束（防冻结出不可达期望）：`finalize --check-only` 模式下 state 封顶
 `VALIDATED`（现实现 `compute_state()` 只在 full/render 模式给 SHIPPABLE）——因此
 期望 `STATE: SHIPPABLE` 的 fixture **必须**以正式 `finalize` 终结。

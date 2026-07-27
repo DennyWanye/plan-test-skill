@@ -74,6 +74,7 @@ python {GATE_SCRIPT} render   --run-dir <run-dir>
   EXPLORATORY LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
   KNOWN GAPS: 0 / 明确列表
   GATE RECEIPT: <content_digest>
+  TIME BREAKDOWN: 见 report.md"耗时分解"节（七类 activity_class；measured 与 declared 分列）
   ```
 
   "100%" 只表示 **TESTED SCOPE 内 required gates 全绿**，不表示未来绝无缺陷。

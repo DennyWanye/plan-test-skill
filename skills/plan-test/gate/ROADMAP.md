@@ -21,7 +21,24 @@
   phase-4 出口改为 `finalize --check-only` 预检。
 - **§11 交付措辞**：phase-final-dod 增加 receipt 模板，禁止无作用域 `100% COMPLETE / SHIP`。
 
+## 已完成（第二轮，2026-07-27：slice-1a delta，plan 见 plans/2026-07-27-plan-test-gate-slice-1a/）
+
+- **timing contract（schema 1.1.0）**：`record-timing`（--exec monotonic 实测 /
+  declared 申报强制 measured=false）+ `checkpoint` + advisory 级 `TIMING_GAP` +
+  render 七类 activity_class 耗时分解。
+- **诊断排序契约**：canonical 20 类固定序 + 类别内 hint/detail 字典序，输出幂等；
+  advisory（`ADVISORY` 前缀）不拦截、不影响状态机。
+- **schema_version major 校验**（不符即 SCHEMA_INVALID）。
+- **静态 fixture 落盘**：`fixtures/gate/pass-minimal/`（正式 finalize → SHIPPABLE +
+  receipt）与 `fixtures/gate/fail-companion-conflict/`（check-only → 15 条有序 DIAG，
+  前三类为 handoff 冻结序列）；回放器 + provenance null-hash → `PROVENANCE: UNVERIFIED`
+  强制标注。自测 57 用例全绿。
+
 ## 未完成（后续独立 slice，勿打包成超大 plan）
+
+- **1D-delta（依赖 F:\ 可达的 Windows 机器）**：Companion 三份来源文件 sha256 采集回填
+  `fail-companion-conflict/provenance.json`；Windows 路径归一化自测；TIMING_GAP 升级
+  决策（收集真实 gap 分布后交用户拍板）。
 
 - **2A 行为契约批准 artifact 细化**：目前 `behavior_contract`/`behavior_changes` 已有 schema
   与校验，但批准事件的采集流程（用户消息 event ID/hash 自动采集）仍是手工填 manifest。

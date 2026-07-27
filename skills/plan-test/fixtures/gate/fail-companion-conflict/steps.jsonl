@@ -1,0 +1,13 @@
+{"cmd": "init", "args": ["--manifest", "{FIXTURE}/manifest.json"]}
+{"cmd": "record-run", "args": ["--scenario", "S-1", "--kind", "root", "--result", "pass"]}
+{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-1", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-2", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-3", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-4", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-5", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "evidence/manual-results.md", "--scenario", "S-6", "--status", "PASS"]}
+{"cmd": "declare-status", "args": ["--source", "testcase/manual-test.md", "--scenario", "S-2", "--status", "NOT RUN"]}
+{"cmd": "attach-evidence", "args": ["--path", "artifacts/manual-results.md", "--kind", "derived", "--id", "ev-results", "--depends-on", "ev-audit"]}
+{"cmd": "attach-evidence", "args": ["--path", "artifacts/task16-delivery-audit.md", "--kind", "derived", "--id", "ev-audit", "--depends-on", "ev-results"]}
+{"cmd": "set-delivery", "args": ["--verdict", "SHIP"]}
+{"cmd": "finalize", "args": ["--check-only"]}

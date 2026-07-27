@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "plan-test-run.schema.json",
   "title": "plan-test verification run ledger",
-  "description": "唯一状态账本。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。",
+  "description": "唯一状态账本（schema 1.1.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。版本策略：validator 校验 major 相同（不符即 SCHEMA_INVALID），同 major 旧 minor 兼容（缺段视为空）。",
   "type": "object",
   "required": ["schema_version", "run_id", "source_request", "scenarios", "runs", "evidence"],
   "properties": {
@@ -228,6 +228,40 @@
     },
 
     "thresholds": { "type": "object" },
-    "events": { "type": "array" }
+
+    "timing": {
+      "type": "array",
+      "description": "时间成本一等证据（schema 1.1.0 起，plan 2026-07-27-plan-test-gate-slice-1a §2）。measured=true 的起止/时长由 CLI --exec 包裹执行实测（wall clock RFC 3339 UTC + monotonic elapsed_ms），调用者不可覆写；measured=false 为申报值（真人 E2E 等外部活动），report 单列曝光、不计入实测聚合。聚合值由 render 重算，不落盘",
+      "items": {
+        "type": "object",
+        "required": ["timing_id", "activity_class", "started_at", "ended_at", "elapsed_ms", "measured"],
+        "properties": {
+          "timing_id": { "type": "string" },
+          "phase": { "type": "string" },
+          "slice": { "type": "string" },
+          "task": { "type": "string" },
+          "tool": { "type": "string" },
+          "command": { "type": "string" },
+          "activity_class": { "enum": ["implementation", "automated_test", "manual_e2e", "provider_wait", "user_wait", "interruption_recovery", "rework"] },
+          "wait_reason": { "type": ["string", "null"], "description": "仅 *_wait 类必填：provider_latency/quota_limit/user_review/user_input/environment_provision/other:<说明>" },
+          "started_at": { "type": "string", "description": "RFC 3339 UTC" },
+          "ended_at": { "type": "string", "description": "RFC 3339 UTC" },
+          "elapsed_ms": { "type": "integer", "minimum": 0, "description": "measured=true 时由 monotonic clock 测量，不得由 wall-clock 相减" },
+          "measured": { "type": "boolean" },
+          "retry": { "type": "integer" },
+          "abort": { "type": "boolean" },
+          "test_count": { "type": "integer" },
+          "runtime_identity": { "type": "object" },
+          "evidence_ids": { "type": "array", "items": { "type": "string" } },
+          "exec_exit_code": { "type": ["integer", "null"] },
+          "recorded_at": { "type": "string" }
+        }
+      }
+    },
+
+    "events": {
+      "type": "array",
+      "description": "含 checkpoint（type=checkpoint：slice/note/at/head/dirty_patch_sha256，目标每 90–120 分钟一次；间隔超 120 分钟触发 advisory 级 TIMING_GAP，不拦截）与 receipt_invalidated 等事件"
+    }
   }
 }

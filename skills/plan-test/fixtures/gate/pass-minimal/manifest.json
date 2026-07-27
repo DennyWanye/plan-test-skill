@@ -1,0 +1,11 @@
+{
+  "run_id": "fixture-pass-minimal",
+  "fixture_only": true,
+  "source_request_text": "fixture：验证 schema 可表达 required rows/primary evidence/auditor/runtime identity/timing 与 receipt 输入",
+  "acceptance_file": "acceptance.md",
+  "baseline": {"head": "f1x7u4e0000000000000000000000000000000000", "dirty_patch_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+  "scenarios": [
+    {"scenario_id": "S-1", "required": true, "ui": true,
+     "gate_type": "positive-value", "expected_run_created": true}
+  ]
+}

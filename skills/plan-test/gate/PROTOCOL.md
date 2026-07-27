@@ -30,6 +30,8 @@ python skills/plan-test/scripts/plan_test_gate.py finalize --run-dir <run-dir>
   成功只输出 `READY_FOR_AUDIT`——预检不因"审计尚未执行"而永远无法进入审计阶段。
 - 正式 `finalize`：额外要求 auditor PASS，重新校验全部 hash/HEAD/runtime 后生成
   `gate-receipt.json`（幂等：同输入复用同 receipt digest 与首次 finalized_at）。
+- 记账辅助命令：`record-timing`（时间成本入账，--exec 实测 / declared 申报两模式）与
+  `checkpoint`（工作检查点）——见 §5 规则 10。
 - `render`：重新运行同一 validator、复验 receipt digest，失效时**不渲染 SHIPPABLE**。
 - 没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为
   `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
@@ -48,29 +50,35 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 
 ## 4. 稳定诊断码（stable diagnostic codes）
 
-| code | 触发条件 |
-|---|---|
-| `SCHEMA_INVALID` | 账本结构不合 schema |
-| `REQUIRED_SCENARIO_NOT_RUN` | required 场景为 NOT_RUN/PARTIAL/BLOCKED/FAIL |
-| `STATUS_CONFLICT` | 文档口径（declared）与账本重算结果冲突 |
-| `DELIVERY_VERDICT_CONTRADICTS_LEDGER` | 手写 SHIP/COMPLETE 但 required 未全 PASS |
-| `EVIDENCE_MISSING` | 证据文件不存在 / 依赖不存在 |
-| `EVIDENCE_HASH_MISMATCH` | 证据文件被改动 |
-| `EVIDENCE_DEPENDENCY_CYCLE` | 证据循环引用（互引的两个汇总不能构成独立证据） |
-| `DERIVED_EVIDENCE_ONLY` | required 场景只有 derived report，无 primary 证据 |
-| `UI_EVIDENCE_MISSING` | UI 场景判 PASS 但无真实 UI action 的 primary 证据 |
-| `RUN_CREATION_UNVERIFIED` | expected_run_created 声明未被正/负向证据兑现 |
-| `FROZEN_ORACLE_CHANGED` | 冻结 black-box testcase byte 级变化且无 behavior_change_id |
-| `BEHAVIOR_APPROVAL_REQUIRED` | 行为变更缺少用户批准 artifact（exact old/new + 消息 hash + scope） |
-| `TESTED_RUNTIME_MISMATCH` | tested HEAD/dirty 指纹与当前不一致，或 adapter UNKNOWN |
-| `AUDITOR_MISSING` | full-audit 未执行或 verdict 非 PASS |
-| `AUDITOR_INPUT_STALE` | audit 后账本 fact 又变化——旧 PASS 失效 |
-| `RECEIPT_STALE` | receipt digest 与当前输入不符 / 已 invalidate / 缺失 |
-| `RISK_CLOSURE_MISSING` | required lane 无通过的 root run |
-| `STABILITY_SAMPLES_INSUFFICIENT` | 非确定性场景采样不足或 FLAKY |
-| `RELEASE_UNIT_TOO_LARGE` | 交付体量超阈值，须拆 program plan + 垂直 slice |
-| `REVISION_CONFLICT`（stderr） | 并发写 CAS 冲突——重读后重试，不静默覆盖 |
-| `LEDGER_LOCKED`（stderr） | 文件锁被占用 |
+**输出有序**：同一账本状态重跑，诊断序列逐字节相同。第一键 = 下表行序（canonical 序，
+即 `CANONICAL_ORDER`）；第二键 = 类别内 scenario_id / evidence_id / 路径字典序，三者皆无
+以 detail 全文兜底。severity=error 的行以 `DIAG` 前缀输出并拦截；severity=advisory 的行
+以 `ADVISORY` 前缀输出、**不拦截**（不影响状态机与 receipt）。
+
+| # | code | severity | 触发条件 |
+|---|---|---|---|
+| 1 | `SCHEMA_INVALID` | error | 账本结构不合 schema，或 schema_version major 与 validator 不符 |
+| 2 | `REQUIRED_SCENARIO_NOT_RUN` | error | required 场景为 NOT_RUN/PARTIAL/BLOCKED/FAIL |
+| 3 | `STATUS_CONFLICT` | error | 文档口径（declared）与账本重算结果冲突 |
+| 4 | `DELIVERY_VERDICT_CONTRADICTS_LEDGER` | error | 手写 SHIP/COMPLETE 但 required 未全 PASS |
+| 5 | `UI_EVIDENCE_MISSING` | error | UI 场景判 PASS 但无真实 UI action 的 primary 证据 |
+| 6 | `RUN_CREATION_UNVERIFIED` | error | expected_run_created 声明未被正/负向证据兑现 |
+| 7 | `EVIDENCE_MISSING` | error | 证据文件不存在 / 依赖不存在 |
+| 8 | `EVIDENCE_HASH_MISMATCH` | error | 证据文件被改动 |
+| 9 | `EVIDENCE_DEPENDENCY_CYCLE` | error | 证据循环引用（互引的两个汇总不能构成独立证据） |
+| 10 | `DERIVED_EVIDENCE_ONLY` | error | required 场景只有 derived report，无 primary 证据 |
+| 11 | `FROZEN_ORACLE_CHANGED` | error | 冻结 black-box testcase byte 级变化且无 behavior_change_id |
+| 12 | `BEHAVIOR_APPROVAL_REQUIRED` | error | 行为变更缺少用户批准 artifact（exact old/new + 消息 hash + scope） |
+| 13 | `RISK_CLOSURE_MISSING` | error | required lane 无通过的 root run |
+| 14 | `STABILITY_SAMPLES_INSUFFICIENT` | error | 非确定性场景采样不足或 FLAKY |
+| 15 | `RELEASE_UNIT_TOO_LARGE` | error | 交付体量超阈值，须拆 program plan + 垂直 slice |
+| 16 | `TESTED_RUNTIME_MISMATCH` | error | tested HEAD/dirty 指纹与当前不一致，或 adapter UNKNOWN |
+| 17 | `AUDITOR_MISSING` | error | full-audit 未执行或 verdict 非 PASS |
+| 18 | `AUDITOR_INPUT_STALE` | error | audit 后账本 fact 又变化——旧 PASS 失效 |
+| 19 | `RECEIPT_STALE` | error | receipt digest 与当前输入不符 / 已 invalidate / 缺失 |
+| 20 | `TIMING_GAP` | **advisory** | 相邻 timing/checkpoint 锚点间隔 > 120 分钟（长时间无记账） |
+| - | `REVISION_CONFLICT`（stderr） | - | 并发写 CAS 冲突——重读后重试，不静默覆盖 |
+| - | `LEDGER_LOCKED`（stderr） | - | 文件锁被占用 |
 
 ## 5. 硬规则摘要
 
@@ -90,6 +98,17 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 8. **fixture_only**：跳过 git 校验的 run 永远标 FIXTURE-ONLY，receipt/report 不可作为
    真实交付证据。
 9. **"100%" 只表示某个明确 scope 的 required gates 全绿**，不表示未来绝无缺陷。
+10. **时间是一等证据**（schema 1.1.0 起）：机器活动用 `record-timing --exec -- <cmd>`
+    包裹执行——wall clock 记 RFC 3339 UTC 起止、monotonic clock 实测 `elapsed_ms`，
+    调用者不可覆写实测值；真人 E2E 等外部活动用 `--declared-start/--declared-end`
+    申报，CLI 强制 `measured:false`，report 单列"declared time"、不混入实测聚合。
+    连续工作每 90–120 分钟跑一次 `checkpoint`（记 HEAD/dirty/当前 slice/下一动作）；
+    间隔超 120 分钟触发 advisory 级 `TIMING_GAP` 提示。render 的报告按七类
+    activity_class（implementation / automated_test / manual_e2e / provider_wait /
+    user_wait / interruption_recovery / rework）分解耗时。
+11. **legacy fixture 溯源**：`provenance.json` 的 `source_sha256` 未采集（null）时，
+    fixture 只能作为合成 dogfood 运行，输出强制标 `PROVENANCE: UNVERIFIED`；
+    不得为让历史变绿而修改历史证据文件。
 
 ## 6. 交付措辞（有效 receipt 才能填）
 

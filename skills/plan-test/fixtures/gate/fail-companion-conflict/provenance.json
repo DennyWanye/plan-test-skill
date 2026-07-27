@@ -1,0 +1,15 @@
+{
+  "sources": [
+    {"source_path": "F:\\projects\\deskpet\\testcase\\2026-07-24-human-anchored-companion-growth\\manual-test.md",
+     "source_sha256": null, "captured_at": null, "captured_on": null,
+     "role": "frozen testcase（PARTIAL/BLOCKED/NOT RUN 口径）"},
+    {"source_path": "F:\\projects\\deskpet\\plans\\2026-07-24-human-anchored-companion-growth\\evidence\\manual-results.md",
+     "source_sha256": null, "captured_at": null, "captured_on": null,
+     "role": "RESULTS（6/6 PASS 口径；与 delivery-audit 互引）"},
+    {"source_path": "F:\\projects\\deskpet\\plans\\2026-07-24-human-anchored-companion-growth\\evidence\\task16-delivery-audit.md",
+     "source_sha256": null, "captured_at": null, "captured_on": null,
+     "role": "交付审计（100% COMPLETE / SHIP 口径；与 RESULTS 互引）"}
+  ],
+  "normalized_by": "手工规范化（slice-1a）；1D-delta importer 版本号回填",
+  "normalization_rules": "declared_statuses 逐条对应原文状态行；scenario 集合取 manual-test.md 的 S-1..S-6；不修改任何历史结论"
+}

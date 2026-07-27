@@ -30,8 +30,8 @@ import sys
 import tempfile
 import time
 
-SCHEMA_VERSION = "1.0.0"
-VALIDATOR_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
+VALIDATOR_VERSION = "1.1.0"
 LEDGER_NAME = "plan-test-run.json"
 RECEIPT_NAME = "gate-receipt.json"
 REPORT_NAME = "report.md"
@@ -54,6 +54,27 @@ DEFAULT_THRESHOLDS = {
 
 RESULT_VALUES = {"pass", "fail", "partial", "blocked", "not_run"}
 KIND_VALUES = {"root", "retry", "continuation", "replay"}
+
+# timing contract（plan 2026-07-27-plan-test-gate-slice-1a §2）
+ACTIVITY_CLASSES = {"implementation", "automated_test", "manual_e2e", "provider_wait",
+                    "user_wait", "interruption_recovery", "rework"}
+WAIT_CLASSES = {"provider_wait", "user_wait"}
+WAIT_REASONS = {"provider_latency", "quota_limit", "user_review", "user_input",
+                "environment_provision"}
+TIMING_GAP_MINUTES = 120  # advisory 门槛
+
+# canonical 诊断排序（plan §3 唯一权威序；同类内按 hint/detail 字典序）
+CANONICAL_ORDER = [
+    "SCHEMA_INVALID", "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
+    "DELIVERY_VERDICT_CONTRADICTS_LEDGER", "UI_EVIDENCE_MISSING",
+    "RUN_CREATION_UNVERIFIED", "EVIDENCE_MISSING", "EVIDENCE_HASH_MISMATCH",
+    "EVIDENCE_DEPENDENCY_CYCLE", "DERIVED_EVIDENCE_ONLY", "FROZEN_ORACLE_CHANGED",
+    "BEHAVIOR_APPROVAL_REQUIRED", "RISK_CLOSURE_MISSING",
+    "STABILITY_SAMPLES_INSUFFICIENT", "RELEASE_UNIT_TOO_LARGE",
+    "TESTED_RUNTIME_MISMATCH", "AUDITOR_MISSING", "AUDITOR_INPUT_STALE",
+    "RECEIPT_STALE", "TIMING_GAP",
+]
+_ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
 
 
 # ---------------------------------------------------------------- utilities
@@ -209,10 +230,36 @@ def _req(obj, key, typ, where, errors):
     return obj[key]
 
 
+def parse_rfc3339(s):
+    """解析 RFC 3339 UTC（须 Z 或 +00:00 结尾），返回 epoch 秒；失败返回 None。"""
+    import datetime
+    try:
+        dt = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return None
+        return dt.timestamp()
+    except (ValueError, AttributeError):
+        return None
+
+
 def structural_check(ledger):
     """最小结构校验（normative 契约见 schemas/plan-test-run.schema.json）。"""
     errors = []
-    _req(ledger, "schema_version", str, "ledger", errors)
+    sv = _req(ledger, "schema_version", str, "ledger", errors)
+    if sv:
+        major = sv.split(".")[0]
+        if major != SCHEMA_VERSION.split(".")[0]:
+            errors.append("SCHEMA_INVALID: schema_version=%s 与 validator major=%s 不兼容"
+                          % (sv, SCHEMA_VERSION.split(".")[0]))
+    for i, t in enumerate(ledger.get("timing") or []):
+        ac = _req(t, "activity_class", str, "timing[%d]" % i, errors)
+        if ac is not None and ac not in ACTIVITY_CLASSES:
+            errors.append("SCHEMA_INVALID: timing[%d].activity_class=%r 非法" % (i, ac))
+        el = t.get("elapsed_ms")
+        if el is not None and (not isinstance(el, int) or el < 0):
+            errors.append("SCHEMA_INVALID: timing[%d].elapsed_ms 须为非负整数" % i)
+        if "measured" in t and not isinstance(t["measured"], bool):
+            errors.append("SCHEMA_INVALID: timing[%d].measured 须为 bool" % i)
     _req(ledger, "run_id", str, "ledger", errors)
     _req(ledger, "source_request", dict, "ledger", errors)
     scenarios = _req(ledger, "scenarios", list, "ledger", errors) or []
@@ -242,12 +289,26 @@ def structural_check(ledger):
 # ---------------------------------------------------------------- validator
 
 class Diag(object):
-    def __init__(self, code, detail):
+    def __init__(self, code, detail, hint=None, severity="error"):
         self.code = code
         self.detail = detail
+        self.hint = hint or ""   # 类别内排序键（scenario_id/evidence_id/路径）
+        self.severity = severity  # error=阻塞；advisory=提示不拦截
 
     def as_dict(self):
-        return {"code": self.code, "detail": self.detail}
+        return {"code": self.code, "detail": self.detail, "severity": self.severity}
+
+    def sort_key(self):
+        return (_ORDER_INDEX.get(self.code, len(CANONICAL_ORDER)),
+                self.hint or self.detail, self.detail)
+
+
+def sort_diags(diags):
+    return sorted(diags, key=lambda d: d.sort_key())
+
+
+def blocking(diags):
+    return [d for d in diags if d.severity == "error"]
 
 
 def compute_scenario_status(scenario, runs):
@@ -298,7 +359,8 @@ def validate(run_dir, ledger, mode="full", fixture=False):
         statuses[s["scenario_id"]] = st
         if s.get("required") and st in ("NOT_RUN", "PARTIAL", "BLOCKED", "FAIL"):
             diags.append(Diag("REQUIRED_SCENARIO_NOT_RUN",
-                              "required 场景 %s 状态=%s（须 PASS）" % (s["scenario_id"], st)))
+                              "required 场景 %s 状态=%s（须 PASS）" % (s["scenario_id"], st),
+                              hint=s["scenario_id"]))
 
     # 2. UI 场景必须有真实 UI action 的 primary evidence
     for s in scenarios:
@@ -309,7 +371,8 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                         and e.get("ui_action") for e in evidence)
         if s.get("required") and statuses.get(sid) == "PASS" and not has_ui_ev:
             diags.append(Diag("UI_EVIDENCE_MISSING",
-                              "UI 场景 %s 判 PASS 但无 ui_action=primary 证据" % sid))
+                              "UI 场景 %s 判 PASS 但无 ui_action=primary 证据" % sid,
+                              hint=sid))
 
     # 3. expected_run_created 正反向核对
     for s in scenarios:
@@ -320,20 +383,22 @@ def validate(run_dir, ledger, mode="full", fixture=False):
         if s["expected_run_created"]:
             if not any(r.get("run_id_under_test") for r in roots):
                 diags.append(Diag("RUN_CREATION_UNVERIFIED",
-                                  "场景 %s 声明应创建 root Run，但未记录 run_id_under_test" % sid))
+                                  "场景 %s 声明应创建 root Run，但未记录 run_id_under_test" % sid,
+                                  hint=sid))
         else:
             if not any(e.get("scenario_id") == sid and e.get("negative_assertion")
                        for e in evidence):
                 diags.append(Diag("RUN_CREATION_UNVERIFIED",
-                                  "场景 %s 声明不应创建 Run，但缺少负向证据（negative_assertion）" % sid))
+                                  "场景 %s 声明不应创建 Run，但缺少负向证据（negative_assertion）" % sid,
+                                  hint=sid))
 
     # 4. 证据存在性 + hash + 依赖图
     for e in evidence:
         p = os.path.join(run_dir, e.get("path", ""))
         if not os.path.exists(p):
-            diags.append(Diag("EVIDENCE_MISSING", "证据文件不存在: %s" % e.get("path")))
+            diags.append(Diag("EVIDENCE_MISSING", "证据文件不存在: %s" % e.get("path"), hint=e.get("path")))
         elif sha256_file(p) != e.get("sha256"):
-            diags.append(Diag("EVIDENCE_HASH_MISMATCH", "证据被改动: %s" % e.get("path")))
+            diags.append(Diag("EVIDENCE_HASH_MISMATCH", "证据被改动: %s" % e.get("path"), hint=e.get("path")))
         for dep in e.get("depends_on") or []:
             if dep not in ev_by_id:
                 diags.append(Diag("EVIDENCE_MISSING",
@@ -368,7 +433,8 @@ def validate(run_dir, ledger, mode="full", fixture=False):
         mine = [e for e in evidence if e.get("scenario_id") == sid]
         if mine and not any(e.get("kind") == "primary" for e in mine):
             diags.append(Diag("DERIVED_EVIDENCE_ONLY",
-                              "场景 %s 只有 derived report，无 primary 证据" % sid))
+                              "场景 %s 只有 derived report，无 primary 证据" % sid,
+                              hint=sid))
 
     # 5. 冻结 black-box oracle 变异审计
     for tc in (ledger.get("testcase_lock") or {}).get("files") or []:
@@ -408,11 +474,13 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             if norm in ("PASS", "PASSED", "✅") and statuses[sid] != "PASS":
                 diags.append(Diag("STATUS_CONFLICT",
                                   "%s 声称 %s=%s，但账本重算=%s"
-                                  % (d.get("source"), sid, d.get("status"), statuses[sid])))
+                                  % (d.get("source"), sid, d.get("status"), statuses[sid]),
+                                  hint=sid))
             if norm in ("NOT_RUN", "PENDING", "PARTIAL", "BLOCKED") and statuses[sid] == "PASS":
                 diags.append(Diag("STATUS_CONFLICT",
                                   "%s 声称 %s=%s，但账本重算=PASS——文档未同步"
-                                  % (d.get("source"), sid, d.get("status"))))
+                                  % (d.get("source"), sid, d.get("status")),
+                                  hint=sid))
 
     # 7. 交付结论 vs 账本
     required_all_pass = all(statuses.get(s["scenario_id"]) == "PASS"
@@ -431,7 +499,8 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                        and r.get("kind") == "root" and r.get("result") == "pass"
                        for r in runs):
                 diags.append(Diag("RISK_CLOSURE_MISSING",
-                                  "场景 %s 缺少 required lane=%s 的通过 root run" % (sid, lane)))
+                                  "场景 %s 缺少 required lane=%s 的通过 root run" % (sid, lane),
+                                  hint="%s/%s" % (sid, lane)))
 
     # 9. 非确定性稳定性（stochastic）：min_root_runs 未达 → 采样不足
     for s in scenarios:
@@ -509,6 +578,28 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                         diags.append(Diag("EVIDENCE_HASH_MISMATCH",
                                           "auditor 文件被改动: %s" % fname))
 
+    # 13. TIMING_GAP（advisory，不拦截）：相邻 timing/checkpoint 锚点间隔 > 120 分钟
+    anchors = []
+    for t in ledger.get("timing") or []:
+        for k in ("started_at", "ended_at"):
+            ts = parse_rfc3339(t.get(k) or "")
+            if ts is not None:
+                anchors.append(ts)
+    for ev in ledger.get("events") or []:
+        if ev.get("type") == "checkpoint":
+            ts = parse_rfc3339(ev.get("at") or "")
+            if ts is not None:
+                anchors.append(ts)
+    anchors.sort()
+    for a, b in zip(anchors, anchors[1:]):
+        gap_min = (b - a) / 60.0
+        if gap_min > TIMING_GAP_MINUTES:
+            diags.append(Diag("TIMING_GAP",
+                              "相邻记账锚点间隔 %.0f 分钟（>%d）——长时间无 record-timing/checkpoint"
+                              % (gap_min, TIMING_GAP_MINUTES), severity="advisory"))
+            break
+
+    diags = sort_diags(diags)
     computed = {
         "scenario_statuses": statuses,
         "required_all_pass": required_all_pass and bool(scenarios),
@@ -518,7 +609,7 @@ def validate(run_dir, ledger, mode="full", fixture=False):
 
 
 def compute_state(ledger, statuses, diags, mode):
-    codes = {d.code for d in diags}
+    codes = {d.code for d in blocking(diags)}  # advisory 不影响状态机
     scenarios = ledger.get("scenarios") or []
     if not scenarios or "SCHEMA_INVALID" in codes:
         return "DRAFT"
@@ -531,8 +622,8 @@ def compute_state(ledger, statuses, diags, mode):
     if state == "IMPLEMENTED" and required and all(
             statuses.get(s["scenario_id"]) == "PASS" for s in required):
         state = "TESTED"
-    blocking = codes - {"AUDITOR_MISSING"}
-    if state == "TESTED" and not blocking:
+    pre_audit_codes = codes - {"AUDITOR_MISSING"}
+    if state == "TESTED" and not pre_audit_codes:
         state = "VALIDATED"
     if state == "VALIDATED" and mode in ("full", "render") and not codes:
         state = "SHIPPABLE"
@@ -590,7 +681,8 @@ def receipt_is_stale(run_dir, ledger, computed, receipt):
 
 def emit(diags, computed=None, extra=None):
     for d in diags:
-        print("DIAG %s: %s" % (d.code, d.detail))
+        prefix = "DIAG" if d.severity == "error" else "ADVISORY"
+        print("%s %s: %s" % (prefix, d.code, d.detail))
     if computed:
         print("STATE: %s" % computed["state"])
     for line in extra or []:
@@ -745,6 +837,107 @@ def cmd_set_delivery(args):
     print("DELIVERY VERDICT RECORDED: %s（是否成立由 finalize 判定）" % args.verdict)
 
 
+def _utc_iso(epoch):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
+def cmd_record_timing(args):
+    if args.activity_class not in ACTIVITY_CLASSES:
+        die("activity_class=%r 非法（合法：%s）" % (args.activity_class,
+                                                  "/".join(sorted(ACTIVITY_CLASSES))))
+    if args.activity_class in WAIT_CLASSES:
+        wr = args.wait_reason or ""
+        if wr not in WAIT_REASONS and not wr.startswith("other:"):
+            die("%s 类必须给受控 --wait-reason（%s 或 other:<说明>）"
+                % (args.activity_class, "/".join(sorted(WAIT_REASONS))))
+    elif args.wait_reason:
+        die("--wait-reason 只用于 %s" % "/".join(sorted(WAIT_CLASSES)))
+
+    if args.exec_cmd and args.exec_cmd[0] == "--":
+        args.exec_cmd = args.exec_cmd[1:]
+    exec_exit = None
+    if args.exec_cmd:
+        # 实测模式：wall clock 记起止（RFC3339 UTC），monotonic 测时长；调用者不可覆写
+        if args.declared_start or args.declared_end:
+            die("--exec 与 --declared-start/--declared-end 互斥")
+        start_wall = time.time()
+        t0 = time.monotonic_ns()
+        proc = subprocess.run(args.exec_cmd)
+        elapsed_ms = int((time.monotonic_ns() - t0) // 1_000_000)
+        end_wall = time.time()
+        started_at, ended_at = _utc_iso(start_wall), _utc_iso(end_wall)
+        measured = True
+        exec_exit = proc.returncode
+        command = " ".join(args.exec_cmd)
+    else:
+        # 申报模式（真人 E2E 等外部活动）：强制 measured=false，report 单列曝光
+        if not (args.declared_start and args.declared_end):
+            die("须给 --exec -- <cmd> 或 --declared-start/--declared-end（RFC 3339 UTC）")
+        s, e = parse_rfc3339(args.declared_start), parse_rfc3339(args.declared_end)
+        if s is None or e is None:
+            die("申报时间必须是 RFC 3339 UTC（例 2026-07-27T09:00:00Z）")
+        if e < s:
+            die("declared-end 早于 declared-start")
+        started_at, ended_at = args.declared_start, args.declared_end
+        elapsed_ms = int((e - s) * 1000)
+        measured = False
+        command = args.command or ""
+
+    def mutate(ledger):
+        for eid in args.evidence_ids or []:
+            if eid not in {ev.get("evidence_id") for ev in ledger.get("evidence", [])}:
+                die("evidence_id %s 不存在于账本" % eid)
+        fixture = bool(ledger.get("fixture_only"))
+        identity = {}
+        if not fixture:
+            identity["head"] = repo_head(ledger.get("repo_root") or os.getcwd())
+        rec = {
+            "timing_id": "t-%04d" % (len(ledger.get("timing") or []) + 1),
+            "phase": args.phase,
+            "slice": args.slice,
+            "task": args.task,
+            "tool": args.tool,
+            "command": command,
+            "activity_class": args.activity_class,
+            "wait_reason": args.wait_reason,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "elapsed_ms": elapsed_ms,
+            "measured": measured,
+            "retry": args.retry,
+            "abort": bool(args.abort),
+            "test_count": args.test_count,
+            "runtime_identity": identity,
+            "evidence_ids": args.evidence_ids or [],
+            "exec_exit_code": exec_exit,
+            "recorded_at": now_iso(),
+        }
+        ledger.setdefault("timing", []).append(
+            {k: v for k, v in rec.items() if v is not None})
+
+    _append(args.run_dir, mutate)
+    print("TIMING RECORDED class=%s elapsed_ms=%d measured=%s"
+          % (args.activity_class, elapsed_ms, str(measured).lower()))
+    if exec_exit is not None and exec_exit != 0:
+        sys.exit(exec_exit)  # 被包裹命令失败：如实透传 exit code
+
+
+def cmd_checkpoint(args):
+    def mutate(ledger):
+        fixture = bool(ledger.get("fixture_only"))
+        ev = {"type": "checkpoint", "slice": args.slice, "note": args.note,
+              "at": _utc_iso(time.time())}
+        if not fixture:
+            repo = ledger.get("repo_root") or os.getcwd()
+            ev["head"] = repo_head(repo)
+            dirty, _err = repo_dirty_digest(repo, args.run_dir)
+            ev["dirty_patch_sha256"] = dirty
+        ledger.setdefault("events", []).append(ev)
+
+    _append(args.run_dir, mutate)
+    print("CHECKPOINT RECORDED slice=%s" % (args.slice or "-"))
+
+
 def cmd_audit(args):
     for f in (args.input, args.output):
         if not os.path.exists(os.path.join(args.run_dir, f)):
@@ -772,12 +965,11 @@ def cmd_finalize(args):
     mode = "check-only" if args.check_only else "full"
     diags, computed = validate(args.run_dir, ledger, mode=mode, fixture=fixture)
     if args.check_only:
-        codes = {d.code for d in diags}
-        ok = not codes
+        ok = not blocking(diags)
         emit(diags, computed,
              ["CHECK-ONLY RESULT: %s" % ("READY_FOR_AUDIT" if ok else "NOT_READY")])
         sys.exit(0 if ok else 1)
-    if diags:
+    if blocking(diags):
         emit(diags, computed, ["FINALIZE: FAIL（不生成 receipt）"])
         sys.exit(1)
     if computed["state"] != "SHIPPABLE":
@@ -792,9 +984,9 @@ def cmd_finalize(args):
     if fixture:
         receipt["fixture_only"] = True
     atomic_write_json(os.path.join(args.run_dir, RECEIPT_NAME), receipt)
-    emit([], computed, ["FINALIZE: PASS",
-                        "GATE RECEIPT: %s" % receipt["content_digest"],
-                        "RECEIPT FILE: %s" % os.path.join(args.run_dir, RECEIPT_NAME)])
+    emit(diags, computed, ["FINALIZE: PASS",
+                           "GATE RECEIPT: %s" % receipt["content_digest"],
+                           "RECEIPT FILE: %s" % os.path.join(args.run_dir, RECEIPT_NAME)])
     sys.exit(0)
 
 
@@ -814,7 +1006,7 @@ def cmd_render(args):
         elif receipt_is_stale(args.run_dir, ledger, computed, receipt):
             stale = True
             diags.append(Diag("RECEIPT_STALE", "receipt digest 与当前输入不符——输入已变化"))
-    shippable = (not diags) and computed["state"] == "SHIPPABLE" and receipt and not stale
+    shippable = (not blocking(diags)) and computed["state"] == "SHIPPABLE" and receipt and not stale
     lines = ["# plan-test gate report", "",
              "RUN: %s" % ledger.get("run_id"),
              "STATE: %s" % ("SHIPPABLE" if shippable else "BLOCKED"),
@@ -828,11 +1020,33 @@ def cmd_render(args):
         lines.append("- %s [%s]%s: %s" % (
             sid, "required" if s.get("required") else "optional",
             " (ui)" if s.get("ui") else "", computed["scenario_statuses"].get(sid)))
+    timing = ledger.get("timing") or []
+    if timing:
+        lines.append("")
+        lines.append("## 耗时分解（measured=CLI 单调时钟实测；declared=申报值，低信任）")
+        agg = {}
+        for t in timing:
+            ac = t.get("activity_class", "unknown")
+            row = agg.setdefault(ac, {"measured_ms": 0, "declared_ms": 0,
+                                      "retry": 0, "abort": 0, "test_count": 0})
+            key = "measured_ms" if t.get("measured") else "declared_ms"
+            row[key] += int(t.get("elapsed_ms") or 0)
+            row["retry"] += int(t.get("retry") or 0)
+            row["abort"] += 1 if t.get("abort") else 0
+            row["test_count"] += int(t.get("test_count") or 0)
+        for ac in sorted(agg):
+            r = agg[ac]
+            lines.append("- %s: measured %.1f min / declared %.1f min / retry %d / abort %d / tests %d"
+                         % (ac, r["measured_ms"] / 60000.0, r["declared_ms"] / 60000.0,
+                            r["retry"], r["abort"], r["test_count"]))
+        checkpoints = [e for e in (ledger.get("events") or []) if e.get("type") == "checkpoint"]
+        lines.append("- checkpoints: %d" % len(checkpoints))
     if diags:
         lines.append("")
         lines.append("## 未闭环诊断")
         for d in diags:
-            lines.append("- %s: %s" % (d.code, d.detail))
+            tag = "" if d.severity == "error" else "（advisory，不拦截）"
+            lines.append("- %s%s: %s" % (d.code, tag, d.detail))
     if fixture:
         lines.append("")
         lines.append("> FIXTURE-ONLY run：本报告不可作为真实交付证据。")
@@ -909,6 +1123,30 @@ def main(argv=None):
     p.add_argument("--verdict", required=True)
     p.set_defaults(fn=cmd_set_delivery)
 
+    p = sub.add_parser("record-timing")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--phase", required=True)
+    p.add_argument("--slice")
+    p.add_argument("--task")
+    p.add_argument("--tool")
+    p.add_argument("--activity-class", required=True)
+    p.add_argument("--wait-reason")
+    p.add_argument("--retry", type=int, default=0)
+    p.add_argument("--abort", action="store_true")
+    p.add_argument("--test-count", type=int, default=0)
+    p.add_argument("--evidence-ids", nargs="*")
+    p.add_argument("--command", help="申报模式下的活动描述")
+    p.add_argument("--declared-start", help="RFC 3339 UTC；申报模式（真人 E2E 等）")
+    p.add_argument("--declared-end", help="RFC 3339 UTC")
+    # --exec -- <cmd...> 在 main() 里预切分（argparse REMAINDER 对 -- 的处理不可靠）
+    p.set_defaults(fn=cmd_record_timing, exec_cmd=None)
+
+    p = sub.add_parser("checkpoint")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--slice")
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_checkpoint)
+
     p = sub.add_parser("audit")
     p.add_argument("--run-dir", required=True)
     p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"])
@@ -931,7 +1169,15 @@ def main(argv=None):
     p.add_argument("--reason", required=True)
     p.set_defaults(fn=cmd_invalidate)
 
+    argv = list(sys.argv[1:] if argv is None else argv)
+    exec_cmd = None
+    if argv and argv[0] == "record-timing" and "--exec" in argv:
+        i = argv.index("--exec")
+        exec_cmd = argv[i + 1:]
+        argv = argv[:i]
     args = ap.parse_args(argv)
+    if exec_cmd is not None:
+        args.exec_cmd = exec_cmd
     args.fn(args)
 
 
