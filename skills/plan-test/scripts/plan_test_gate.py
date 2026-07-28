@@ -16,7 +16,8 @@
   python plan_test_gate.py render          --run-dir D
   python plan_test_gate.py invalidate      --run-dir D --reason "..."
 
-exit code：0 = 通过；1 = 门禁 FAIL（stdout 有 DIAG 行）；2 = 用法/IO 错误。
+exit code：0 = 真实交付通过；1 = 门禁 FAIL（stdout 有 DIAG 行）；2 = 用法/IO 错误；
+3 = fixture-only run 通过（合成数据，**不可作为交付证据**）。
 仅 stdlib，无第三方依赖。
 """
 
@@ -30,8 +31,9 @@ import sys
 import tempfile
 import time
 
-SCHEMA_VERSION = "1.1.0"
-VALIDATOR_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
+VALIDATOR_VERSION = "1.2.0"
+FIXTURE_EXIT = 3  # fixture-only run 通过：与真实交付的 exit 0 分开，堵"设个字段就绿"
 LEDGER_NAME = "plan-test-run.json"
 RECEIPT_NAME = "gate-receipt.json"
 REPORT_NAME = "report.md"
@@ -62,17 +64,35 @@ WAIT_CLASSES = {"provider_wait", "user_wait"}
 WAIT_REASONS = {"provider_latency", "quota_limit", "user_review", "user_input",
                 "environment_provision"}
 TIMING_GAP_MINUTES = 120  # advisory 门槛
+CONTENT_DIGEST_FILE_LIMIT = 20000  # 超过此文件数退回 HEAD+dirty 口径并显式标注
+
+# 适用性判定（applicability）：哪几道条件门适用于本次交付，必须显式入账。
+# 病根：config.md 的"输入语义敏感 / LLM 载荷驱动 / 依赖异步初始化"此前由代理口头自决且不留痕，
+# 判一句"不适用"就能让场景矩阵/正向价值门/随机采样/冷启动四道门合法消失，validator 无从知道。
+# 现在：判定本身是 fact，进账本、进 receipt digest、进 report；判"适用"则矩阵必须真的兑现。
+APPLICABILITY_DIMENSIONS = {
+    # 维度 -> (说明, 声明 true 时必须兑现的场景矩阵条件)
+    "input_sensitive": "输出质量随输入语义变化（LLM 对话/生成、搜索、调研、推荐、分类）",
+    "llm_payload_driven": "LLM 输出的结构化载荷直接驱动端侧状态机/卡片/流程推进",
+    "stateful_init": "行为依赖异步注册的服务/远程配置/登录态（存在冷启动路径）",
+}
+APPLICABILITY_DECIDERS = {"agent", "user"}
+MIN_RATIONALE_CHARS = 10
+DEFAULT_MIN_DISTINCT_INPUT_CLASSES = 3  # 对齐 config.md 的 MANUAL_MIN_DISTINCT_CLASSES
 
 # canonical 诊断排序（plan §3 唯一权威序；同类内按 hint/detail 字典序）
 CANONICAL_ORDER = [
-    "SCHEMA_INVALID", "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
+    "SCHEMA_INVALID", "LEDGER_TAMPERED", "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
     "DELIVERY_VERDICT_CONTRADICTS_LEDGER", "UI_EVIDENCE_MISSING",
     "RUN_CREATION_UNVERIFIED", "EVIDENCE_MISSING", "EVIDENCE_HASH_MISMATCH",
     "EVIDENCE_DEPENDENCY_CYCLE", "DERIVED_EVIDENCE_ONLY", "FROZEN_ORACLE_CHANGED",
-    "BEHAVIOR_APPROVAL_REQUIRED", "RISK_CLOSURE_MISSING",
+    "BEHAVIOR_APPROVAL_REQUIRED", "APPLICABILITY_UNDECLARED",
+    "APPLICABILITY_GATE_UNSATISFIED", "RISK_CLOSURE_MISSING",
     "STABILITY_SAMPLES_INSUFFICIENT", "RELEASE_UNIT_TOO_LARGE",
-    "TESTED_RUNTIME_MISMATCH", "AUDITOR_MISSING", "AUDITOR_INPUT_STALE",
-    "RECEIPT_STALE", "TIMING_GAP",
+    "TESTED_RUNTIME_MISMATCH", "RETEST_REQUIRED_AFTER_CHANGE",
+    "AUDITOR_MISSING", "AUDITOR_VERDICT_MISMATCH",
+    "AUDITOR_INPUT_STALE", "RECEIPT_STALE",
+    "AUDITOR_INDEPENDENCE_UNVERIFIED", "TIMING_GAP",
 ]
 _ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
 
@@ -214,8 +234,8 @@ def repo_dirty_digest(repo, exclude_run_dir):
     rel_exclude = None
     if exclude_run_dir:
         try:
-            rel_exclude = os.path.relpath(os.path.abspath(exclude_run_dir),
-                                          os.path.abspath(repo))
+            rel_exclude = os.path.relpath(os.path.realpath(exclude_run_dir),
+                                          os.path.realpath(repo))
         except ValueError:
             rel_exclude = None
         if rel_exclude and rel_exclude.startswith(".."):
@@ -237,6 +257,215 @@ def repo_dirty_digest(repo, exclude_run_dir):
     return canonical_digest(payload), None
 
 
+def _rel_exclude(repo, exclude_run_dir):
+    """run-dir 相对 repo 的路径。两侧都走 realpath——macOS 的 /var → /private/var 软链
+    会让 abspath 两侧不一致，排除规则静默失效，run-dir 自身被当成"内容变化"。"""
+    if not exclude_run_dir:
+        return None
+    try:
+        rel = os.path.relpath(os.path.realpath(exclude_run_dir), os.path.realpath(repo))
+    except ValueError:
+        return None
+    return None if rel.startswith("..") else rel.replace(os.sep, "/")
+
+
+def declared_exclusion_scope(ledger_or_manifest, repo, run_dir):
+    """排除范围 = **init 时冻结的显式清单**：当前 run-dir + manifest 声明的 related_run_dirs。
+
+    为什么不再在校验时现算（三轮独立审计接连打穿了三个现算版本）：
+      - 按"目录里有 plan-test-run.json"判定 → 在 src/ 塞一个假账本即可藏掉整个目录；
+      - 按路径形态 `.../verification/<x>/` 判定 → 项目里真有这样的业务目录就整体消失；
+      - 按"文件名恰为记账物"+"含真实账本的 artifacts/" 判定 → 把业务文件命名成 manifest.json，
+        或事后 `mkdir -p src/verification/z/artifacts` 再塞一个空账本，照样藏掉后门，
+        且 receipt 逐字不变。
+
+    共同根因：**判定输入是被测者可写的工作树**。现在改为冻结声明——排除哪些路径在 init 时
+    定死、进账本、进 receipt digest、在报告里逐条显形；事后往仓库里塞任何文件都不改变排除范围。
+    """
+    scope = []
+    cur = _rel_exclude(repo, run_dir)
+    if cur:
+        scope.append(cur)
+    for rel in (ledger_or_manifest.get("related_run_dirs") or []):
+        rel = str(rel).replace(os.sep, "/").rstrip("/")
+        if rel and rel not in scope:
+            scope.append(rel)
+    return sorted(scope)
+
+
+def validate_related_run_dirs(repo, related):
+    """related_run_dirs 只能是 gate run 目录形态，且必须真实存在 —— 防止声明成 `src` 把代码排掉。"""
+    bad = []
+    for rel in related or []:
+        rel = str(rel).replace(os.sep, "/").rstrip("/")
+        parts = rel.split("/")
+        shaped = len(parts) >= 2 and parts[-2] == "verification"
+        exists = os.path.isdir(os.path.join(repo, rel))
+        if not (shaped and exists):
+            bad.append(rel)
+    return bad
+
+
+def _excluded_reason(rel_path, scope):
+    """只有落在冻结声明范围内的路径才被排除。返回原因或 None。"""
+    for s in scope:
+        if rel_path == s or rel_path.startswith(s + "/"):
+            return "declared-scope:%s" % s
+    return None
+
+
+def repo_content_digest(repo, scope):
+    """**被测内容**指纹：工作树里全部 tracked + 未忽略 untracked 文件的逐文件内容 hash。
+
+    为什么不是 HEAD + dirty patch（原设计）：那两者描述的是**提交身份**，不是内容。
+    `git add`/`git commit` 不改一个字节却会让 HEAD 与 diff 同时变化，于是「测完 → 提交 →
+    finalize」必然 TESTED_RUNTIME_MISMATCH，而不提交又过不了提交态门——这正是独立审计
+    实测出来的死结（AC-6）。改按内容取指纹后：
+
+      - 文档/代码改一个字   → 内容变 → 必须重测（**这是要保留的严格性**）
+      - 只是 git add/commit → 内容不变 → 门依然绿（死结解开）
+      - 提交 run-dir 自身   → 被排除 → 内容不变（receipt 不会自己打脸自己）
+
+    代价：要逐文件 hash 一遍工作树。小仓可忽略；超大仓可用 CONTENT_DIGEST_FILE_LIMIT 兜底，
+    超限时退回 HEAD+dirty 口径并在报告里标注（宁可显式降级，不要静默）。
+    """
+    listing, err = git(["ls-files", "-c", "-o", "--exclude-standard"], repo)
+    if listing is None:
+        return None, None, err
+    files, excluded = [], []
+    for rel in listing.splitlines():
+        rel = rel.strip()
+        if not rel:
+            continue
+        why = _excluded_reason(rel, scope)
+        if why:
+            excluded.append([rel, why])
+            continue
+        files.append(rel)
+    files = sorted(set(files))
+    if len(files) > CONTENT_DIGEST_FILE_LIMIT:
+        return None, None, "FILE_LIMIT_EXCEEDED:%d" % len(files)
+    entries = []
+    for rel in files:
+        p = os.path.join(repo, rel)
+        if os.path.islink(p):
+            entries.append([rel, "symlink:" + sha256_text(os.readlink(p))])
+        elif os.path.isfile(p):
+            entries.append([rel, file_content_token(p)])
+        else:
+            entries.append([rel, "absent"])  # tracked 但已删除：删除本身也是内容变化
+    # 指纹只取文件条目，不含排除范围本身（否则新开一个 slice 会把别的 slice 判红）。
+    # 排除范围不是派生的，是 init 时冻结的显式声明（见 declared_exclusion_scope）。
+    # **剩余面（如实说明）**：事前造出 `.../verification/<单层>` 形态的目录再声明它，
+    # 可以合法地把该目录排除在指纹之外。形态校验挡得住直接声明 `src`，挡不住"先造目录再声明"。
+    # 缓解只有可见性：范围进账本、进 receipt digest、在 report.md 逐条列出——但范围内**事后新增**
+    # 的文件不会出现在报告里。这是当前设计已知的、未消除的剩余风险。
+    # 排除命中清单进账本与报告（此前既不进指纹也不进账本，无人能看见排除了什么）
+    globals()["_LAST_EXCLUSIONS"] = sorted(excluded)
+    return canonical_digest({"files": entries}), entries, None
+
+
+def classify_changed_paths(paths, globs=None):
+    """把变更文件分成 doc-only 与 behavioral 两类——**机器判定，不接受自报**。
+
+    doc-only 的判据只有一条：全部变更路径都命中文档白名单。只要有一个不是，
+    就是 behavioral，必须重测。这样"我这次只改了文档"不再是一句可以随口说的话。
+    """
+    non_doc = [p for p in paths if not DOC_ONLY_PATTERNS_MATCH(p, globs)]
+    return ("doc-only" if not non_doc else "behavioral"), non_doc
+
+
+# doc-only 默认白名单：**只认叙述性文档**，不认任何可能改变行为的文本。
+# 独立审计实测过两个反例：`requirements.txt`（改依赖版本）与 `prompts/system.md`
+# （把系统提示改成"忽略所有规则"）在旧规则下都被判 doc-only 免重测。
+# 对本仓尤其致命——plan-test 的交付物本身就是 skills/**/*.md。
+DOC_ONLY_DEFAULT_GLOBS = ["README*", "CHANGELOG*", "CONTRIBUTING*", "LICENSE*",
+                          "docs/**", "doc/**", "ARCHITECTURE.md", "*.rst"]
+# 无论后缀如何，命中这些前缀一律视为行为文本（提示词、skill、配置、依赖清单）
+BEHAVIORAL_TEXT_PREFIXES = ("prompts/", "skills/", "config/", ".claude/", "hooks/")
+BEHAVIORAL_TEXT_NAMES = ("requirements.txt", "constraints.txt", "pyproject.toml",
+                         "package.json", "dockerfile", "makefile")
+
+
+def _match_globs(low, base, globs):
+    import fnmatch
+    for g in globs:
+        gl = g.lower()
+        if fnmatch.fnmatch(low, gl) or fnmatch.fnmatch(base, gl):
+            return True
+        if gl.endswith("/**") and low.startswith(gl[:-2]):
+            return True
+    return False
+
+
+def DOC_ONLY_PATTERNS_MATCH(path, globs=None):
+    """是否是叙述性文档。
+
+    **项目自定义的 `doc_only_globs` 只能收窄、不能放宽**：最终判定是「默认白名单 ∩ 自定义」。
+    独立审计实测过放宽的后果——manifest 里写一个全匹配 glob，往 src/app.py 追加后门也会被
+    报成「仅文档变更（路径规则判定）」，重测门完全不触发。manifest 是被测者自己写的，
+    任何"自报即生效"的开关都等于把门交回给被测者。
+    """
+    p = path.replace(os.sep, "/")
+    low = p.lower()
+    base = low.rsplit("/", 1)[-1]
+    if low.startswith(BEHAVIORAL_TEXT_PREFIXES) or base in BEHAVIORAL_TEXT_NAMES:
+        return False        # 行为文本永远不算 doc-only，哪怕是 .md
+    if not _match_globs(low, base, DOC_ONLY_DEFAULT_GLOBS):
+        return False        # 不在默认白名单里 → 自定义 glob 救不了它
+    if globs is not None and not _match_globs(low, base, globs):
+        return False        # 自定义只用于进一步收窄
+    return True
+
+
+def changed_paths_since(repo, scope, previous_entries):
+    """列出与上次 attestation 相比内容变了的文件（逐文件 hash 对比）。"""
+    listing, err = git(["ls-files", "-c", "-o", "--exclude-standard"], repo)
+    if listing is None:
+        return None, err
+    prev = dict(previous_entries or [])
+    current = {}
+    for rel in sorted(set(x.strip() for x in listing.splitlines() if x.strip())):
+        if _excluded_reason(rel, scope):
+            continue
+        p = os.path.join(repo, rel)
+        if os.path.islink(p):
+            current[rel] = "symlink:" + sha256_text(os.readlink(p))
+        elif os.path.isfile(p):
+            current[rel] = file_content_token(p)
+        else:
+            current[rel] = "absent"
+    changed = sorted(set(
+        [k for k, v in current.items() if prev.get(k) != v] +
+        [k for k in prev if k not in current]))
+    return changed, None
+
+
+def file_content_token(path):
+    """内容 token = 内容 hash + 可执行位（模式变化也是交付差异，独立审计点名的缺口）。"""
+    mode = "x" if os.access(path, os.X_OK) else "-"
+    return "%s:%s" % (mode, sha256_file(path))
+
+
+def attest_runtime(repo, scope):
+    """采集一次运行时身份：内容指纹（阻塞判据）+ HEAD/dirty（只作展示与溯源）。"""
+    content, entries, cerr = repo_content_digest(repo, scope)
+    exclusions = list(globals().get("_LAST_EXCLUSIONS") or [])
+    dirty, _derr = repo_dirty_digest(repo, scope[0] if scope else None)
+    att = {
+        "head": repo_head(repo),
+        "dirty_patch_sha256": dirty,
+        "content_digest": content,
+        "content_entries": entries,
+        "content_digest_error": cerr,
+        "exclusions": exclusions,
+        "exclusion_count": len(exclusions),
+        "exclusion_scope": list(scope),
+        "recorded_at": now_iso(),
+    }
+    return {k: v for k, v in att.items() if v is not None}
+
+
 # ---------------------------------------------------------------- schema check
 
 def _req(obj, key, typ, where, errors):
@@ -253,7 +482,13 @@ def parse_rfc3339(s):
     """解析 RFC 3339 UTC（须 Z 或 +00:00 结尾），返回 epoch 秒；失败返回 None。"""
     import datetime
     try:
-        dt = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+        t = s.replace("Z", "+00:00")
+        # now_iso() 产出的是 %z 形式（+0800，无冒号），Python 3.9 的 fromisoformat 不认；
+        # 账本自己写的时间戳必须能被自己解析，否则依赖时序的门会静默失效。
+        m = re.search(r"([+-])(\d{2})(\d{2})$", t)
+        if m:
+            t = t[:m.start()] + "%s%s:%s" % (m.group(1), m.group(2), m.group(3))
+        dt = datetime.datetime.fromisoformat(t)
         if dt.tzinfo is None:
             return None
         return dt.timestamp()
@@ -365,8 +600,158 @@ def compute_scenario_status(scenario, runs):
 def auditor_facts_digest(ledger):
     """auditor 冻结输入指纹：除 auditor/delivery/receipt 事件外的全部 fact。"""
     facts = {k: v for k, v in ledger.items()
-             if k not in ("auditor", "revision", "events")}
+             if k not in ("auditor", "revision", "events", "integrity")}
     return canonical_digest(facts)
+
+
+# ------------------------------------------------- 账本完整性链（tamper-evident）
+
+def integrity_facts_digest(ledger):
+    """当前 fact 快照指纹（不含链本身与 revision）。"""
+    facts = {k: v for k, v in ledger.items() if k not in ("revision", "integrity")}
+    return canonical_digest(facts)
+
+
+def integrity_append(ledger, op):
+    """每次写入追加一条链条目：chain_n = sha256(chain_{n-1} + op + facts_digest_n)。
+
+    作用不是防有决心的伪造（代理能重算整条链），而是让"悄悄手改一条 run 记录"
+    从 1 步变成"必须显式重写整条链"——把无意/顺手的篡改变成有意为之。
+    """
+    integ = ledger.setdefault("integrity", {"chain": "", "log": []})
+    if op == "init":
+        integ["genesis"] = integrity_genesis(ledger)
+    fd = integrity_facts_digest(ledger)
+    prev = integ.get("chain") or ""
+    entry = {"seq": len(integ.get("log") or []) + 1, "op": op,
+             "facts_digest": fd, "at": now_iso()}
+    entry["chain"] = sha256_text(prev + op + fd)
+    integ.setdefault("log", []).append(entry)
+    integ["chain"] = entry["chain"]
+
+
+def integrity_genesis(ledger):
+    """开账锚：init 时刻的不可变身份。链被删掉重建时，重建者必须连它一起伪造。"""
+    return canonical_digest({
+        "run_id": ledger.get("run_id"),
+        "created_at": ledger.get("created_at"),
+        "repo_root": ledger.get("repo_root"),
+        "source_request": ledger.get("source_request"),
+        "acceptance": ledger.get("acceptance"),
+    })
+
+
+def integrity_check(ledger):
+    """重算链并核对末条 facts_digest == 当前 fact 快照。返回 detail 或 None。
+
+    结构不变量与链值同等重要（否则"删掉 integrity 键再写一条命令"就能重建一条自洽的新链）：
+    链必须非空、首条 op 必须是 init、genesis 锚必须与开账身份一致。
+    """
+    integ = ledger.get("integrity")
+    if not integ:
+        return "账本缺少 integrity 链——账本无效（删掉链不是绕过，是把账本作废）"
+    log = integ.get("log") or []
+    if not log:
+        return "integrity.log 为空"
+    if log[0].get("op") != "init":
+        return "integrity 链首条不是 init（op=%s）——链被删除后重建过" % log[0].get("op")
+    if integ.get("genesis") and integ["genesis"] != integrity_genesis(ledger):
+        return "integrity genesis 与开账身份不符——账本被替换或链被重建"
+    # 缺 genesis 不单独判死：真正的不变量是"链首必须是 init"（上面已查）。
+    # 把"缺 genesis"也当篡改，会让上一版 validator 建的账本集体作废——严格性不能靠制造
+    # 迁移断裂来实现，那只会逼人 `init --force` 重来，反而丢掉真实的测试事实。
+    chain = ""
+    for i, e in enumerate(log):
+        expect = sha256_text(chain + str(e.get("op")) + str(e.get("facts_digest")))
+        if e.get("chain") != expect:
+            return "integrity 链在第 %d 条（op=%s）断裂——账本被绕过 CLI 手工改动" % (
+                i + 1, e.get("op"))
+        chain = e["chain"]
+    if integ.get("chain") != chain:
+        return "integrity.chain 与重算结果不符"
+    if log[-1].get("facts_digest") != integrity_facts_digest(ledger):
+        return "当前 fact 与最后一条链条目不符——账本在 CLI 之外被改动过"
+    return None
+
+
+# ------------------------------------------------- 适用性判定（applicability）
+
+def validate_applicability(ledger, scenarios, thresholds):
+    """适用性判定必须显式入账；判"适用"则场景矩阵必须真的兑现对应条件。"""
+    diags = []
+    app = ledger.get("applicability") or {}
+    required_sc = [s for s in scenarios if s.get("required")]
+    for dim, desc in sorted(APPLICABILITY_DIMENSIONS.items()):
+        d = app.get(dim)
+        if not isinstance(d, dict) or "value" not in d:
+            diags.append(Diag("APPLICABILITY_UNDECLARED",
+                              "适用性维度 %s 未声明（%s）——不许靠口头自决让条件门消失" % (dim, desc),
+                              hint=dim))
+            continue
+        if not isinstance(d.get("value"), bool):
+            diags.append(Diag("APPLICABILITY_UNDECLARED",
+                              "%s.value 须为 bool" % dim, hint=dim))
+            continue
+        rationale = str(d.get("rationale") or "")
+        if len(rationale.strip()) < MIN_RATIONALE_CHARS:
+            diags.append(Diag("APPLICABILITY_UNDECLARED",
+                              "%s 缺少判定理由（rationale ≥%d 字）——判「不适用」尤其要写清依据"
+                              % (dim, MIN_RATIONALE_CHARS), hint=dim))
+        if d.get("decided_by") not in APPLICABILITY_DECIDERS:
+            diags.append(Diag("APPLICABILITY_UNDECLARED",
+                              "%s.decided_by 须为 agent 或 user" % dim, hint=dim))
+        if not d.get("value"):
+            continue  # 判"不适用"：理由已入账并进 receipt digest，供审计与事后追责
+        # 判"适用" → 场景矩阵必须兑现
+        if dim == "input_sensitive":
+            need = int(thresholds.get("min_distinct_input_classes")
+                       or DEFAULT_MIN_DISTINCT_INPUT_CLASSES)
+            classes = {s.get("input_class") for s in required_sc if s.get("input_class")}
+            if len(classes) < need:
+                diags.append(Diag("APPLICABILITY_GATE_UNSATISFIED",
+                                  "input_sensitive=true 但 required 场景只有 %d 类语义不等价输入"
+                                  "（需 ≥%d，见 config MANUAL_MIN_DISTINCT_CLASSES）"
+                                  % (len(classes), need), hint=dim))
+            if not any(s.get("gate_type") == "positive-value" for s in required_sc):
+                diags.append(Diag("APPLICABILITY_GATE_UNSATISFIED",
+                                  "input_sensitive=true 但无 required 的 positive-value 场景"
+                                  "——「诚实降级成功」不等于产品质量 PASS", hint=dim))
+        elif dim == "llm_payload_driven":
+            if not any((s.get("min_root_runs") or 0) >= 2 for s in required_sc):
+                diags.append(Diag("APPLICABILITY_GATE_UNSATISFIED",
+                                  "llm_payload_driven=true 但无 min_root_runs≥2 的 required 场景"
+                                  "（随机性单次跑过不算采样充分）", hint=dim))
+        elif dim == "stateful_init":
+            if not any(s.get("cold_start") for s in required_sc):
+                diags.append(Diag("APPLICABILITY_GATE_UNSATISFIED",
+                                  "stateful_init=true 但矩阵无 cold_start 场景"
+                                  "（暖重启不算冷路径）", hint=dim))
+    return diags
+
+
+def read_output_verdict(run_dir, output_path):
+    """从 auditor 原始产物里读 verdict（JSON 的 verdict 字段，或文末 VERDICT: X 行）。
+
+    读不出来返回 None——不臆测，交给人看；读得出来就必须与入账值一致。
+    """
+    if not output_path:
+        return None
+    p = os.path.join(run_dir, output_path)
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict) and obj.get("verdict"):
+            return str(obj["verdict"]).strip().upper()
+    except ValueError:
+        pass
+    m = re.findall(r"^VERDICT:\s*(PASS|FAIL)\s*$", text, re.MULTILINE)
+    return m[-1].upper() if m else None
 
 
 def validate(run_dir, ledger, mode="full", fixture=False):
@@ -374,6 +759,9 @@ def validate(run_dir, ledger, mode="full", fixture=False):
     diags = []
     for err in structural_check(ledger):
         diags.append(Diag("SCHEMA_INVALID", err))
+    tamper = integrity_check(ledger)
+    if tamper:
+        diags.append(Diag("LEDGER_TAMPERED", tamper))
     scenarios = ledger.get("scenarios") or []
     runs = ledger.get("runs") or []
     evidence = ledger.get("evidence") or []
@@ -552,6 +940,29 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                                   "场景 %s FLAKY（%d/%d 通过且有未解释失败），不得 SHIP"
                                   % (sid, len(ok_roots), len(all_roots))))
 
+    # 9a. behavioral re-attest 之后，required 场景必须重测（时间戳晚于该次 attestation）
+    atts = [a for a in (ledger.get("attestations") or [])
+            if a.get("change_kind") == "behavioral"]
+    if atts:
+        cutoff = max(int(a.get("runs_index") or 0) for a in atts)
+        when = max(str(a.get("recorded_at") or "") for a in atts)
+        for s in scenarios:
+            if not s.get("required"):
+                continue
+            sid = s["scenario_id"]
+            fresh = any(r.get("scenario_id") == sid and r.get("kind") == "root"
+                        and r.get("result") == "pass"
+                        for r in runs[cutoff:])
+            if not fresh:
+                diags.append(Diag("RETEST_REQUIRED_AFTER_CHANGE",
+                                  "场景 %s 的通过记录早于最近一次 behavioral 变更（%s）——"
+                                  "代码/配置改过就必须重跑，不能沿用旧结论" % (sid, when),
+                                  hint=sid))
+
+    # 9b. 适用性判定入账 + 判"适用"时矩阵必须兑现
+    diags.extend(validate_applicability(ledger, scenarios,
+                                        dict(ledger.get("thresholds") or {})))
+
     # 10. release-unit 大小
     metrics = ledger.get("release_unit") or {}
     thresholds = dict(DEFAULT_THRESHOLDS)
@@ -572,15 +983,31 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             diags.append(Diag("TESTED_RUNTIME_MISMATCH",
                               "无法读取当前 git HEAD（repo_root=%s）" % repo))
         else:
-            tested = att.get("head") or baseline.get("head")
-            if tested and tested != head:
+            # 阻塞判据 = **被测内容**是否变了，不是提交身份变没变。
+            # git add/commit 不改内容 → 门不该拦（否则「测完→提交→finalize」是死结）；
+            # 改一个字节 → 必须拦。
+            tested_content = att.get("content_digest") or baseline.get("content_digest")
+            current, _entries, cerr = repo_content_digest(
+                repo, declared_exclusion_scope(ledger, repo, run_dir))
+            if tested_content and current is not None:
+                if tested_content != current:
+                    diags.append(Diag("TESTED_RUNTIME_MISMATCH",
+                                      "被测内容指纹与测试时不一致——工作树文件在测试后被改动，须重测"))
+            elif tested_content and current is None:
                 diags.append(Diag("TESTED_RUNTIME_MISMATCH",
-                                  "tested HEAD=%s 当前 HEAD=%s（测试后有新提交/换树）" % (tested, head)))
-            dirty, err = repo_dirty_digest(repo, run_dir)
-            tested_dirty = att.get("dirty_patch_sha256") or baseline.get("dirty_patch_sha256")
-            if dirty is not None and tested_dirty and tested_dirty != dirty:
-                diags.append(Diag("TESTED_RUNTIME_MISMATCH",
-                                  "工作树 dirty 指纹与测试时不一致（排除 run-dir 后仍有差异）"))
+                                  "无法重算被测内容指纹（%s）——不得凭旧指纹放行" % cerr))
+            else:
+                # 旧账本（schema <1.2.0 或超大仓降级）：退回 HEAD + dirty 口径，并显式标注降级
+                tested = att.get("head") or baseline.get("head")
+                if tested and tested != head:
+                    diags.append(Diag("TESTED_RUNTIME_MISMATCH",
+                                      "tested HEAD=%s 当前 HEAD=%s（无内容指纹，退回提交身份口径）"
+                                      % (tested, head)))
+                dirty, err = repo_dirty_digest(repo, run_dir)
+                tested_dirty = att.get("dirty_patch_sha256") or baseline.get("dirty_patch_sha256")
+                if dirty is not None and tested_dirty and tested_dirty != dirty:
+                    diags.append(Diag("TESTED_RUNTIME_MISMATCH",
+                                      "工作树 dirty 指纹与测试时不一致（排除 run-dir 后仍有差异）"))
     if att.get("adapter_status") == "UNKNOWN":
         diags.append(Diag("TESTED_RUNTIME_MISMATCH",
                           "runtime adapter 返回 UNKNOWN——真实 E2E 只能记 BLOCKED，不得口头确认"))
@@ -598,6 +1025,28 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             if auditor.get("facts_digest") != expected:
                 diags.append(Diag("AUDITOR_INPUT_STALE",
                                   "audit 之后 ledger fact 已变化——旧审计 PASS 失效，须重审"))
+            # auditor 原始产物里的 verdict 必须与命令行申报一致：
+            # 防"审计报告写着 FAIL、命令行敲个 PASS"这一步之遥的绕过
+            file_verdict = read_output_verdict(run_dir, auditor.get("output_path"))
+            if file_verdict is None:
+                diags.append(Diag("AUDITOR_VERDICT_MISMATCH",
+                                  "auditor-output（%s）里读不到 verdict——审计结论无产物支撑，"
+                                  "不接受命令行代为申报" % auditor.get("output_path")))
+            elif file_verdict != str(auditor.get("verdict", "")).upper():
+                diags.append(Diag("AUDITOR_VERDICT_MISMATCH",
+                                  "auditor-output 里 verdict=%s，但入账 verdict=%s"
+                                  % (file_verdict, auditor.get("verdict"))))
+            # 独立性无法被机器证明，只能曝光：同引擎/未标注引擎 → advisory，进 report 与 receipt
+            engine = str(auditor.get("engine") or "").strip().lower()
+            executor = str(ledger.get("executor_engine") or "").strip().lower()
+            if not engine or engine in ("unknown", "self", "same"):
+                diags.append(Diag("AUDITOR_INDEPENDENCE_UNVERIFIED",
+                                  "auditor engine 未标注——无法说明审计者与实现者不是同一个",
+                                  severity="advisory"))
+            elif executor and engine == executor:
+                diags.append(Diag("AUDITOR_INDEPENDENCE_UNVERIFIED",
+                                  "auditor engine=%s 与 executor 相同——自审自判，结论仅供参考"
+                                  % engine, severity="advisory"))
             for key in ("input_sha256", "output_sha256"):
                 fname = auditor.get(key.replace("_sha256", "_path"))
                 if fname:
@@ -744,6 +1193,9 @@ def cmd_init(args):
         "evidence": [],
         "declared_statuses": [],
         "delivery": {},
+        "applicability": manifest.get("applicability") or {},
+        "doc_only_globs": manifest.get("doc_only_globs"),
+        "executor_engine": manifest.get("executor_engine"),
         "release_unit": manifest.get("release_unit") or {},
         "thresholds": manifest.get("thresholds") or {},
         "baseline": {},
@@ -779,23 +1231,48 @@ def cmd_init(args):
         head = repo_head(repo)
         if head is None:
             die("repo_root=%s 不是 git 仓库；fixture 请在 manifest 里设 fixture_only=true" % repo)
-        dirty, err = repo_dirty_digest(repo, run_dir)
-        ledger["baseline"] = {"head": head, "dirty_patch_sha256": dirty,
-                              "recorded_at": now_iso()}
+        bad = validate_related_run_dirs(repo, manifest.get("related_run_dirs"))
+        if bad:
+            die("related_run_dirs 只能是已存在的 `.../verification/<单层>` 目录，"
+                "不许用它把代码排除掉；非法项：%s" % ", ".join(bad))
+        ledger["related_run_dirs"] = manifest.get("related_run_dirs") or []
+        scope = declared_exclusion_scope(ledger, repo, run_dir)
+        ledger["exclusion_scope"] = scope
+        ledger["baseline"] = attest_runtime(repo, scope)
+        ledger["runtime_attestation"] = dict(ledger["baseline"])
+        if ledger["baseline"].get("content_digest_error"):
+            print("警告：内容指纹不可用（%s）——退回 HEAD+dirty 口径，提交会触发 "
+                  "TESTED_RUNTIME_MISMATCH" % ledger["baseline"]["content_digest_error"])
     else:
         ledger["baseline"] = manifest.get("baseline") or {}
+    integrity_append(ledger, "init")
     with LedgerLock(run_dir):
         save_ledger(run_dir, ledger)
+    undeclared = [d for d in APPLICABILITY_DIMENSIONS
+                  if not isinstance((ledger.get("applicability") or {}).get(d), dict)]
     print("INIT OK run_id=%s scenarios=%d (全部 NOT_RUN)" % (
         ledger["run_id"], len(ledger["scenarios"])))
+    if undeclared:
+        print("提醒：适用性维度未声明 %s——finalize 会以 APPLICABILITY_UNDECLARED 拦截"
+              % "/".join(sorted(undeclared)))
 
 
-def _append(run_dir, mutate):
+def _append(run_dir, mutate, op="append"):
     with LedgerLock(run_dir):
         ledger = load_ledger(run_dir)
+        # **写入前先验链**：否则篡改检测是一次性的——手改一行 result 之后随便敲一条无害命令
+        # （checkpoint 都行），新条目会拿被篡改的 fact 快照重新盖章，`LEDGER_TAMPERED` 永久消失，
+        # 随后照常拿到有效 receipt。独立审计实测过，成本只是"改一行 + 多敲一条命令"。
+        # 现在：链一旦对不上，任何写入都被拒绝，篡改痕迹留在原地，只能显式修复或重开 run。
+        broken = integrity_check(ledger)
+        if broken:
+            die("LEDGER_TAMPERED: %s\n"
+                "账本已在 CLI 之外被改动，拒绝继续写入（不许用新记录把篡改盖过去）。\n"
+                "处理方式：还原被改动的内容，或换一个 run-dir 重新 init 并如实说明。" % broken)
         rev = ledger.get("revision")
         mutate(ledger)
         # 任何 fact 变化都会使既有 receipt stale（finalize 会重算）；此处只记事实
+        integrity_append(ledger, op)
         save_ledger(run_dir, ledger, expect_revision=rev)
         return ledger
 
@@ -821,7 +1298,7 @@ def cmd_record_run(args):
             die("场景 %s 不在 init 冻结的场景清单里（不许测后补场景，需重新 init/批准）" % args.scenario)
         ledger["runs"].append(rec)
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="record-run")
     print("RECORDED run scenario=%s kind=%s result=%s" % (args.scenario, args.kind, args.result))
 
 
@@ -847,9 +1324,19 @@ def cmd_attach_evidence(args):
     ev = {k: v for k, v in ev.items() if v not in (None, False, [])}
 
     def mutate(ledger):
+        if args.replace:
+            # 重测后证据文件会更新，旧 hash 必然对不上。没有合法的更新路径时，
+            # 唯一出路是整轮重来——这正是前几轮审计反复抓到的那类死结。
+            # --replace 显式顶替同路径的旧条目；动作本身进 integrity 链，不是静默覆盖。
+            kept = [e for e in ledger["evidence"] if e.get("path") != ev["path"]]
+            ledger["superseded_evidence"] = (ledger.get("superseded_evidence") or []) + [
+                {"path": e.get("path"), "sha256": e.get("sha256"),
+                 "superseded_at": now_iso()}
+                for e in ledger["evidence"] if e.get("path") == ev["path"]]
+            ledger["evidence"] = kept
         ledger["evidence"].append(ev)
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="attach-evidence")
     print("ATTACHED %s kind=%s sha256=%s" % (rel_path, args.kind, ev["sha256"][:12]))
 
 
@@ -859,7 +1346,7 @@ def cmd_declare_status(args):
             {"source": args.source, "scenario_id": args.scenario,
              "status": args.status, "recorded_at": now_iso()})
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="declare-status")
     print("DECLARED %s: %s=%s（将与账本重算结果对账）" % (args.source, args.scenario, args.status))
 
 
@@ -867,7 +1354,7 @@ def cmd_set_delivery(args):
     def mutate(ledger):
         ledger["delivery"] = {"verdict": args.verdict, "recorded_at": now_iso()}
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="set-delivery")
     print("DELIVERY VERDICT RECORDED: %s（是否成立由 finalize 判定）" % args.verdict)
 
 
@@ -949,7 +1436,7 @@ def cmd_record_timing(args):
         ledger.setdefault("timing", []).append(
             {k: v for k, v in rec.items() if v is not None})
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="record-timing")
     print("TIMING RECORDED class=%s elapsed_ms=%d measured=%s"
           % (args.activity_class, elapsed_ms, str(measured).lower()))
     if exec_exit is not None and exec_exit != 0:
@@ -968,14 +1455,74 @@ def cmd_checkpoint(args):
             ev["dirty_patch_sha256"] = dirty
         ledger.setdefault("events", []).append(ev)
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="checkpoint")
     print("CHECKPOINT RECORDED slice=%s" % (args.slice or "-"))
+
+
+def cmd_re_attest(args):
+    """收尾期合法改动后重新采集运行时身份。
+
+    死结背景（第二轮独立审计实测）：attestation 原本只在 init 写一次，此后任何 run-dir 之外
+    的改动都让整个 run 永久 `TESTED_RUNTIME_MISMATCH`，而收尾流程**强制要求**改（文档回写、
+    状态同步）；唯一出路 `init --force` 会清空 runs/evidence/auditor，等于整轮重来。
+
+    本命令不是"把红灯按绿"：
+      - 变更集全部命中文档白名单 → 记 `doc-only`，既有测试结论继续有效；
+      - 只要有一个非文档文件变了 → 记 `behavioral`，validator 要求**每条 required 场景
+        都有一次晚于本次 attestation 的 root PASS**，否则 `RETEST_REQUIRED_AFTER_CHANGE`。
+    doc-only 由路径规则机器判定，不接受调用者自报。
+    """
+    ledger = load_ledger(args.run_dir)
+    if ledger.get("fixture_only"):
+        die("fixture-only run 无 git 运行时身份，无需 re-attest")
+    repo = ledger.get("repo_root") or os.getcwd()
+    prev = (ledger.get("runtime_attestation") or ledger.get("baseline") or {})
+    scope = declared_exclusion_scope(ledger, repo, args.run_dir)
+    changed, err = changed_paths_since(repo, scope, prev.get("content_entries"))
+    if changed is None:
+        die("无法计算变更集：%s" % err)
+    kind, non_doc = classify_changed_paths(changed, (ledger.get("doc_only_globs") or None))
+    if not changed:
+        print("NO CHANGE：内容与上次 attestation 一致，无需 re-attest")
+        return
+    att = attest_runtime(repo, scope)
+    att["reason"] = args.reason
+    att["change_kind"] = kind
+    att["changed_paths"] = changed[:200]
+    att["changed_count"] = len(changed)
+
+    def mutate(led):
+        # 用账本自身的追加序号锚定"这次 attestation 之后跑的 run"，不用时钟：
+        # now_iso() 精度到秒，同秒内的重跑会被误判成"已重测"（自测实测过）。
+        att["runs_index"] = len(led.get("runs") or [])
+        led.setdefault("attestations", []).append(
+            {k: v for k, v in att.items() if k != "content_entries"})
+        led["runtime_attestation"] = att
+
+    _append(args.run_dir, mutate, op="re-attest")
+    print("RE-ATTEST OK kind=%s changed=%d" % (kind, len(changed)))
+    if kind == "behavioral":
+        print("非文档变更 %d 个（如 %s）——**每条 required 场景都必须重跑并 record-run**，"
+              "否则 finalize 会以 RETEST_REQUIRED_AFTER_CHANGE 拦截。"
+              % (len(non_doc), ", ".join(non_doc[:3])))
+    else:
+        print("仅文档变更（路径规则判定）——既有测试结论继续有效。")
 
 
 def cmd_audit(args):
     for f in (args.input, args.output):
         if not os.path.exists(os.path.join(args.run_dir, f)):
             die("auditor 文件不存在（须已写入 run-dir）: %s" % f)
+    file_verdict = read_output_verdict(args.run_dir, args.output)
+    if file_verdict is None:
+        # 读不出结论时**不能**静默采信命令行——那等于"审计产物随便写，verdict 我说了算"。
+        # 与子代理契约一致：缺结论行按 FAIL 处理，这里直接拒绝入账。
+        die("auditor-output（%s）里读不到 verdict：需要 JSON 的 \"verdict\" 字段，"
+            "或文末独立一行 `VERDICT: PASS|FAIL`。缺结论行按 FAIL 处理，不接受命令行代为申报。"
+            % args.output)
+    if file_verdict != args.verdict.upper():
+        die("auditor-output 里 verdict=%s，与 --verdict %s 不符——"
+            "以审计产物为准，不许命令行改判" % (file_verdict, args.verdict))
 
     def mutate(ledger):
         ledger["auditor"] = {
@@ -989,7 +1536,7 @@ def cmd_audit(args):
         }
         ledger["auditor"]["facts_digest"] = auditor_facts_digest(ledger)
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="audit")
     print("AUDIT RECORDED verdict=%s（facts 已冻结，此后任何 fact 变化审计即 stale）" % args.verdict)
 
 
@@ -1018,9 +1565,14 @@ def cmd_finalize(args):
     if fixture:
         receipt["fixture_only"] = True
     atomic_write_json(os.path.join(args.run_dir, RECEIPT_NAME), receipt)
-    emit(diags, computed, ["FINALIZE: PASS",
+    emit(diags, computed, ["FINALIZE: PASS%s" % (" (FIXTURE-ONLY)" if fixture else ""),
                            "GATE RECEIPT: %s" % receipt["content_digest"],
                            "RECEIPT FILE: %s" % os.path.join(args.run_dir, RECEIPT_NAME)])
+    if fixture:
+        # exit 3 ≠ exit 0：合成 run 不许冒充交付通过（设一个 fixture_only 字段就跳过
+        # git 校验并拿到 exit 0，此前是最省事的一条绕过路径）
+        print("FIXTURE-ONLY：exit=%d，本 receipt 不可作为真实交付证据" % FIXTURE_EXIT)
+        sys.exit(FIXTURE_EXIT)
     sys.exit(0)
 
 
@@ -1048,6 +1600,46 @@ def cmd_render(args):
                                   or (ledger.get("baseline") or {}).get("head")),
              "GATE RECEIPT: %s" % (receipt.get("content_digest") if (receipt and shippable) else "无（不得宣布 SHIP）"),
              ""]
+    app = ledger.get("applicability") or {}
+    if app:
+        lines.append("## 适用性判定（判「不适用」等于放弃对应条件门，理由须可追责）")
+        for dim in sorted(APPLICABILITY_DIMENSIONS):
+            d = app.get(dim) or {}
+            lines.append("- %s: %s（%s 判定）%s" % (
+                dim, "适用" if d.get("value") else "不适用",
+                d.get("decided_by") or "未标注", ("理由：" + str(d.get("rationale") or "缺")) ))
+        lines.append("")
+    att_now = ledger.get("runtime_attestation") or ledger.get("baseline") or {}
+    if att_now.get("content_digest_error"):
+        lines.append("> ⚠ 内容指纹不可用（%s）——已退回 HEAD+dirty 口径：此时"
+                     "「测完→提交→finalize」会重新变成死结，须用 re-attest 或缩小仓库范围。"
+                     % att_now["content_digest_error"])
+        lines.append("")
+    excl = (att_now.get("exclusions") or [])
+    lines.append("## 指纹排除范围（init 时冻结的显式声明；事后往仓库塞文件不改变它）")
+    for sc in (ledger.get("exclusion_scope") or att_now.get("exclusion_scope") or []):
+        lines.append("- 声明范围：%s" % sc)
+    lines.append("")
+    lines.append("## 本次命中排除的文件")
+    if excl:
+        for rel, why in excl[:20]:
+            lines.append("- %s（%s）" % (rel, why))
+        if len(excl) > 20:
+            lines.append("- …… 共 %d 项" % len(excl))
+    else:
+        lines.append("- 无")
+    if ledger.get("doc_only_globs"):
+        lines.append("- doc-only 自定义收窄：%s（只能收窄，不能放宽）"
+                     % ", ".join(ledger["doc_only_globs"]))
+    lines.append("")
+    atts = [a for a in (ledger.get("attestations") or [])]
+    if atts:
+        lines.append("## 收尾期改动（re-attest 记录）")
+        for a in atts:
+            lines.append("- %s｜%s｜变更 %s 个文件｜理由：%s" % (
+                a.get("recorded_at"), a.get("change_kind"), a.get("changed_count"),
+                a.get("reason")))
+        lines.append("")
     lines.append("## 场景状态（由 validator 重算）")
     for s in ledger.get("scenarios") or []:
         sid = s["scenario_id"]
@@ -1075,6 +1667,18 @@ def cmd_render(args):
                             r["retry"], r["abort"], r["test_count"]))
         checkpoints = [e for e in (ledger.get("events") or []) if e.get("type") == "checkpoint"]
         lines.append("- checkpoints: %d" % len(checkpoints))
+    if ledger.get("retired"):
+        lines.append("> ⚠ 本 run 已退役：%s；继任 run = %s。退役只影响 hook/CI 是否阻断，"
+                     "不改变账本状态（下方场景状态仍是真实结论）。"
+                     % (ledger.get("retired_reason"), ledger.get("superseded_by")))
+        lines.append("")
+    sup = ledger.get("superseded_evidence") or []
+    if sup:
+        lines.append("## 被顶替的证据（attach-evidence --replace 留痕）")
+        for e in sup:
+            lines.append("- %s（旧 sha256 %s…，%s）" % (e.get("path"),
+                         str(e.get("sha256"))[:12], e.get("superseded_at")))
+        lines.append("")
     if diags:
         lines.append("")
         lines.append("## 未闭环诊断")
@@ -1088,7 +1692,115 @@ def cmd_render(args):
         f.write("\n".join(lines) + "\n")
     emit(diags, computed, ["RENDER: %s -> %s" % ("SHIPPABLE" if shippable else "BLOCKED",
                                                  os.path.join(args.run_dir, REPORT_NAME))])
+    if shippable and fixture:
+        sys.exit(FIXTURE_EXIT)
     sys.exit(0 if shippable else 1)
+
+
+def successor_receipt_status(run_dir, repo=None):
+    """继任 run 的 receipt 是否有效。返回 (ok, detail)。
+
+    继任者必须在**同一仓库内**：允许指向别处（甚至另一个仓库）等于允许"借"一张无关的 receipt
+    来给本次失败背书。同理，fixture-only 的账本不能靠退役退出阻断。
+    """
+    if repo:
+        try:
+            rel = os.path.relpath(os.path.realpath(run_dir), os.path.realpath(repo))
+        except ValueError:
+            return False, "继任 run 不在本仓库内: %s" % run_dir
+        if rel.startswith(".."):
+            return False, "继任 run 不在本仓库内: %s" % run_dir
+    if not os.path.isdir(run_dir):
+        return False, "继任 run 目录不存在: %s" % run_dir
+    try:
+        ledger = load_ledger_quiet(run_dir)
+    except Exception as e:
+        return False, "继任 run 账本不可读: %s" % e
+    if ledger is None:
+        return False, "继任 run 没有账本"
+    if ledger.get("fixture_only"):
+        return False, "继任 run 是 fixture-only，不能作为交付级继任者"
+    receipt = load_receipt(run_dir)
+    if receipt is None:
+        return False, "继任 run 没有 gate-receipt.json（它自己都还没通过）"
+    if receipt.get("invalidated"):
+        return False, "继任 run 的 receipt 已被 invalidate"
+    diags, computed = validate(run_dir, ledger, mode="render",
+                              fixture=bool(ledger.get("fixture_only")))
+    if blocking(diags) or computed["state"] != "SHIPPABLE":
+        return False, "继任 run 当前并非 SHIPPABLE（state=%s）" % computed["state"]
+    if receipt_is_stale(run_dir, ledger, computed, receipt):
+        return False, "继任 run 的 receipt 已 stale"
+    return True, receipt.get("content_digest")
+
+
+def load_ledger_quiet(run_dir):
+    p = ledger_path(run_dir)
+    if not os.path.exists(p):
+        return None
+    with open(p, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def cmd_retire(args):
+    """把**已被取代**的历史 run 标记退役。
+
+    背景：拆 slice 后早先的整体 run 仍留在仓库里、账本永远未闭环，Stop hook 被它永久阻断，
+    而 `invalidate` 只作用于 receipt（这些 run 根本没有 receipt）——没有任何 CLI 出路。
+
+    但退役本身必须有守卫，否则它就是下一个 `fixture_only`：给账本加个字段就让门消失。
+    独立审计实测过无守卫版本——`retire --reason "这个先不做了"` 即可让一个 required 场景
+    FAIL 的 run 从 hook 前消失。因此现在**强制要求指明继任者**，且继任者必须自己是
+    SHIPPABLE + 有未失效 receipt 的真实（非 fixture）run。退役不是赦免，是转移举证责任。
+    """
+    ledger_self = load_ledger(args.run_dir)
+    if ledger_self.get("fixture_only"):
+        die("RETIRE 拒绝：fixture-only run 不得以退役方式退出阻断（合成数据本就不是交付证据）")
+    repo_self = ledger_self.get("repo_root") or os.getcwd()
+    ok, detail = successor_receipt_status(args.superseded_by, repo_self)
+    if not ok:
+        die("RETIRE 拒绝：%s。退役只允许在工作已被另一个**通过的** run 承接时使用；"
+            "确实要放弃这次验证，请直接删除该 run 目录（删除会出现在 git diff 里，是可见动作）。"
+            % detail)
+
+    def mutate(ledger):
+        ledger["retired"] = True
+        ledger["retired_reason"] = args.reason
+        ledger["superseded_by"] = args.superseded_by
+        ledger["superseded_by_receipt"] = detail
+        ledger["retired_at"] = now_iso()
+
+    _append(args.run_dir, mutate, op="retire")
+    print("RETIRED: %s\n  继任 run: %s（receipt %s）" % (args.reason, args.superseded_by,
+                                                          str(detail)[:16]))
+
+
+def cmd_retire_status(args):
+    """退役是否成立——供 hook / CI 调用，避免它们各自解读账本字段。
+
+    exit 0 = 退役成立且账本自洽；1 = 不成立（含未退役、链断裂、继任者无效、fixture 冒充）。
+    """
+    ledger = load_ledger(args.run_dir)
+    if not ledger.get("retired"):
+        print("NOT_RETIRED")
+        sys.exit(1)
+    if ledger.get("fixture_only"):
+        print("INVALID: fixture-only run 不得以退役方式退出阻断")
+        sys.exit(1)
+    tamper = integrity_check(ledger)
+    if tamper:
+        print("INVALID: %s" % tamper)   # 手写 retired:true 不经 CLI → 链对不上
+        sys.exit(1)
+    if not any(e.get("op") == "retire" for e in (ledger.get("integrity", {}).get("log") or [])):
+        print("INVALID: integrity 链里没有 retire 操作——retired 字段是手写的")
+        sys.exit(1)
+    ok, detail = successor_receipt_status(ledger.get("superseded_by") or "",
+                                          ledger.get("repo_root") or os.getcwd())
+    if not ok:
+        print("INVALID: %s" % detail)
+        sys.exit(1)
+    print("VALID superseded_by=%s receipt=%s" % (ledger.get("superseded_by"), str(detail)[:16]))
+    sys.exit(0)
 
 
 def cmd_invalidate(args):
@@ -1104,7 +1816,7 @@ def cmd_invalidate(args):
         ledger.setdefault("events", []).append(
             {"type": "receipt_invalidated", "reason": args.reason, "at": now_iso()})
 
-    _append(args.run_dir, mutate)
+    _append(args.run_dir, mutate, op="invalidate")
     print("RECEIPT INVALIDATED: %s" % args.reason)
 
 
@@ -1142,6 +1854,8 @@ def main(argv=None):
     p.add_argument("--id")
     p.add_argument("--ui-action", action="store_true")
     p.add_argument("--negative-assertion", action="store_true")
+    p.add_argument("--replace", action="store_true",
+                   help="顶替同路径的旧证据条目（重测后证据文件更新时用；旧条目转入 superseded_evidence）")
     p.add_argument("--depends-on", nargs="*")
     p.set_defaults(fn=cmd_attach_evidence)
 
@@ -1181,10 +1895,17 @@ def main(argv=None):
     p.add_argument("--note")
     p.set_defaults(fn=cmd_checkpoint)
 
+    p = sub.add_parser("re-attest")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--reason", required=True,
+                   help="为什么在测试之后还改了内容（文档回写/状态同步/修复……）")
+    p.set_defaults(fn=cmd_re_attest)
+
     p = sub.add_parser("audit")
     p.add_argument("--run-dir", required=True)
     p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"])
-    p.add_argument("--engine", default="unknown")
+    p.add_argument("--engine", required=True,
+                   help="执行审计的引擎/代理标识；与 executor 相同会被标 AUDITOR_INDEPENDENCE_UNVERIFIED")
     p.add_argument("--input", required=True, help="auditor-input.json（相对 run-dir）")
     p.add_argument("--output", required=True, help="auditor-output.json（相对 run-dir）")
     p.set_defaults(fn=cmd_audit)
@@ -1197,6 +1918,17 @@ def main(argv=None):
     p = sub.add_parser("render")
     p.add_argument("--run-dir", required=True)
     p.set_defaults(fn=cmd_render)
+
+    p = sub.add_parser("retire")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--reason", required=True)
+    p.add_argument("--superseded-by", required=True,
+                   help="继任 run 的目录：必须是非 fixture、当前 SHIPPABLE 且 receipt 未失效的 run")
+    p.set_defaults(fn=cmd_retire)
+
+    p = sub.add_parser("retire-status")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_retire_status)
 
     p = sub.add_parser("invalidate")
     p.add_argument("--run-dir", required=True)

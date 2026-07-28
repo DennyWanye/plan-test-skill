@@ -11,6 +11,9 @@ DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-5=PASS，但账本重�
 DIAG STATUS_CONFLICT: evidence/manual-results.md 声称 S-8=PASS，但账本重算=NOT_RUN
 DIAG DELIVERY_VERDICT_CONTRADICTS_LEDGER: 交付结论 'SHIP' 与账本冲突（required 未全 PASS 或无场景）
 DIAG EVIDENCE_DEPENDENCY_CYCLE: 证据循环引用: ev-results -> ev-audit -> ev-results
+DIAG APPLICABILITY_UNDECLARED: 适用性维度 input_sensitive 未声明（输出质量随输入语义变化（LLM 对话/生成、搜索、调研、推荐、分类））——不许靠口头自决让条件门消失
+DIAG APPLICABILITY_UNDECLARED: 适用性维度 llm_payload_driven 未声明（LLM 输出的结构化载荷直接驱动端侧状态机/卡片/流程推进）——不许靠口头自决让条件门消失
+DIAG APPLICABILITY_UNDECLARED: 适用性维度 stateful_init 未声明（行为依赖异步注册的服务/远程配置/登录态（存在冷启动路径））——不许靠口头自决让条件门消失
 DIAG RELEASE_UNIT_TOO_LARGE: must_ac_count=16 超过阈值 8——拆成 program plan + 垂直 slice
 DIAG RELEASE_UNIT_TOO_LARGE: plan_lines=4676 超过阈值 2000——拆成 program plan + 垂直 slice
 DIAG RELEASE_UNIT_TOO_LARGE: task_count=17 超过阈值 10——拆成 program plan + 垂直 slice

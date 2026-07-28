@@ -2,266 +2,812 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "plan-test-run.schema.json",
   "title": "plan-test verification run ledger",
-  "description": "唯一状态账本（schema 1.1.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。版本策略：validator 校验 major 相同（不符即 SCHEMA_INVALID），同 major 旧 minor 兼容（缺段视为空）。",
+  "description": "唯一状态账本（schema 1.2.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。1.2.0 新增：re-attest 与内容指纹（attestations）、doc_only_globs（只可收窄）、superseded_evidence，以及 applicability（适用性判定入账，判「不适用」等于放弃对应条件门，须留理由与判定人）与 integrity（写入链，绕过 CLI 手改账本会被 LEDGER_TAMPERED 发现）。版本策略：validator 校验 major 相同（不符即 SCHEMA_INVALID），同 major 旧 minor 兼容（缺段视为空）。",
   "type": "object",
-  "required": ["schema_version", "run_id", "source_request", "scenarios", "runs", "evidence"],
+  "required": [
+    "schema_version",
+    "run_id",
+    "source_request",
+    "scenarios",
+    "runs",
+    "evidence"
+  ],
   "properties": {
-    "schema_version": { "type": "string" },
-    "run_id": { "type": "string" },
-    "created_at": { "type": "string" },
-    "repo_root": { "type": "string" },
+    "schema_version": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "repo_root": {
+      "type": "string"
+    },
     "fixture_only": {
       "type": "boolean",
       "description": "true = 测试 fixture，跳过 git HEAD 校验；receipt/report 永远标注 FIXTURE-ONLY，不可作为真实交付证据"
     },
-    "revision": { "type": "integer", "description": "CAS 并发控制版本号，每次写 +1" },
-
+    "revision": {
+      "type": "integer",
+      "description": "CAS 并发控制版本号，每次写 +1"
+    },
     "source_request": {
       "type": "object",
       "description": "冻结的原始用户请求（不可被派生文档替代）",
       "properties": {
-        "path": { "type": "string" },
-        "inline": { "type": "boolean" },
-        "sha256": { "type": "string" }
+        "path": {
+          "type": "string"
+        },
+        "inline": {
+          "type": "boolean"
+        },
+        "sha256": {
+          "type": "string"
+        }
       }
     },
-
     "behavior_contract": {
       "type": "object",
       "description": "术语表 + before/after 行为表 + 保留/删除/改变清单 + 用户批准事件",
       "properties": {
-        "terms": { "type": "array", "items": { "type": "object" } },
-        "before_after": { "type": "array", "items": { "type": "object" } },
-        "preserved": { "type": "array", "items": { "type": "string" } },
-        "removed": { "type": "array", "items": { "type": "string" } },
+        "terms": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "before_after": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "preserved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "approval": {
           "type": "object",
           "properties": {
-            "user_message_sha256": { "type": "string" },
-            "approved_at": { "type": "string" },
-            "scope": { "type": "string" }
+            "user_message_sha256": {
+              "type": "string"
+            },
+            "approved_at": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
           }
         }
       }
     },
-
     "behavior_changes": {
       "type": "array",
       "description": "行为变更授权：修改/删除/反转 frozen oracle 的唯一合法通道",
       "items": {
         "type": "object",
-        "required": ["behavior_change_id"],
+        "required": [
+          "behavior_change_id"
+        ],
         "properties": {
-          "behavior_change_id": { "type": "string" },
-          "old_behavior": { "type": "string" },
-          "new_behavior": { "type": "string" },
+          "behavior_change_id": {
+            "type": "string"
+          },
+          "old_behavior": {
+            "type": "string"
+          },
+          "new_behavior": {
+            "type": "string"
+          },
           "approval": {
             "type": "object",
-            "required": ["user_message_sha256"],
+            "required": [
+              "user_message_sha256"
+            ],
             "properties": {
-              "user_message_sha256": { "type": "string" },
-              "acceptance_revision": { "type": "string" },
-              "scope": { "type": "string" },
-              "expiry": { "type": "string" }
+              "user_message_sha256": {
+                "type": "string"
+              },
+              "acceptance_revision": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "expiry": {
+                "type": "string"
+              }
             }
           }
         }
       }
     },
-
     "acceptance": {
       "type": "object",
       "properties": {
-        "path": { "type": "string" },
-        "sha256": { "type": "string" }
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
       }
     },
-
     "testcase_lock": {
       "type": "object",
       "description": "实现前冻结的 black-box oracle；任何 byte 变化默认 FROZEN_ORACLE_CHANGED",
       "properties": {
-        "locked_at": { "type": ["string", "null"] },
+        "locked_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "files": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["path", "sha256"],
+            "required": [
+              "path",
+              "sha256"
+            ],
             "properties": {
-              "path": { "type": "string" },
-              "abs_path": { "type": "string" },
-              "sha256": { "type": "string" },
-              "behavior_change_id": { "type": "string" }
+              "path": {
+                "type": "string"
+              },
+              "abs_path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "behavior_change_id": {
+                "type": "string"
+              }
             }
           }
         }
       }
     },
-
     "scenarios": {
       "type": "array",
       "description": "init 时从冻结输入自动创建；validator 重算状态，初始即 NOT_RUN",
       "items": {
         "type": "object",
-        "required": ["scenario_id", "required"],
+        "required": [
+          "scenario_id",
+          "required"
+        ],
         "properties": {
-          "scenario_id": { "type": "string" },
-          "required": { "type": "boolean" },
-          "title": { "type": "string" },
-          "gate_type": { "enum": ["positive-value", "negative-safety", "regression", "exploratory"] },
-          "ui": { "type": "boolean" },
-          "expected_run_created": { "type": "boolean" },
+          "scenario_id": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "gate_type": {
+            "enum": [
+              "positive-value",
+              "negative-safety",
+              "regression",
+              "exploratory"
+            ]
+          },
+          "ui": {
+            "type": "boolean"
+          },
+          "expected_run_created": {
+            "type": "boolean"
+          },
           "required_lanes": {
             "type": "array",
-            "items": { "enum": ["fresh", "history-upgrade", "temporal-fault", "exploratory"] }
+            "items": {
+              "enum": [
+                "fresh",
+                "history-upgrade",
+                "temporal-fault",
+                "exploratory"
+              ]
+            }
           },
-          "min_root_runs": { "type": "integer", "minimum": 1 },
-          "ac_ids": { "type": "array", "items": { "type": "string" } }
+          "min_root_runs": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ac_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "input_class": {
+            "type": "string",
+            "description": "语义不等价的输入类别标签。input_sensitive=true 时 required 场景须覆盖 ≥min_distinct_input_classes 个不同值（重试/重放/同意图改写不算新类别）"
+          },
+          "cold_start": {
+            "type": "boolean",
+            "description": "是否为冷路径场景（全新安装/清数据 → 首次登录 → 直达功能页）。stateful_init=true 时矩阵必须含一条"
+          }
         }
       }
     },
-
     "runs": {
       "type": "array",
       "description": "原始执行 fact。retry/replay/continuation 不计 distinct，只有 root 计入场景状态",
       "items": {
         "type": "object",
-        "required": ["scenario_id", "kind", "result"],
+        "required": [
+          "scenario_id",
+          "kind",
+          "result"
+        ],
         "properties": {
-          "scenario_id": { "type": "string" },
-          "kind": { "enum": ["root", "retry", "continuation", "replay"] },
-          "result": { "enum": ["pass", "fail", "partial", "blocked", "not_run"] },
-          "lane": { "enum": ["fresh", "history-upgrade", "temporal-fault", "exploratory"] },
-          "driver": { "enum": ["ai", "human"] },
-          "command": { "type": "string" },
-          "engine_terminal": { "type": "string" },
-          "business_terminal": { "type": "string" },
-          "session_id": { "type": "string" },
-          "run_id_under_test": { "type": "string" },
-          "recorded_at": { "type": "string" }
+          "scenario_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "root",
+              "retry",
+              "continuation",
+              "replay"
+            ]
+          },
+          "result": {
+            "enum": [
+              "pass",
+              "fail",
+              "partial",
+              "blocked",
+              "not_run"
+            ]
+          },
+          "lane": {
+            "enum": [
+              "fresh",
+              "history-upgrade",
+              "temporal-fault",
+              "exploratory"
+            ]
+          },
+          "driver": {
+            "enum": [
+              "ai",
+              "human"
+            ]
+          },
+          "command": {
+            "type": "string"
+          },
+          "engine_terminal": {
+            "type": "string"
+          },
+          "business_terminal": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "run_id_under_test": {
+            "type": "string"
+          },
+          "recorded_at": {
+            "type": "string"
+          }
         }
       }
     },
-
     "evidence": {
       "type": "array",
       "description": "primary（截图/日志/命令回执/DB 记录）才能作证；derived（汇总报告）只辅助审计。depends_on 构成依赖图，validator 拒绝环",
       "items": {
         "type": "object",
-        "required": ["evidence_id", "path", "sha256", "kind"],
+        "required": [
+          "evidence_id",
+          "path",
+          "sha256",
+          "kind"
+        ],
         "properties": {
-          "evidence_id": { "type": "string" },
-          "path": { "type": "string", "description": "相对 run-dir" },
-          "sha256": { "type": "string" },
-          "kind": { "enum": ["primary", "derived"] },
-          "scenario_id": { "type": "string" },
-          "ui_action": { "type": "boolean" },
-          "negative_assertion": { "type": "boolean" },
-          "depends_on": { "type": "array", "items": { "type": "string" } }
+          "evidence_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "相对 run-dir"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "primary",
+              "derived"
+            ]
+          },
+          "scenario_id": {
+            "type": "string"
+          },
+          "ui_action": {
+            "type": "boolean"
+          },
+          "negative_assertion": {
+            "type": "boolean"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
-
     "declared_statuses": {
       "type": "array",
       "description": "各文档（README/testcase 头/RESULTS/Gate 报告）口头声明的状态，仅用于对账；与重算结果冲突 → STATUS_CONFLICT",
       "items": {
         "type": "object",
         "properties": {
-          "source": { "type": "string" },
-          "scenario_id": { "type": "string" },
-          "status": { "type": "string" }
+          "source": {
+            "type": "string"
+          },
+          "scenario_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
         }
       }
     },
-
     "delivery": {
       "type": "object",
       "description": "手写交付结论登记处；与账本冲突 → DELIVERY_VERDICT_CONTRADICTS_LEDGER",
-      "properties": { "verdict": { "type": "string" } }
+      "properties": {
+        "verdict": {
+          "type": "string"
+        }
+      }
     },
-
     "auditor": {
       "type": "object",
       "description": "独立 full-audit 结果；facts_digest 冻结审计时的账本，此后任何 fact 变化 → AUDITOR_INPUT_STALE",
       "properties": {
-        "verdict": { "enum": ["PASS", "FAIL"] },
-        "engine": { "type": "string" },
-        "input_path": { "type": "string" },
-        "input_sha256": { "type": "string" },
-        "output_path": { "type": "string" },
-        "output_sha256": { "type": "string" },
-        "facts_digest": { "type": "string" }
+        "verdict": {
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "engine": {
+          "type": "string"
+        },
+        "input_path": {
+          "type": "string"
+        },
+        "input_sha256": {
+          "type": "string"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "output_sha256": {
+          "type": "string"
+        },
+        "facts_digest": {
+          "type": "string"
+        }
       }
     },
-
     "baseline": {
       "type": "object",
       "properties": {
-        "head": { "type": "string" },
-        "dirty_patch_sha256": { "type": "string" }
+        "head": {
+          "type": "string"
+        },
+        "dirty_patch_sha256": {
+          "type": "string"
+        }
       }
     },
-
     "runtime_attestation": {
       "type": "object",
       "description": "被测运行物身份（project adapter 输出）；adapter_status=UNKNOWN 时真实 E2E 只能 BLOCKED",
       "properties": {
-        "head": { "type": "string" },
-        "dirty_patch_sha256": { "type": "string" },
-        "adapter_status": { "enum": ["OK", "UNKNOWN"] },
-        "components": { "type": "array" },
-        "user_data_mode": { "enum": ["fresh", "history-upgrade"] }
+        "head": {
+          "type": "string"
+        },
+        "dirty_patch_sha256": {
+          "type": "string"
+        },
+        "adapter_status": {
+          "enum": [
+            "OK",
+            "UNKNOWN"
+          ]
+        },
+        "components": {
+          "type": "array"
+        },
+        "user_data_mode": {
+          "enum": [
+            "fresh",
+            "history-upgrade"
+          ]
+        }
       }
     },
-
     "release_unit": {
       "type": "object",
       "description": "交付体量指标；超 thresholds → RELEASE_UNIT_TOO_LARGE",
       "properties": {
-        "must_ac_count": { "type": "integer" },
-        "task_count": { "type": "integer" },
-        "plan_lines": { "type": "integer" },
-        "high_risk_subsystems": { "type": "integer" },
-        "concurrent_layer_kinds": { "type": "integer" }
+        "must_ac_count": {
+          "type": "integer"
+        },
+        "task_count": {
+          "type": "integer"
+        },
+        "plan_lines": {
+          "type": "integer"
+        },
+        "high_risk_subsystems": {
+          "type": "integer"
+        },
+        "concurrent_layer_kinds": {
+          "type": "integer"
+        }
       }
     },
-
-    "thresholds": { "type": "object" },
-
+    "thresholds": {
+      "type": "object"
+    },
     "timing": {
       "type": "array",
       "description": "时间成本一等证据（schema 1.1.0 起，plan 2026-07-27-plan-test-gate-slice-1a §2）。measured=true 的起止/时长由 CLI --exec 包裹执行实测（wall clock RFC 3339 UTC + monotonic elapsed_ms），调用者不可覆写；measured=false 为申报值（真人 E2E 等外部活动），report 单列曝光、不计入实测聚合。聚合值由 render 重算，不落盘",
       "items": {
         "type": "object",
-        "required": ["timing_id", "activity_class", "started_at", "ended_at", "elapsed_ms", "measured"],
+        "required": [
+          "timing_id",
+          "activity_class",
+          "started_at",
+          "ended_at",
+          "elapsed_ms",
+          "measured"
+        ],
         "properties": {
-          "timing_id": { "type": "string" },
-          "phase": { "type": "string" },
-          "slice": { "type": "string" },
-          "task": { "type": "string" },
-          "tool": { "type": "string" },
-          "command": { "type": "string" },
-          "activity_class": { "enum": ["implementation", "automated_test", "manual_e2e", "provider_wait", "user_wait", "interruption_recovery", "rework"] },
-          "wait_reason": { "type": ["string", "null"], "description": "仅 *_wait 类必填：provider_latency/quota_limit/user_review/user_input/environment_provision/other:<说明>" },
-          "started_at": { "type": "string", "description": "RFC 3339 UTC" },
-          "ended_at": { "type": "string", "description": "RFC 3339 UTC" },
-          "elapsed_ms": { "type": "integer", "minimum": 0, "description": "measured=true 时由 monotonic clock 测量，不得由 wall-clock 相减" },
-          "measured": { "type": "boolean" },
-          "retry": { "type": "integer" },
-          "abort": { "type": "boolean" },
-          "test_count": { "type": "integer" },
-          "runtime_identity": { "type": "object" },
-          "evidence_ids": { "type": "array", "items": { "type": "string" } },
-          "exec_exit_code": { "type": ["integer", "null"] },
-          "recorded_at": { "type": "string" }
+          "timing_id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "slice": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "activity_class": {
+            "enum": [
+              "implementation",
+              "automated_test",
+              "manual_e2e",
+              "provider_wait",
+              "user_wait",
+              "interruption_recovery",
+              "rework"
+            ]
+          },
+          "wait_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "仅 *_wait 类必填：provider_latency/quota_limit/user_review/user_input/environment_provision/other:<说明>"
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC 3339 UTC"
+          },
+          "ended_at": {
+            "type": "string",
+            "description": "RFC 3339 UTC"
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "measured=true 时由 monotonic clock 测量，不得由 wall-clock 相减"
+          },
+          "measured": {
+            "type": "boolean"
+          },
+          "retry": {
+            "type": "integer"
+          },
+          "abort": {
+            "type": "boolean"
+          },
+          "test_count": {
+            "type": "integer"
+          },
+          "runtime_identity": {
+            "type": "object"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exec_exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recorded_at": {
+            "type": "string"
+          }
         }
       }
     },
-
     "events": {
       "type": "array",
       "description": "含 checkpoint（type=checkpoint：slice/note/at/head/dirty_patch_sha256，目标每 90–120 分钟一次；间隔超 120 分钟触发 advisory 级 TIMING_GAP，不拦截）与 receipt_invalidated 等事件"
+    },
+    "applicability": {
+      "type": "object",
+      "description": "适用性判定（init 从 manifest 冻结）。三维必须全部显式声明，否则 APPLICABILITY_UNDECLARED；声明 true 则场景矩阵必须兑现对应条件，否则 APPLICABILITY_GATE_UNSATISFIED。",
+      "properties": {
+        "input_sensitive": {
+          "type": "object",
+          "required": [
+            "value",
+            "rationale",
+            "decided_by"
+          ],
+          "properties": {
+            "value": {
+              "type": "boolean",
+              "description": "该维度是否适用于本次交付"
+            },
+            "rationale": {
+              "type": "string",
+              "minLength": 10,
+              "description": "判定依据。判 false（不适用）时尤其重要——它是事后追责的唯一抓手"
+            },
+            "decided_by": {
+              "enum": [
+                "agent",
+                "user"
+              ],
+              "description": "谁做的判定。agent 自决合法，但会连同理由一并进 receipt digest 与报告"
+            }
+          }
+        },
+        "llm_payload_driven": {
+          "type": "object",
+          "required": [
+            "value",
+            "rationale",
+            "decided_by"
+          ],
+          "properties": {
+            "value": {
+              "type": "boolean",
+              "description": "该维度是否适用于本次交付"
+            },
+            "rationale": {
+              "type": "string",
+              "minLength": 10,
+              "description": "判定依据。判 false（不适用）时尤其重要——它是事后追责的唯一抓手"
+            },
+            "decided_by": {
+              "enum": [
+                "agent",
+                "user"
+              ],
+              "description": "谁做的判定。agent 自决合法，但会连同理由一并进 receipt digest 与报告"
+            }
+          }
+        },
+        "stateful_init": {
+          "type": "object",
+          "required": [
+            "value",
+            "rationale",
+            "decided_by"
+          ],
+          "properties": {
+            "value": {
+              "type": "boolean",
+              "description": "该维度是否适用于本次交付"
+            },
+            "rationale": {
+              "type": "string",
+              "minLength": 10,
+              "description": "判定依据。判 false（不适用）时尤其重要——它是事后追责的唯一抓手"
+            },
+            "decided_by": {
+              "enum": [
+                "agent",
+                "user"
+              ],
+              "description": "谁做的判定。agent 自决合法，但会连同理由一并进 receipt digest 与报告"
+            }
+          }
+        }
+      }
+    },
+    "executor_engine": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "执行实现的引擎标识。与 auditor.engine 相同 → AUDITOR_INDEPENDENCE_UNVERIFIED（advisory 曝光自审自判）"
+    },
+    "integrity": {
+      "type": "object",
+      "description": "写入链（tamper-evident）。每次 CLI 写入追加一条 log；chain_n = sha256(chain_{n-1} + op + facts_digest_n)。validator 重算全链并核对末条 facts_digest 是否等于当前 fact 快照——不等即账本在 CLI 之外被改过。它防的是顺手改一行，不是有决心的伪造（伪造者可重算整链，但那是显式行为）。",
+      "required": [
+        "chain",
+        "log"
+      ],
+      "properties": {
+        "chain": {
+          "type": "string",
+          "description": "当前链头（末条 log 的 chain）"
+        },
+        "log": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "seq",
+              "op",
+              "facts_digest",
+              "chain"
+            ],
+            "properties": {
+              "seq": {
+                "type": "integer"
+              },
+              "op": {
+                "type": "string"
+              },
+              "facts_digest": {
+                "type": "string"
+              },
+              "chain": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "doc_only_globs": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "项目自定义的 doc-only 白名单。**只能收窄**：最终判定 = 默认白名单 ∩ 本列表。不能用它把代码目录说成文档（manifest 由被测者自写，自报即生效的开关等于没有门）。"
+    },
+    "superseded_evidence": {
+      "type": "array",
+      "description": "被 `attach-evidence --replace` 顶替的旧证据条目（路径 + 旧 sha256 + 时间）。重测后证据文件会更新，没有合法更新路径时只能整轮重来；顶替动作进 integrity 链并在 report 显形，不是静默覆盖。",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "superseded_at": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "attestations": {
+      "type": "array",
+      "description": "历次 `re-attest` 记录：change_kind(doc-only|behavioral)、reason、changed_paths、runs_index。behavioral 之后 required 场景必须有更晚的 root PASS（RETEST_REQUIRED_AFTER_CHANGE）。",
+      "items": {
+        "type": "object",
+        "required": [
+          "change_kind",
+          "recorded_at"
+        ],
+        "properties": {
+          "change_kind": {
+            "enum": [
+              "doc-only",
+              "behavioral"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "changed_count": {
+            "type": "integer"
+          },
+          "changed_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runs_index": {
+            "type": "integer"
+          },
+          "recorded_at": {
+            "type": "string"
+          },
+          "content_digest": {
+            "type": "string"
+          },
+          "exclusions": {
+            "type": "array"
+          },
+          "exclusion_count": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "related_run_dirs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "拆 slice 时声明的兄弟 run 目录；init 校验其形态（.../verification/<单层>）与存在性后冻结。"
+    },
+    "exclusion_scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "init 时冻结的指纹排除范围（当前 run-dir + related_run_dirs）。事后往仓库塞任何文件都不改变它。"
+    },
+    "retired": {
+      "type": "boolean",
+      "description": "该 run 已被另一个通过的 run 取代而退役；仅影响 hook/CI 是否阻断，不改变账本的真实状态。"
+    },
+    "superseded_by": {
+      "type": "string",
+      "description": "继任 run 目录；retire 时校验其为非 fixture、SHIPPABLE 且 receipt 未失效。"
+    },
+    "retired_reason": {
+      "type": "string"
     }
   }
 }
