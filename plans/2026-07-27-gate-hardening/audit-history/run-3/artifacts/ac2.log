@@ -1,0 +1,10 @@
+test_cli_writes_keep_chain_valid (__main__.IntegrityTestCase)
+正样本：全程走 CLI 的账本链必须自洽。 ... ok
+test_dropped_chain_entry_detected (__main__.IntegrityTestCase) ... ok
+test_handedited_result_detected (__main__.IntegrityTestCase)
+把 fail 手改成 pass（不经 CLI）→ LEDGER_TAMPERED。 ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.336s
+
+OK

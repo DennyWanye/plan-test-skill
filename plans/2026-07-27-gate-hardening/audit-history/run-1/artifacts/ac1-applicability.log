@@ -1,0 +1,21 @@
+test_decided_by_must_be_agent_or_user (__main__.ApplicabilityTestCase) ... ok
+test_declaration_lands_in_report (__main__.ApplicabilityTestCase)
+判定必须在人读报告里可见，否则等于没入账。 ... ok
+test_false_declaration_needs_rationale (__main__.ApplicabilityTestCase)
+判「不适用」必须写理由——理由本身进 receipt digest，事后可追责。 ... ok
+test_init_warns_when_undeclared (__main__.ApplicabilityTestCase) ... ok
+test_input_sensitive_needs_distinct_classes (__main__.ApplicabilityTestCase)
+判「适用」就必须真的兑现：语义不等价输入类别 <3 → FAIL。 ... ok
+test_input_sensitive_needs_positive_value_scenario (__main__.ApplicabilityTestCase)
+全是负向安全场景 → 「诚实降级成功」不等于产品质量 PASS。 ... ok
+test_llm_payload_driven_needs_sampling (__main__.ApplicabilityTestCase) ... ok
+test_satisfied_matrix_passes (__main__.ApplicabilityTestCase)
+正样本：判「适用」且矩阵真的兑现 → 不产生适用性诊断（防门只会拒绝）。 ... ok
+test_stateful_init_needs_cold_start (__main__.ApplicabilityTestCase) ... ok
+test_undeclared_blocks (__main__.ApplicabilityTestCase)
+完全不声明适用性 → 拦截（此前是默认状态，无人可查）。 ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 1.115s
+
+OK

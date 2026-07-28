@@ -1,0 +1,8 @@
+test_fail_companion_conflict (__main__.FixtureReplayTestCase) ... ok
+test_pass_minimal (__main__.FixtureReplayTestCase) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.750s
+
+OK
+PROVENANCE: VERIFIED (fail-companion-conflict)

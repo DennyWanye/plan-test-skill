@@ -1,0 +1,114 @@
+{
+  "acceptance_path": "plans/2026-07-27-gate-hardening/acceptance.md",
+  "acceptance_sha256": "b793c1ac47b5d54aa810896f9eb0eb72dc0e8b6e24b0a9f5af806c55c96cf82c",
+  "applicability": {
+    "input_sensitive": {
+      "decided_by": "agent",
+      "rationale": "被测对象是确定性 CLI（plan_test_gate.py）与 Markdown 文档，输出不随输入语义变化；无 LLM 生成路径",
+      "value": false
+    },
+    "llm_payload_driven": {
+      "decided_by": "agent",
+      "rationale": "不存在 LLM 结构化载荷驱动端侧状态机或卡片渲染的路径",
+      "value": false
+    },
+    "stateful_init": {
+      "decided_by": "agent",
+      "rationale": "纯 stdlib 脚本，无异步注册服务、远程配置或登录态依赖，不存在冷启动路径",
+      "value": false
+    }
+  },
+  "evidence": [
+    {
+      "kind": "primary",
+      "path": "artifacts/ac1-applicability.log",
+      "scenario": "AC-1-applicability",
+      "sha256": "e519689bb5108f80"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac2-integrity.log",
+      "scenario": "AC-2-ledger-integrity",
+      "sha256": "5fec99407d2b1b19"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac3-auditor.log",
+      "scenario": "AC-3-auditor-consistency",
+      "sha256": "0338e7fe37e7b0ab"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac4-fixture-exit3.log",
+      "scenario": "AC-4-fixture-exit3",
+      "sha256": "4ec9adde544e1ac7"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac5-no-regression.log",
+      "scenario": "AC-5-no-regression",
+      "sha256": "1f0b1b7f61840461"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac5-full-suite.log",
+      "scenario": "AC-5-no-regression",
+      "sha256": "7f5cbce78621db94"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac7-hook-enforcement.log",
+      "scenario": "AC-7-hook-enforcement",
+      "sha256": "dd51286aee861eba"
+    }
+  ],
+  "frozen_for": "full-audit",
+  "integrity_chain": "1261e2a5b557e809",
+  "ledger_revision": 15,
+  "runs": [
+    {
+      "business_terminal": "10/10 通过，含正样本不误报",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "business_terminal": "3/3 通过，手改与删链条目均被捕获",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "business_terminal": "3/3 通过，两种形式均拒绝改判",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "business_terminal": "pass-minimal 回放返回 exit 3",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "business_terminal": "39c592c 用例零丢失，50/50 全绿",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "business_terminal": "放行 0 / 阻止 2 / bash3.2 兼容",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    }
+  ],
+  "scenarios": [
+    "AC-1-applicability",
+    "AC-2-ledger-integrity",
+    "AC-3-auditor-consistency",
+    "AC-4-fixture-exit3",
+    "AC-5-no-regression",
+    "AC-7-hook-enforcement"
+  ]
+}

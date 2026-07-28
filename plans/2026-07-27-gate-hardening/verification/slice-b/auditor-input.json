@@ -1,0 +1,164 @@
+{
+  "acceptance_sha256": "97483cade7df1a03f01485a36b980d6d50c246031a4ca96895718d468a9c19b5",
+  "content_digest": "e261dedfe94c552d",
+  "evidence": [
+    {
+      "path": "artifacts/ac5.log",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "path": "artifacts/ac6.log",
+      "scenario": "AC-6-deadlock-docs"
+    },
+    {
+      "path": "artifacts/ac7.log",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "path": "artifacts/ac8.log",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "path": "artifacts/ac10.log",
+      "scenario": "AC-10-reattest"
+    },
+    {
+      "path": "artifacts/ac11.log",
+      "scenario": "AC-11-honest-gaps"
+    },
+    {
+      "path": "artifacts/ac12.log",
+      "scenario": "AC-12-slice-isolation"
+    }
+  ],
+  "exclusion_scope": [
+    "plans/2026-07-27-gate-hardening/verification/slice-a",
+    "plans/2026-07-27-gate-hardening/verification/slice-b"
+  ],
+  "frozen_for": "full-audit slice-b (round 7)",
+  "integrity_chain": "dbcd83d3eb4e72e6",
+  "ledger_revision": 60,
+  "runs": [
+    {
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-6-deadlock-docs"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-10-reattest"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-11-honest-gaps"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-12-slice-isolation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-6-deadlock-docs"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-10-reattest"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-11-honest-gaps"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-12-slice-isolation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-6-deadlock-docs"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-10-reattest"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-11-honest-gaps"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-12-slice-isolation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-6-deadlock-docs"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-10-reattest"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-11-honest-gaps"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-12-slice-isolation"
+    }
+  ],
+  "scenarios": [
+    "AC-5-no-regression",
+    "AC-7-hook-enforcement",
+    "AC-8-content-attestation",
+    "AC-10-reattest",
+    "AC-11-honest-gaps",
+    "AC-6-deadlock-docs",
+    "AC-12-slice-isolation"
+  ]
+}

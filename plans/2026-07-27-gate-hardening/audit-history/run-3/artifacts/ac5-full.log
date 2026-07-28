@@ -1,0 +1,110 @@
+test_decided_by_must_be_agent_or_user (__main__.ApplicabilityTestCase) ... ok
+test_declaration_lands_in_report (__main__.ApplicabilityTestCase)
+判定必须在人读报告里可见，否则等于没入账。 ... ok
+test_false_declaration_needs_rationale (__main__.ApplicabilityTestCase)
+判「不适用」必须写理由——理由本身进 receipt digest，事后可追责。 ... ok
+test_init_warns_when_undeclared (__main__.ApplicabilityTestCase) ... ok
+test_input_sensitive_needs_distinct_classes (__main__.ApplicabilityTestCase)
+判「适用」就必须真的兑现：语义不等价输入类别 <3 → FAIL。 ... ok
+test_input_sensitive_needs_positive_value_scenario (__main__.ApplicabilityTestCase)
+全是负向安全场景 → 「诚实降级成功」不等于产品质量 PASS。 ... ok
+test_llm_payload_driven_needs_sampling (__main__.ApplicabilityTestCase) ... ok
+test_satisfied_matrix_passes (__main__.ApplicabilityTestCase)
+正样本：判「适用」且矩阵真的兑现 → 不产生适用性诊断（防门只会拒绝）。 ... ok
+test_stateful_init_needs_cold_start (__main__.ApplicabilityTestCase) ... ok
+test_undeclared_blocks (__main__.ApplicabilityTestCase)
+完全不声明适用性 → 拦截（此前是默认状态，无人可查）。 ... ok
+test_cli_cannot_overrule_audit_artifact (__main__.AuditorIndependenceTestCase)
+审计报告写 FAIL、命令行敲 PASS → 直接拒绝（exit 2）。 ... ok
+test_self_audit_exposed_as_advisory (__main__.AuditorIndependenceTestCase)
+自审自判不拦截，但必须在输出与报告里曝光。 ... ok
+test_verdict_line_form_also_checked (__main__.AuditorIndependenceTestCase)
+非 JSON 的审计产物按末行 VERDICT: X 解析（与子代理结论行契约一致）。 ... ok
+test_unparseable_output_rejected (__main__.AuditorVerdictSourceTestCase) ... ok
+test_fail_companion_conflict (__main__.FixtureReplayTestCase) ... ok
+test_pass_minimal (__main__.FixtureReplayTestCase) ... ok
+test_adapter_unknown_blocks (__main__.GateTestCase)
+运行旧 binary/身份无法闭环（adapter UNKNOWN）→ FAIL。 ... ok
+test_audit_stale_after_fact_change (__main__.GateTestCase)
+full-audit 后结果变更 → 旧审计 PASS 失效。 ... ok
+test_behavior_change_without_approval_artifact (__main__.GateTestCase) ... ok
+test_check_only_ready_without_audit (__main__.GateTestCase)
+预检不因'审计尚未执行'而无法进入审计阶段。 ... ok
+test_companion_history_dogfood_three_conflicts (__main__.GateTestCase)
+normalized fixture 复刻 2026-07-24 Companion 计划的真实矛盾： ... ok
+test_delivery_ship_with_partial_manual_test (__main__.GateTestCase)
+delivery=SHIP + manual-test=PARTIAL → FAIL。 ... ok
+test_derived_only_evidence_rejected (__main__.GateTestCase) ... ok
+test_evidence_dependency_cycle (__main__.GateTestCase)
+manual-results 与 delivery-audit 互相引用 → 拒绝环。 ... ok
+test_evidence_missing_and_hash_mismatch (__main__.GateTestCase) ... ok
+test_expected_run_created_unverified (__main__.GateTestCase)
+多阶段场景缺 Session/Run ID → FAIL。 ... ok
+test_frozen_oracle_mutation_without_approval (__main__.GateTestCase)
+既有测试 oracle 被放宽/反转但无 behavior_change_id → FAIL。 ... ok
+test_full_pass_path_and_receipt_idempotent (__main__.GateTestCase) ... ok
+test_invalidate_receipt (__main__.GateTestCase) ... ok
+test_positive_value_needs_business_terminal (__main__.GateTestCase)
+engine completed 但业务终态 insufficient → 不算正向 PASS。 ... ok
+test_record_run_rejects_unknown_scenario (__main__.GateTestCase)
+不许测后补场景。 ... ok
+test_release_unit_too_large (__main__.GateTestCase)
+计划超复杂度预算未拆 slice → FAIL（Companion: 16 MUST AC / 17 Task / 4676 行）。 ... ok
+test_required_lane_closure (__main__.GateTestCase)
+fresh lane PASS、history lane 未执行 → FAIL。 ... ok
+test_required_scenario_not_run (__main__.GateTestCase) ... ok
+test_retry_does_not_count_as_root (__main__.GateTestCase)
+retry/continuation 不能冒充独立场景执行。 ... ok
+test_status_conflict_declared_pass_vs_ledger (__main__.GateTestCase)
+RESULTS 声称 PASS 而账本 NOT_RUN → STATUS_CONFLICT。 ... ok
+test_stochastic_sampling (__main__.GateTestCase)
+高风险非确定性场景 1/3 成功 → 采样不足，不得 SHIP。 ... ok
+test_stochastic_single_run_insufficient (__main__.GateTestCase) ... ok
+test_ui_scenario_needs_ui_action_evidence (__main__.GateTestCase) ... ok
+test_cli_writes_keep_chain_valid (__main__.IntegrityTestCase)
+正样本：全程走 CLI 的账本链必须自洽。 ... ok
+test_dropped_chain_entry_detected (__main__.IntegrityTestCase) ... ok
+test_handedited_result_detected (__main__.IntegrityTestCase)
+把 fail 手改成 pass（不经 CLI）→ LEDGER_TAMPERED。 ... ok
+test_behavioral_change_requires_retest (__main__.ReAttestTestCase)
+改代码 → re-attest 判 behavioral → 旧 PASS 不再作数，必须重跑。 ... ok
+test_commit_without_content_change_still_passes (__main__.ReAttestTestCase)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.ReAttestTestCase)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.ReAttestTestCase)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_doc_only_change_can_re_attest_and_pass (__main__.ReAttestTestCase)
+文档回写 → re-attest 判 doc-only → 既有测试结论继续有效，门恢复绿。 ... ok
+test_doc_only_claim_is_machine_decided (__main__.ReAttestTestCase)
+混合变更不能被说成 doc-only——判定看路径，不看申报。 ... ok
+test_mode_change_counts_as_content_change (__main__.ReAttestTestCase)
+可执行位变化也是交付差异（独立审计点名的缺口）。 ... ok
+test_new_untracked_file_is_content_change (__main__.ReAttestTestCase)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_no_change_is_noop (__main__.ReAttestTestCase) ... ok
+test_run_dir_excluded_with_relative_path (__main__.ReAttestTestCase)
+run-dir 用相对路径传入时也必须被排除。 ... ok
+test_commit_without_content_change_still_passes (__main__.RealRepoAttestationTestCase)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.RealRepoAttestationTestCase)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.RealRepoAttestationTestCase)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_new_untracked_file_is_content_change (__main__.RealRepoAttestationTestCase)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_activity_class_and_wait_reason_enforced (__main__.TimingTestCase) ... ok
+test_checkpoint_recorded (__main__.TimingTestCase) ... ok
+test_declared_mode_forced_unmeasured (__main__.TimingTestCase) ... ok
+test_declared_rejects_bad_rfc3339_and_negative (__main__.TimingTestCase) ... ok
+test_diag_order_canonical_and_idempotent (__main__.TimingTestCase)
+Companion 组合下 DIAG 顺序 = canonical 序，且两次重跑逐字节相同。 ... ok
+test_exec_failure_propagates_exit_code (__main__.TimingTestCase) ... ok
+test_exec_mode_measures_monotonic (__main__.TimingTestCase) ... ok
+test_schema_major_mismatch_rejected (__main__.TimingTestCase) ... ok
+test_timing_gap_advisory_does_not_block (__main__.TimingTestCase) ... ok
+
+----------------------------------------------------------------------
+Ran 65 tests in 10.326s
+
+OK

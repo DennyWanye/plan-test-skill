@@ -1,0 +1,11 @@
+test_cli_cannot_overrule_audit_artifact (__main__.AuditorIndependenceTestCase)
+审计报告写 FAIL、命令行敲 PASS → 直接拒绝（exit 2）。 ... ok
+test_self_audit_exposed_as_advisory (__main__.AuditorIndependenceTestCase)
+自审自判不拦截，但必须在输出与报告里曝光。 ... ok
+test_verdict_line_form_also_checked (__main__.AuditorIndependenceTestCase)
+非 JSON 的审计产物按末行 VERDICT: X 解析（与子代理结论行契约一致）。 ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.334s
+
+OK

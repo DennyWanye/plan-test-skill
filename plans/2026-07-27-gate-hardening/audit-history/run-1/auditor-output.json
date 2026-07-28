@@ -1,0 +1,62 @@
+{
+  "verdict": "FAIL",
+  "engine": "claude-subagent(general-purpose)",
+  "ac_findings": [
+    {
+      "ac": "AC-1",
+      "closed": true,
+      "evidence": "artifacts/ac1-applicability.log（10/10 OK）；test_plan_test_gate.py:672-692 test_satisfied_matrix_passes 是真正的正样本——三维全判「适用」且矩阵兑现，断言 assertNotIn('APPLICABILITY', stdout) 且 returncode==0；plan_test_gate.py:438-488 validate_applicability 的三条兑现分支与 config.md 阈值一致。",
+      "note": "独立复核了实现者未直接断言的那条声明：applicability.rationale 确实进 receipt digest。我用 build_receipt 对同一账本改一个字的 rationale 重算，content_digest 变化（经 ledger_sha256 覆盖整个账本）；另外手改 rationale 后 finalize --check-only 立刻报 LEDGER_TAMPERED。所以「理由进 receipt digest、事后可追责」不是虚假声明。唯一不足是 test_false_declaration_needs_rationale 的 docstring 宣称了 digest 覆盖但测试本身只断言了拦截——覆盖是真的，测试没测它。"
+    },
+    {
+      "ac": "AC-2",
+      "closed": true,
+      "evidence": "artifacts/ac2-integrity.log（3/3 OK，含正样本 test_cli_writes_keep_chain_valid）；plan_test_gate.py:398-433 integrity_append/integrity_check；我自己在 scratch run-dir 手改 applicability.rationale 后 check-only 立即报 'LEDGER_TAMPERED: 当前 fact 与最后一条链条目不符'。",
+      "note": "链确实能被重算绕过（伪造者重写整条 log 即可）。关键在文档是否诚实——实现者没有夸大：gate/PROTOCOL.md §5.13 与 config.md:155 都写明「它防的是顺手改，不是有决心的伪造——伪造者可以重算整条链」。声明与能力一致，判闭环。"
+    },
+    {
+      "ac": "AC-3",
+      "closed": true,
+      "evidence": "artifacts/ac3-auditor.log（3/3 OK）；plan_test_gate.py:1157-1160 cmd_audit 在写账本前拒绝不一致（exit 2）；read_output_verdict:491-513 同时识别 JSON verdict 字段与文末 VERDICT: 行；validate:762-769 自审自判走 severity='advisory'，不进 blocking()。",
+      "note": "按 AC 字面闭环，但有一个未标注的缺口（见 unclosed_gaps）：read_output_verdict 读不出 verdict 时返回 None，cmd_audit 与 validate 都用 `if file_verdict and ...` 短路，等于静默采信命令行。我实测：把 auditor-output.json 换成没有 VERDICT 行的纯文本，`audit --verdict PASS` 返回 exit 0、无任何警告或 advisory。代码注释写「读不出来返回 None——不臆测，交给人看」，但实际上没有任何东西被交给人看。"
+    },
+    {
+      "ac": "AC-4",
+      "closed": true,
+      "evidence": "artifacts/ac4-fixture-exit3.log；plan_test_gate.py:1206-1210（finalize）与 1287-1288（render）两处都 sys.exit(FIXTURE_EXIT)；我手工回放 pass-minimal fixture：finalize exit=3、render exit=3；test_pass_minimal:918 断言 FIXTURE_EXIT；GateTestCase 全 PASS 路径的 6 处 assertEqual(...,0) 已全部改成 FIXTURE_EXIT（git diff 逐条核对）。",
+      "note": "finalize 与 render 两处均生效，AC 字面闭环。check-only 对 fixture run 仍返回 0（我实测），AC 未要求、单看也算合理（预检不产出 receipt）；但它与 AC-7 的 hook 组合出一条绕过（见 unclosed_gaps）——hook 只跑 check-only，fixture_only=true 的账本既跳过全部 git 校验又能让 hook 放行。"
+    },
+    {
+      "ac": "AC-5",
+      "closed": true,
+      "evidence": "artifacts/ac5-no-regression.log 的「缺失用例」一节确为空。我不采信该日志、独立重算：`git show 39c592c:...test_plan_test_gate.py` 提取 test 函数名 34 个，当前 50 个，comm -23 输出为空、comm -13 恰为日志所列 16 条新增。另跑 `git diff 39c592c` 逐条核对被删除行：只有 6 处 assertEqual(returncode,0)→FIXTURE_EXIT 与两处基类改名，无任何断言被删弱。我自己跑全量自测：Ran 50 tests, OK。",
+      "note": "本条是七条里证据最扎实、最经得起独立复算的一条。名字集合零丢失，且我额外查了「名字保留但函数体被掏空」这种糊弄方式，不存在。"
+    },
+    {
+      "ac": "AC-6",
+      "closed": false,
+      "evidence": "四处死结中第一处（receipt vs 文档回写，phase-final-dod.md:5-17 ⓪）与第四处（冷路径 vs 全表面冒烟，phase-4-stage-gate.md:76-79）经实测均不可执行。第二处（phase-4:145 + phase-5:38-44 的 declare-status→重跑 check-only）与第三处（phase-5:8-15 实际结果写 results/<run-id>.md，冻结集只覆盖 manifest.testcase_files，已核对 plan_test_gate.py:617/937）确实可执行。",
+      "note": "这是我判 FAIL 的决定性一条。①⓪ 规定「先文档回写 → 提交 → 再跑机器门」，但 baseline.head 在 phase-4 init 就冻结，且全脚本没有任何重新 attest 的子命令（runtime_attestation 只有 init:921 一个写入点）。我在一个 throwaway git repo 跑完整流程实测：init/record/audit 后按 ⓪ 提交一次文档，finalize 立刻 `DIAG TESTED_RUNTIME_MISMATCH ... FINALIZE: FAIL（不生成 receipt）`。②改走 ⓪ step4「finalize 之后单独提交 run-dir」，receipt 保住了，但紧接着的 `finalize --check-only`（正是 AC-7 hook 跑的那条命令）报 TESTED_RUNTIME_MISMATCH / NOT_READY，hook exit 2，会话永久收不了尾，文档未给任何出路。旧死结没被解开，只是挪到了下一步、并且和 AC-7 撞车。③第四处：② 的新按语要求「冷路径排在本节 1–8 之前，跑完即 record-run 入账」，但账本 init 写在同一节的「昂贵层前置 2」（第 7、8 步之间）。我实测 init 之前 record-run 直接 FileNotFoundError（.ledger.lock）。要么违反新按语的「跑完即入账」，要么违反 phase-4:132「事后凭印象补账 = 无账」。给出的顺序不可执行，属于「换了个说法」而非真修。"
+    },
+    {
+      "ac": "AC-7",
+      "closed": true,
+      "evidence": "artifacts/ac7-hook-enforcement.log；我在隔离沙箱独立复跑：无账本 exit=0；init 出一个 required=NOT_RUN 的账本后 exit=2 并回灌 REQUIRED_SCENARIO_NOT_RUN 诊断；`bash -n` 在 GNU bash 3.2.57(1)-release (arm64-apple-darwin25) 下通过。脚本用 while-read 而非 mapfile、`$?` 取赋值语句的命令替换退出码，bash 3.2 语义正确。",
+      "note": "AC 字面三项全部闭环，且「无账本即放行」本就是 AC 明文要求的行为，不能算它的缺陷。S 档不建 run-dir 时 hook 完全失效这一点，在脚本头部注释与 hooks/README.md 正文里都写明了。但 hooks/README.md 的总结表把 Stop hook 在「不跑脚本」一列标成 ✓——对「跑了 init 但没跑完 finalize」成立，对「压根不跑」不成立，与它自己上方的正文互相矛盾（见 overstated_claims）。"
+    }
+  ],
+  "unclosed_gaps": [
+    "AC-6 第一处：phase-final ⓪ 规定的收尾顺序实测不可执行。baseline.head 在 phase-4 init 冻结，脚本无重新 attest 的子命令，按 ⓪ 先提交文档再 finalize 必得 TESTED_RUNTIME_MISMATCH 且不生成 receipt；改走 ⓪ step4 先 finalize 再归档提交 run-dir，则此后 finalize --check-only 恒为 NOT_READY，AC-7 的 Stop hook 会 exit 2 卡死收尾。文档未给任何出路。",
+    "AC-6 第四处：phase-4 ② 新按语要求冷路径在 1–8 步之前跑完并立即 record-run，但账本 init 位于同节第 7、8 步之间；init 前 record-run 直接抛 FileNotFoundError。顺序自相矛盾未解。",
+    "AC-3：auditor-output 无法解析出 verdict（无 VERDICT 行、JSON 无 verdict 字段、文件读失败）时 read_output_verdict 返回 None，cmd_audit 与 validate 双双短路，命令行 --verdict 被静默采信——实测 exit 0，无警告、无 advisory、report.md 里也不留痕。这是「审计产物优先于命令行」的一条零成本绕过路径，代码与 PROTOCOL §5.14 均未标注。建议至少降级为 advisory 曝光。",
+    "AC-4/AC-7 组合：fixture_only=true 的账本跳过全部 git/HEAD/dirty 校验，而 finalize --check-only 对它返回 0，Stop hook 只跑 check-only 且只 prune 路径含 /fixtures/ 的账本。把一个 fixture_only 账本放在 */verification/* 下即可让 hook 放行。exit 3 的隔离只做在 finalize/render，没做在 hook 实际使用的那条命令上。",
+    "AC-6 第一处的连带问题：config.md:103-106 的 COMMIT_STATE_GATE 定义与 phase-final-dod.md:45 的 DoD 勾选项都要求 `git status --porcelain` 无条件为空、「非空即 DoD FAIL」，均未为 run-dir 开口子；phase-final ⓪ step4 的「run-dir 不参与 COMMIT_STATE_GATE 判定」只写在 ⓪ 一处，且它引用的论据（dirty 指纹排除 run-dir）证明的是 validator 的 repo_dirty_digest，不是用 porcelain 判定的 COMMIT_STATE_GATE——两者被混为一谈。",
+    "AC-7 边界：run-dir 只建了 artifacts/ 而没有 plan-test-run.json 时（init 失败的半截状态），hook 的 find 匹配不到账本，静默放行。实测复现。"
+  ],
+  "overstated_claims": [
+    "acceptance.md AC-6 声称四处时序死结「各在对应 phase 文档给出明确顺序」，账本 AC-6 无对应 scenario（按 AC 约定为人工核对）。实测四处中的第一处与第四处给出的顺序照做必然失败，属于给了说法而非给了可执行的顺序。",
+    "phase-final-dod.md:15 「run-dir 内的产物……不参与 COMMIT_STATE_GATE 判定——dirty 指纹本就显式排除 run-dir（PROTOCOL §5.7）」：前半句的规范依据不成立。repo_dirty_digest 排除 run-dir 只影响 validator 的 TESTED_RUNTIME_MISMATCH，而 COMMIT_STATE_GATE 在 config.md 与 DoD 勾选项里是用 `git status --porcelain` 判的，未跟踪的 run-dir 文件会让它非空。用前者的实现细节为后者背书是不成立的推导。",
+    "plan_test_gate.py:494 注释「读不出来返回 None——不臆测，交给人看」：实测没有任何东西被交给人看。stdout 无提示、无 advisory 诊断、report.md 无记录，人不可能知道这次审计的产物根本没被交叉核对过。",
+    "hooks/README.md 的能力表把 Stop hook 在「不跑脚本」一列标为 ✓（本地）。它只堵得住「建了账本但没跑完 finalize」，堵不住「压根没 init」——而后者才是该列字面所指。同一文件上方正文已写明「没开账本的会话完全不受影响」，表与正文互相矛盾，表的说法偏乐观。"
+  ]
+}

@@ -1,0 +1,138 @@
+{
+  "acceptance_sha256": "97483cade7df1a03f01485a36b980d6d50c246031a4ca96895718d468a9c19b5",
+  "content_digest": "e261dedfe94c552d",
+  "evidence": [
+    {
+      "path": "artifacts/ac1.log",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "path": "artifacts/ac2.log",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "path": "artifacts/ac3.log",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "path": "artifacts/ac4.log",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "path": "artifacts/ac9.log",
+      "scenario": "AC-9-auditor-artifact"
+    },
+    {
+      "path": "artifacts/full-suite.log",
+      "scenario": "AC-1-applicability"
+    }
+  ],
+  "exclusion_scope": [
+    "plans/2026-07-27-gate-hardening/verification/slice-a",
+    "plans/2026-07-27-gate-hardening/verification/slice-b"
+  ],
+  "frozen_for": "full-audit slice-a (round 7)",
+  "integrity_chain": "d5c1086b3c027349",
+  "ledger_revision": 55,
+  "runs": [
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-9-auditor-artifact"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-9-auditor-artifact"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-9-auditor-artifact"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-9-auditor-artifact"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    }
+  ],
+  "scenarios": [
+    "AC-1-applicability",
+    "AC-2-ledger-integrity",
+    "AC-3-auditor-consistency",
+    "AC-4-fixture-exit3",
+    "AC-9-auditor-artifact"
+  ]
+}

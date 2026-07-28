@@ -1,0 +1,120 @@
+{
+  "verdict": "FAIL",
+  "engine": "claude-subagent(general-purpose)",
+  "round": 2,
+  "previous_findings_closed": [
+    {
+      "finding": "AC-6 死结①（决定性）：baseline 在 init 冻结、无重新 attest 手段，导致「先提交文档再 finalize」→ TESTED_RUNTIME_MISMATCH；改走「finalize 后单独提交 run-dir」→ 随后的 finalize --check-only NOT_READY，会话永久收不了尾。",
+      "closed": false,
+      "how_verified": "在 /tmp 下自建三个 throwaway git repo 真跑完整流程。**被 git commit 触发的那一半确实修好了**（见 AC-8）。但死结的根因——「attestation 在 init 冻结 + 全脚本无任何 re-attest 子命令」——**一字未动**，只是把触发条件从「git commit」换成了「改任何一个 run-dir 之外的文件」。而 phase-final ⓪ 的第 1 步恰恰强制要求改这些文件：我按 ⓪ 逐字执行（step1 写 docs/ARCHITECTURE.md → step2 finalize），得到 `DIAG TESTED_RUNTIME_MISMATCH ... FINALIZE: FAIL（不生成 receipt）` exit=1；照 ⓪ step5「相关场景必须重测重记」补记 root run 后重跑，仍 FAIL 并额外多一条 AUDITOR_INPUT_STALE；把文档提交后再跑，仍 FAIL（内容变了，提交与否无关）。更早的 phase-5 3c 同样断掉：init+record-run 后按文档把实际结果写到冻结集之外的 testcases/g/results/r.md 并同步 README 状态、declare-status，然后按文档要求「登记完立刻重跑一次预检」→ `TESTED_RUNTIME_MISMATCH` / NOT_READY / exit=1。唯一出路是 `init --force`，实测它把 runs 2→0、evidence 清零、auditor 置空（等于整轮重来），且 `grep -rn '重新 init|重开新 run|换目录|--force|重新开账' skills/plan-test/*.md skills/plan-test/gate/*.md` **零命中**——文档没给任何出路。"
+    },
+    {
+      "finding": "AC-6 死结②冷路径：文档要求冷路径先跑并 record-run，但账本 init 在同一节更后面，init 前 record-run 会 FileNotFoundError。",
+      "closed": true,
+      "how_verified": "phase-4-stage-gate.md ② 的按语已改成明确的三段序：「第 0 步 gate init 开账（见本节末「昂贵层前置 2」，冷路径适用时必须提前到这里做，否则 record-run 会因账本不存在而报错）→ ③ 冷路径场景实跑并 record-run 入账 → 本节 1–8」，并补了「冷路径不适用时，init 仍按「昂贵层前置 2」的位置执行即可」。init 提到了 record-run 之前，顺序可执行。（附带核对：init 需要 manifest 的 testcase_files hash，而「昂贵层前置：testcase 冻结」原本只要求「进入昂贵层前」完成，把它一并提前是更严不是更松，不构成新矛盾。）"
+    },
+    {
+      "finding": "COMMIT_STATE_GATE 与 run-dir 混为一谈：config.md 与 phase-final-dod.md 的提交态门用无条件 `git status --porcelain`，未为 run-dir 开口子。",
+      "closed": false,
+      "how_verified": "主体已修：config.md:104、phase-final-dod.md:20/49/74 四处均已改为 `git status --porcelain -- . ':(exclude)<run-dir>'`，并各自写明「排除 gate run-dir，否则刚写入的 receipt/report 会让本门自己失败」，不再拿 repo_dirty_digest 的实现细节为它背书。**但全文仍有残留**：`skills/plan-task/SKILL.md:71` 仍写「宣布完成前 `git status --porcelain` 必须为空（`COMMIT_STATE_GATE`）」——它显式点名同一道门却用旧写法，与 config.md 的定义冲突；plan-task 是与 plan-test 并列的入口 skill，走的是同一套 phase 文档。（`phase-3-execute.md:18` 的裸 porcelain 出现在 phase-3 合并 worktree 阶段、run-dir 尚未创建，不算残留。）"
+    },
+    {
+      "finding": "AC-3 的静默放行：read_output_verdict 返回 None 时 cmd_audit 与 validate 双双短路，命令行 --verdict 被静默采信。",
+      "closed": true,
+      "how_verified": "两侧都真堵上了，我在 throwaway repo 实测：(1) CLI 侧——`audit --verdict PASS --output bad-output.txt`（内容为「我看了一遍，感觉没问题。」）→ stderr「读不到 verdict：……缺结论行按 FAIL 处理，不接受命令行代为申报」，exit=2；(2) validator 侧——把已入账的 auditor-output.json 换成无结论行的纯文本后 finalize，同时输出 `DIAG AUDITOR_VERDICT_MISMATCH: auditor-output（auditor-output.json）里读不到 verdict——审计结论无产物支撑` 与 `DIAG EVIDENCE_HASH_MISMATCH`。plan_test_gate.py:1244-1250 与 838-840 是两处独立防线。原来那句「读不出来返回 None——不臆测，交给人看」的注释也已改成与行为一致的表述。"
+    },
+    {
+      "finding": "fixture + hook 组合绕过：fixture_only=true 账本跳过全部 git 校验，而 finalize --check-only 对它返回 0，Stop hook 只看退出码即放行。",
+      "closed": true,
+      "how_verified": "隔离沙箱实测三情形：无账本 exit=0；required NOT_RUN 账本 exit=2 并回灌 REQUIRED_SCENARIO_NOT_RUN。关键的第三情形我特意构造成「check-only 自己返回 0」的合法 fixture 账本（rationale 补足 ≥10 字，避免被 APPLICABILITY_UNDECLARED 掩盖）：`finalize --check-only` 确实 exit=0（说明只看退出码仍会被绕），但 hook exit=2 并打印「该账本是 fixture-only（合成数据，跳过全部 git 校验），不能作为交付证据」。hook 用独立的 `python -c json.load(...).get('fixture_only')` 直读账本，不依赖退出码。另：`bash -n` 在 GNU bash 3.2.57(1)-release (arm64-apple-darwin25) 通过。"
+    },
+    {
+      "finding": "hooks/README 能力表把 Stop hook 在「压根不建账本」一列标成 ✓，与同文件正文自相矛盾。",
+      "closed": true,
+      "how_verified": "hooks/README.md 的表格现在 Stop hook 与 CI 两行在「压根不建账本」列都是加粗 **✗**，表下另起「两列必须如实标 ✗」一节，逐条说明 hook 只在发现 `*/verification/*/plan-test-run.json` 时才生效、要堵这一列只能由项目侧按改动面反查，并如实说明本目录不提供该规则。表与正文一致，不再乐观。"
+    },
+    {
+      "finding": "AC-7 边界：run-dir 只建了 artifacts/ 而没有 plan-test-run.json（init 失败的半截状态）时，hook 的 find 匹配不到账本，静默放行。",
+      "closed": false,
+      "how_verified": "实测仍复现：`mkdir -p plans/p/verification/run-half/artifacts` 后跑 hook，exit=0 静默放行。本轮 acceptance 未把它列成 AC（AC-9 只覆盖 fixture 一路），所以不算违约，但作为上一轮的未闭环项它仍然开着。"
+    }
+  ],
+  "ac_findings": [
+    {
+      "ac": "AC-1",
+      "closed": true,
+      "evidence": "artifacts/ac1-applicability.log（Ran 10 tests, OK）；我独立重跑全量自测 55/55 OK，ApplicabilityTestCase 10 条全绿，其中 test_satisfied_matrix_passes 是正样本（三维全判「适用」且矩阵兑现时不误报）。plan_test_gate.py:505-555 validate_applicability 的三条兑现分支与 config.md 的 MANUAL_MIN_DISTINCT_CLASSES / STOCHASTIC_MIN_RUNS / COLD_START_SCENARIO 阈值一致。",
+      "note": "我另外用 rationale 长度做了一次意外实验：把 fixture manifest 的 rationale 写成 8 个字符时 init 通过、check-only 直接 APPLICABILITY_UNDECLARED 拦下，说明 MIN_RATIONALE_CHARS 是真在跑的。run-1 指出的「test_false_declaration_needs_rationale 的 docstring 宣称 digest 覆盖但测试只断言拦截」本轮未改，不影响 AC 本身。"
+    },
+    {
+      "ac": "AC-2",
+      "closed": true,
+      "evidence": "artifacts/ac2-integrity.log（Ran 3 tests, OK，含正样本 test_cli_writes_keep_chain_valid）；全量自测中 IntegrityTestCase 3 条随 55/55 一起绿。integrity_append/integrity_check（plan_test_gate.py:465-500）逻辑未变，run-1 已实测过手改 run 记录与删链条目均被捕获。",
+      "note": "链能被有决心的伪造者重算整条绕过这一点，config.md:155 与 gate/PROTOCOL.md 仍如实标注，声明与能力一致。"
+    },
+    {
+      "ac": "AC-3",
+      "closed": true,
+      "evidence": "artifacts/ac3-auditor.log（Ran 3 tests, OK）；plan_test_gate.py:1244-1253 cmd_audit 先读产物再比对，不一致或读不出都 die(exit 2)；validate:836-844 双分支（None → 无产物支撑；不一致 → 值不符）；自审自判走 severity='advisory'，不进 blocking()。",
+      "note": "run-1 挂在这条上的静默绕过已被 AC-9 一并堵死，见 previous_findings_closed 第 4 条的实测。"
+    },
+    {
+      "ac": "AC-4",
+      "closed": true,
+      "evidence": "artifacts/ac4-fixture-exit3.log（FixtureReplayTestCase 2 条 OK + PROVENANCE: VERIFIED）；我不采信日志，在 throwaway repo 自建一个能走到 SHIPPABLE 的 fixture_only 账本（补齐 acceptance_file / source_request_text / baseline.head），实测 `finalize` exit=3 且 stdout 有「FIXTURE-ONLY：exit=3，本 receipt 不可作为真实交付证据」，`render` exit=3。",
+      "note": "check-only 对 fixture 仍返回 0（我实测），但 AC-9 已把这条口子交给 hook 直读 fixture_only 字段兜住，不再是绕过路径。"
+    },
+    {
+      "ac": "AC-5",
+      "closed": true,
+      "evidence": "我完全独立重算，不看 artifacts/ac5-no-regression.log：`git show 39c592c:...test_plan_test_gate.py` 提取 test 函数名 34 个，当前 55 个，`comm -23` 输出为空（零丢失），`comm -13` 恰为 21 条新增（比 run-1 多 5 条：RealRepoAttestationTestCase 4 + AuditorVerdictSourceTestCase 1）。自测全量 Ran 55 tests OK。",
+      "note": "专门查了「函数名保留、断言被掏空」这种假回归：用 ast 逐函数统计 assert*/fail* 调用数做 old vs new 对比，**断言数减少的用例为 0**，总断言数 105→150。git diff 里被删的 8 行 assert 全部是 `assertEqual(returncode, 0)` → `assertEqual(returncode, FIXTURE_EXIT)` 的成对替换，逐条核对无遗漏。"
+    },
+    {
+      "ac": "AC-6",
+      "closed": false,
+      "evidence": "四处死结中 ②（phase-4 ④ 与 phase-5 3c 的 STATUS_CONFLICT 时序）与 ④（冷路径提前到 init 之后、1–8 之前）本轮给出的顺序可执行；①（receipt vs 文档回写）与 ③（冻结 oracle vs 结果回写）**照文档逐字执行仍必然失败**，我在两个 throwaway git repo 实测：①按 phase-final ⓪ step1→step2 改 docs/ARCHITECTURE.md 后 finalize → TESTED_RUNTIME_MISMATCH / FINALIZE: FAIL / exit=1；③按 phase-5「回写去哪」把实际结果写到冻结集之外的 results/<run-id>.md 并同步 README、declare-status，再按文档「登记完立刻重跑一次预检」→ TESTED_RUNTIME_MISMATCH / NOT_READY / exit=1。",
+      "note": "这是我判 FAIL 的决定性一条。第三轮的修法把阻塞判据从提交身份换成内容指纹，**正确地**解开了「git commit 必然 MISMATCH」那一半（AC-8 全绿），但没有解开死结本身：attestation 仍然只在 init 写入一次，全脚本仍然没有任何 re-attest 子命令（argparse 十一个子命令：init/record-run/attach-evidence/declare-status/set-delivery/record-timing/checkpoint/audit/finalize/render/invalidate）。于是触发条件从「提交」变成「改任何一个 run-dir 之外的文件」——而 phase-5 3c 与 phase-final ⓪ 恰恰各强制要求改一次。结果是本 skill 自己的 phase-5→phase-final 流水线不可执行。旁证：实现者自己这一轮的 run-2 账本 `declared_statuses` 为空、`testcase_lock.files` 为空、19 条 integrity op 里没有一条 declare-status——**恰好跳过了会撞上这个死结的那一步**，等于没有 dogfood 到断点。phase-final-dod.md:14 与 :80 那句「改完必须重跑受影响的门，再 finalize」我实测无效：补记 root run 后 MISMATCH 依旧（还多一条 AUDITOR_INPUT_STALE）；唯一有效的是 `init --force`，实测它把 runs 2→0、evidence 与 auditor 清零，等于整轮重来，且这条出路在全部 phase 文档与 gate/PROTOCOL.md 里零提及。"
+    },
+    {
+      "ac": "AC-7",
+      "closed": true,
+      "evidence": "artifacts/ac7-hook-enforcement.log；我在隔离沙箱独立复跑三情形（无账本 exit=0；required NOT_RUN 账本 exit=2 且回灌 REQUIRED_SCENARIO_NOT_RUN；fixture 账本 exit=2），`bash -n` 在 GNU bash 3.2.57(1)-release (arm64-apple-darwin25) 通过。脚本用 while-read + here-doc 而非 mapfile，bash 3.2 语义正确。",
+      "note": "hooks/README.md 的能力表已如实把「压根不建账本」标成 ✗（上一轮的 overstated claim 已消）。剩余边界：半截 init（只有 artifacts/、无 plan-test-run.json）仍静默放行，实测复现——不在本轮 AC 范围内，但仍是开着的缺口。"
+    },
+    {
+      "ac": "AC-8",
+      "closed": true,
+      "evidence": "**我不采信 RealRepoAttestationTestCase 的自测日志，在 /tmp 下自建 throwaway git repo 手工跑了一遍完整流程**（init → record-run → audit → finalize → render），逐项实测：(a) `git add -A && git commit` 后 check-only exit=0、无 TESTED_RUNTIME_MISMATCH；(b) 把 src/app.py 改一个字节 → exit=1 + TESTED_RUNTIME_MISMATCH，改回去 → 立刻回绿；(b2) 新增一个未跟踪文件 → 同样 exit=1（半截提交/漏跟踪路由文件的场景）；(c) 把 run-dir 自身 `git add && git commit` 进仓库后，check-only exit=0、`finalize` 重跑给出**与提交前逐字相同**的 GATE RECEIPT 029ba79d566253d9…、`render` exit=0 SHIPPABLE。此外确认 RealRepoAttestationTestCase 确实在真实 git 仓库跑（setUp 里 git init/config/commit，manifest 不含 fixture_only，走的是 fixture=False 的完整校验分支），不是 fixture 模式。",
+      "note": "AC 字面三项全部兑现，且严格性没有丢。但 AC 措辞「改动任一文件内容（含新增未跟踪文件）必须触发」对被 .gitignore 覆盖的文件不成立，见 new_issues。"
+    },
+    {
+      "ac": "AC-9",
+      "closed": true,
+      "evidence": "artifacts/ac9-auditor-artifact.log；两侧我都独立实测：CLI 侧 `audit` 对读不出 verdict 的产物 exit=2 并给出可操作的错误文案；validator 侧 finalize 输出 AUDITOR_VERDICT_MISMATCH「审计结论无产物支撑」；hook 侧我特意构造了一个 check-only 自身 exit=0 的合法 fixture_only 账本放在 `plans/p/verification/` 下，hook 仍 exit=2 并打印 fixture-only 阻止文案。",
+      "note": "hook 的 fixture 判定是独立读账本字段，不依赖 check-only 的退出码，这是正确的做法——把隔离做在 hook 实际使用的那条路径上，而不是只做在 finalize/render。"
+    }
+  ],
+  "new_issues": [
+    "内容指纹**不覆盖 .gitignore 命中的文件**（`git ls-files -c -o --exclude-standard`）。我在 throwaway repo 实测：baseline 之后把 build/out.js（被 `build/` 忽略）与 secret.env（被 `*.env` 忽略）各改一遍，check-only 仍 exit=0 完全无感。对「构建产物/本地配置参与运行时行为」的项目，这是一条测完之后可以静默改行为的路径。acceptance.md AC-8 写的「改动任一文件内容（含新增未跟踪文件）必须触发 TESTED_RUNTIME_MISMATCH」对这类文件字面不成立；gate/PROTOCOL.md §5.7 只在技术描述里带了「未忽略」三个字，没有把后果讲成风险。",
+    "内容指纹**不覆盖文件权限位**。实测 `chmod +x app.py` 后 check-only 仍 exit=0。对 hook 脚本、entrypoint、CI 脚本这类靠可执行位生效的文件，「内容没变」不等于「行为没变」。全文无标注。",
+    "plan_test_gate.py:281-282 的 docstring 声称超大仓降级时「退回 HEAD+dirty 口径并**在报告里标注**（宁可显式降级，不要静默）」，但 cmd_render 生成的 report.md 里没有任何 content_digest_error / 降级字样（grep 全脚本，content_digest_error 只出现在 attest_runtime 与 cmd_init 的 print）。实际只有 init 时打一行警告——一次性的、事后不可查的。gate/PROTOCOL.md §5.7 的写法（「在 init 输出显式警告」）是准确的，是代码 docstring 说过了头。",
+    "symlink 按 `sha256(os.readlink(p))` 记，只指纹化链接目标的**路径字符串**，不跟踪目标内容。指向仓库外或指向被忽略目录的 symlink，其内容变化对门完全不可见。全文无标注。",
+    "每次 validate（check-only / finalize / render 各一次）都要把整棵工作树逐文件 hash 一遍，Stop hook 还会对每个账本各跑一次。本仓 77 文件实测 0.020s 可忽略，但 CONTENT_DIGEST_FILE_LIMIT=20000 是个硬悬崖：跨过去就整仓退回旧的 HEAD+dirty 口径，也就是**大仓自动退回到 run-1 判 FAIL 的那个死结**（提交必然 MISMATCH），而文档只说「宁可显式降级」，没说降级之后死结会回来。",
+    "`init --force` 是内容变更之后唯一能重新 attest 的路径，实测它会把 runs、evidence、auditor 全部清空（runs 2→0）。这个语义没有任何文档提及，而它同时又是文档里唯一能让「文档回写之后还能 finalize」成立的操作——一条既未记载、代价又极高的隐式出路。"
+  ],
+  "unclosed_gaps": [
+    "AC-6 死结①：phase-final-dod.md ⓪ 的「1. 先做文档回写 → 2. 跑机器门 finalize → exit 0 + receipt」逐字执行必得 exit 1 / TESTED_RUNTIME_MISMATCH，因为 ARCHITECTURE.md/README/changelog 都在 run-dir 之外、都计入内容指纹，而 attestation 只在 init 写一次、无 re-attest 子命令。⓪ step5 与文档回写节两处写的「改完必须重跑受影响的门，再 finalize」实测无效（补记 root run 后仍 FAIL）。",
+    "AC-6 死结③的连带：phase-5 3c 要求把实际结果写到冻结集之外（testcase 的 results/<run-id>.md）、把 README/RESULTS/矩阵五处口径改一致、declare-status 后「立刻重跑一次预检」。这些写动作全在 run-dir 之外，实测预检直接 TESTED_RUNTIME_MISMATCH / NOT_READY。也就是说本 skill 自己的 phase-5→phase-final 流水线按文档执行走不通；实现者本轮 run-2 的账本 declared_statuses 为空、testcase_lock 为空，正是绕开了这一步才走通的。",
+    "COMMIT_STATE_GATE 的旧写法残留：skills/plan-task/SKILL.md:71 仍写「宣布完成前 `git status --porcelain` 必须为空（`COMMIT_STATE_GATE`）」，与 config.md:104 已改成的 `-- . ':(exclude)<run-dir>'` 冲突。plan-task 与 plan-test 共用同一套 config/phase 文档，按它执行会因刚写入的 receipt/report 让提交态门自己失败。",
+    "AC-7 半截 init 边界（run-1 遗留）：run-dir 只建了 artifacts/ 而没有 plan-test-run.json 时 hook 静默放行，实测复现。本轮未列为 AC，仍开着。",
+    "被 .gitignore 覆盖的文件与文件权限位不进内容指纹（见 new_issues 前两条）——严格性上的口子，且 AC-8 的措辞没有为它们留余地。"
+  ],
+  "overstated_claims": [
+    "acceptance.md AC-6「流程时序死结已修……四处，各在对应 phase 文档给出明确顺序」：四处里的第一处与第三处，照文档给出的顺序逐字执行必然失败（实测 exit 1 + TESTED_RUNTIME_MISMATCH，且无恢复路径）。给出的是说法，不是可执行的顺序——与 run-1 的同一条判断相同。",
+    "phase-final-dod.md:9-11「**真正的修法在 validator 里**……仅靠调整文档顺序解不开这个死结，那只是把它挪到下一步」：诊断对，结论只兑现了一半。改成内容指纹只解开了「git commit 触发」那一半；死结的另一半（init 后不可再 attest）原封未动，于是这次是把它从「提交时挪到了改文档时」——恰好挪到了同一份文档 ⓪ 的第 1 步上。",
+    "phase-final-dod.md:14「改完必须重跑受影响的门（内容指纹已经变了，validator 会拦）」与 :80「改完要重跑受影响的门，再 finalize」：实测「重跑门 + 重记场景」不能清除 TESTED_RUNTIME_MISMATCH（我补记 root run 后仍 FAIL，且新增 AUDITOR_INPUT_STALE）。唯一有效动作是 init --force 重开整轮，文档零提及。",
+    "plan_test_gate.py:281-282 docstring「超限时退回 HEAD+dirty 口径并在报告里标注」：render 生成的 report.md 里没有任何降级标注，只有 init 时的一次性 stdout 警告。（同一事实在 gate/PROTOCOL.md §5.7 里的表述是准确的，问题只在代码 docstring。）",
+    "acceptance.md AC-8「改动任一文件内容（含新增未跟踪文件）必须触发 TESTED_RUNTIME_MISMATCH」：对 .gitignore 命中的文件与纯权限位变更均不成立，实测两者 check-only 都 exit=0。"
+  ]
+}

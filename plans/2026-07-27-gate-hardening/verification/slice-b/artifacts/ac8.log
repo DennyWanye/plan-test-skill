@@ -1,0 +1,13 @@
+test_commit_without_content_change_still_passes (__main__.RealRepoAttestationTestCase)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.RealRepoAttestationTestCase)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.RealRepoAttestationTestCase)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_new_untracked_file_is_content_change (__main__.RealRepoAttestationTestCase)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.857s
+
+OK

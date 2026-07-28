@@ -1,0 +1,140 @@
+{
+  "acceptance_sha256": "7cc1fffdf9845969a09597ec13ba2a18ce3c64aee34993dd897d61fba8fa8ad6",
+  "applicability": {
+    "input_sensitive": {
+      "decided_by": "agent",
+      "rationale": "被测对象是确定性 CLI 与 shell hook，输出不随输入语义变化，无 LLM 生成路径",
+      "value": false
+    },
+    "llm_payload_driven": {
+      "decided_by": "agent",
+      "rationale": "不存在 LLM 结构化载荷驱动端侧状态机或卡片渲染的路径",
+      "value": false
+    },
+    "stateful_init": {
+      "decided_by": "agent",
+      "rationale": "纯 stdlib 脚本，无异步注册服务、远程配置或登录态依赖，无冷启动路径",
+      "value": false
+    }
+  },
+  "content_digest": "3846c30afa025465",
+  "evidence": [
+    {
+      "kind": "primary",
+      "path": "artifacts/ac1-applicability.log",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac2-integrity.log",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac3-auditor.log",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac4-fixture-exit3.log",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac5-no-regression.log",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac5-full-suite.log",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac7-hook-enforcement.log",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac8-content-attestation.log",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "kind": "primary",
+      "path": "artifacts/ac9-auditor-artifact.log",
+      "scenario": "AC-9-auditor-artifact"
+    }
+  ],
+  "frozen_for": "full-audit (round 2)",
+  "integrity_chain": "266f9842e7d2c851",
+  "ledger_revision": 19,
+  "previous_audit_verdict": "FAIL",
+  "previous_unclosed": [
+    "AC-6 第一处：phase-final ⓪ 规定的收尾顺序实测不可执行。baseline.head 在 phase-4 init 冻结，脚本无重新 attest 的子命令，按 ⓪ 先提交文档再 finalize 必得 TESTED_RUNTIME_MISMATCH 且不生成 receipt；改走 ⓪ step4 先 finalize 再归档提交 run-dir，则此后 finalize --check-only 恒为 NOT_READY，AC-7 的 Stop hook 会 exit 2 卡死收尾。文档未给任何出路。",
+    "AC-6 第四处：phase-4 ② 新按语要求冷路径在 1–8 步之前跑完并立即 record-run，但账本 init 位于同节第 7、8 步之间；init 前 record-run 直接抛 FileNotFoundError。顺序自相矛盾未解。",
+    "AC-3：auditor-output 无法解析出 verdict（无 VERDICT 行、JSON 无 verdict 字段、文件读失败）时 read_output_verdict 返回 None，cmd_audit 与 validate 双双短路，命令行 --verdict 被静默采信——实测 exit 0，无警告、无 advisory、report.md 里也不留痕。这是「审计产物优先于命令行」的一条零成本绕过路径，代码与 PROTOCOL §5.14 均未标注。建议至少降级为 advisory 曝光。",
+    "AC-4/AC-7 组合：fixture_only=true 的账本跳过全部 git/HEAD/dirty 校验，而 finalize --check-only 对它返回 0，Stop hook 只跑 check-only 且只 prune 路径含 /fixtures/ 的账本。把一个 fixture_only 账本放在 */verification/* 下即可让 hook 放行。exit 3 的隔离只做在 finalize/render，没做在 hook 实际使用的那条命令上。",
+    "AC-6 第一处的连带问题：config.md:103-106 的 COMMIT_STATE_GATE 定义与 phase-final-dod.md:45 的 DoD 勾选项都要求 `git status --porcelain` 无条件为空、「非空即 DoD FAIL」，均未为 run-dir 开口子；phase-final ⓪ step4 的「run-dir 不参与 COMMIT_STATE_GATE 判定」只写在 ⓪ 一处，且它引用的论据（dirty 指纹排除 run-dir）证明的是 validator 的 repo_dirty_digest，不是用 porcelain 判定的 COMMIT_STATE_GATE——两者被混为一谈。",
+    "AC-7 边界：run-dir 只建了 artifacts/ 而没有 plan-test-run.json 时（init 失败的半截状态），hook 的 find 匹配不到账本，静默放行。实测复现。"
+  ],
+  "runs": [
+    {
+      "business_terminal": "10/10 通过，含正样本不误报",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "business_terminal": "3/3 通过，手改与删链条目均被捕获",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "business_terminal": "3/3 通过，两种形式均拒绝改判",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "business_terminal": "pass-minimal 回放 exit 3",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "business_terminal": "39c592c 用例零丢失，55/55 全绿",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "business_terminal": "放行/阻止未闭环/阻止 fixture 冒充 均如期",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "business_terminal": "4/4 通过：提交不拦、改内容拦、run-dir 提交不失效、新增未跟踪文件拦",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "business_terminal": "无结论产物被拒(exit 2)，fixture 账本被 hook 拦(exit 2)",
+      "kind": "root",
+      "result": "pass",
+      "scenario": "AC-9-auditor-artifact"
+    }
+  ],
+  "scenarios": [
+    "AC-1-applicability",
+    "AC-2-ledger-integrity",
+    "AC-3-auditor-consistency",
+    "AC-4-fixture-exit3",
+    "AC-5-no-regression",
+    "AC-7-hook-enforcement",
+    "AC-8-content-attestation",
+    "AC-9-auditor-artifact"
+  ]
+}

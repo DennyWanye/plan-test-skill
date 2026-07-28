@@ -1,0 +1,48 @@
+test_behavioral_change_requires_retest (__main__.ReAttestTestCase)
+改代码 → re-attest 判 behavioral → 旧 PASS 不再作数，必须重跑。 ... ok
+test_behavioral_text_is_never_doc_only (__main__.ReAttestTestCase)
+提示词、skill、依赖清单不算文档——独立审计实测过这两个反例。 ... ok
+test_business_dir_named_verification_is_not_excluded (__main__.ReAttestTestCase)
+项目里真有一个叫 `verification/` 的业务目录时，它的代码**不得**被排除。 ... ok
+test_business_file_named_manifest_is_still_content (__main__.ReAttestTestCase)
+业务文件哪怕取名 manifest.json / report.md，也不得因文件名被排除。 ... ok
+test_commit_without_content_change_still_passes (__main__.ReAttestTestCase)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.ReAttestTestCase)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.ReAttestTestCase)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_custom_doc_globs_can_only_narrow (__main__.ReAttestTestCase)
+manifest 里的 doc_only_globs 是被测者自写的，只能收窄，不能把 src/** 说成文档。 ... ok
+test_doc_only_change_can_re_attest_and_pass (__main__.ReAttestTestCase)
+文档回写 → re-attest 判 doc-only → 既有测试结论继续有效，门恢复绿。 ... ok
+test_doc_only_claim_is_machine_decided (__main__.ReAttestTestCase)
+混合变更不能被说成 doc-only——判定看路径，不看申报。 ... ok
+test_exclusion_is_init_order_independent (__main__.ReAttestTestCase)
+先 init 的 slice 不能被后 init 的 slice 弄红。 ... ok
+test_fake_manifest_cannot_hide_a_directory (__main__.ReAttestTestCase)
+在 `.../verification/<x>/` 放一个假 manifest，不能把该目录的真实代码藏掉。 ... ok
+test_ledger_planted_before_init_cannot_hide_changes (__main__.ReAttestTestCase)
+在 init **之前**往 src/ 塞账本同样藏不住——排除范围只认 init 时冻结的显式声明。 ... ok
+test_mode_change_counts_as_content_change (__main__.ReAttestTestCase)
+可执行位变化也是交付差异（独立审计点名的缺口）。 ... ok
+test_new_untracked_file_is_content_change (__main__.ReAttestTestCase)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_no_change_is_noop (__main__.ReAttestTestCase) ... ok
+test_planted_ledger_cannot_hide_changes (__main__.ReAttestTestCase)
+不能靠"在某目录塞一个账本文件"把它排除掉来藏改动。 ... ok
+test_planted_run_dir_after_receipt_cannot_hide_backdoor (__main__.ReAttestTestCase)
+拿到 receipt 之后现造一个 run 目录塞后门，必须被发现（无需事前埋设的攻击）。 ... ok
+test_real_docs_still_doc_only (__main__.ReAttestTestCase)
+正样本：README/docs 下的叙述性文档仍应免重测，否则这个出口就没用了。 ... ok
+test_related_run_dirs_cannot_exclude_code (__main__.ReAttestTestCase)
+related_run_dirs 只能声明 `.../verification/<单层>` 形态的既有目录。 ... ok
+test_run_dir_excluded_with_relative_path (__main__.ReAttestTestCase)
+run-dir 用相对路径传入时也必须被排除。 ... ok
+test_sibling_slice_run_dir_does_not_invalidate (__main__.ReAttestTestCase)
+一次交付拆成多个 slice 时，兄弟 run-dir 的记账不得算成交付内容变化。 ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 5.671s
+
+OK

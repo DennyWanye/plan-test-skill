@@ -1,0 +1,16 @@
+test_cli_writes_keep_chain_valid (__main__.IntegrityTestCase)
+正样本：全程走 CLI 的账本链必须自洽。 ... ok
+test_deleting_chain_is_not_an_escape_hatch (__main__.IntegrityTestCase)
+删掉 integrity 键再写一条命令，不能重建出一条自洽的新链。 ... ok
+test_dropped_chain_entry_detected (__main__.IntegrityTestCase) ... ok
+test_handedited_result_detected (__main__.IntegrityTestCase)
+把 fail 手改成 pass（不经 CLI）→ LEDGER_TAMPERED。 ... ok
+test_rebuilt_chain_without_init_is_rejected (__main__.IntegrityTestCase)
+即便手工造出一条自洽的链，首条不是 init（或 genesis 不符）也不作数。 ... ok
+test_tamper_detection_survives_further_writes (__main__.IntegrityTestCase)
+篡改检测不是一次性的：改完再敲一条无害命令，不能把痕迹盖过去。 ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.685s
+
+OK
