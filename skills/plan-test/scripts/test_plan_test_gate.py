@@ -977,6 +977,28 @@ class RealRepoAttestationTestCase(unittest.TestCase):
         r = self.check()
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_deletion_digest_is_index_independent(self):
+        """删文件后，"未 git add"与"已提交"必须算出同一个指纹。
+
+        记成 "absent" 条目时指纹会依赖索引状态：删了未 add → 索引里还有它（记 absent），
+        commit 之后 → 条目消失，同一份工作树内容算出两个指纹，于是"提交"这个不改内容的动作
+        会误触发 TESTED_RUNTIME_MISMATCH（提交本仓时实测到）。
+        """
+        self.write("doomed.py", "print('bye')\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "add doomed")
+        self.init_real_run()
+        os.remove(os.path.join(self.repo, "doomed.py"))
+        run_gate(["re-attest", "--run-dir", self.run_dir, "--reason", "删文件"], cwd=self.repo)
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "pass"], cwd=self.repo)
+        self.assertEqual(self.check().returncode, 0, self.check().stdout)
+        self.git("add", "-A")                      # 把删除登记进索引
+        self.git("commit", "-qm", "remove doomed")
+        out = self.check()
+        self.assertEqual(out.returncode, 0, out.stdout)
+        self.assertNotIn("TESTED_RUNTIME_MISMATCH", out.stdout)
+
     def test_new_untracked_file_is_content_change(self):
         """新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。"""
         self.init_real_run()

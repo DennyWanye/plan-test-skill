@@ -352,8 +352,10 @@ def repo_content_digest(repo, scope):
             entries.append([rel, "symlink:" + sha256_text(os.readlink(p))])
         elif os.path.isfile(p):
             entries.append([rel, file_content_token(p)])
-        else:
-            entries.append([rel, "absent"])  # tracked 但已删除：删除本身也是内容变化
+        # 已删除的文件**不记条目**：删除通过"条目从列表里消失"体现即可。
+        # 记成 "absent" 会让指纹依赖索引状态——文件删了但未 git add 时索引里还有它（记 absent），
+        # commit 之后索引里没有了（条目消失），同一份工作树内容却算出两个指纹，
+        # 于是"提交"这个不改内容的动作会误触发 TESTED_RUNTIME_MISMATCH（提交本仓时实测到）。
     # 指纹只取文件条目，不含排除范围本身（否则新开一个 slice 会把别的 slice 判红）。
     # 排除范围不是派生的，是 init 时冻结的显式声明（见 declared_exclusion_scope）。
     # **剩余面（如实说明）**：事前造出 `.../verification/<单层>` 形态的目录再声明它，
@@ -433,8 +435,7 @@ def changed_paths_since(repo, scope, previous_entries):
             current[rel] = "symlink:" + sha256_text(os.readlink(p))
         elif os.path.isfile(p):
             current[rel] = file_content_token(p)
-        else:
-            current[rel] = "absent"
+        # 同上：已删除的文件不记条目
     changed = sorted(set(
         [k for k, v in current.items() if prev.get(k) != v] +
         [k for k in prev if k not in current]))
