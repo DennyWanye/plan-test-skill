@@ -4,6 +4,8 @@ test_committing_run_dir_does_not_invalidate (__main__.StopHookTestCase)
 把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
 test_content_change_after_test_is_blocked (__main__.StopHookTestCase)
 测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.StopHookTestCase)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
 test_hook_blocks_unclosed_ledger_anywhere (__main__.StopHookTestCase)
 run-dir 不在 verification/ 下也必须被发现（第八轮打穿点）。 ... ok
 test_hook_ignores_business_json_and_gitignored_files (__main__.StopHookTestCase)
@@ -15,6 +17,6 @@ test_renaming_ledger_does_not_hide_it (__main__.StopHookTestCase)
 把账本改名同样藏不住（第九轮打穿点：按文件名识别仍是按名字识别）。 ... ok
 
 ----------------------------------------------------------------------
-Ran 8 tests in 1.935s
+Ran 9 tests in 5.052s
 
 OK

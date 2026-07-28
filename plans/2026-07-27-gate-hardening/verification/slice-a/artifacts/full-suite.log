@@ -196,6 +196,6 @@ test_schema_major_mismatch_rejected (__main__.TimingTestCase) ... ok
 test_timing_gap_advisory_does_not_block (__main__.TimingTestCase) ... ok
 
 ----------------------------------------------------------------------
-Ran 113 tests in 24.742s
+Ran 113 tests in 48.329s
 
 OK

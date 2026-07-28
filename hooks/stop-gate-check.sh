@@ -16,21 +16,27 @@ set -uo pipefail
 ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 cd "$ROOT" || exit 0
 
+# 找 gate 脚本：项目内优先，其次全局安装位置。
+# **全局安装必须能找到它**——否则把 hook 挂到 ~/.claude/settings.json 之后，在任何"项目里没有
+# 这套 skill"的仓库里都会静默 exit 0，等于装了个不工作的门（安装到全局时实测发现）。
 GATE=""
 for cand in \
   "skills/plan-test/scripts/plan_test_gate.py" \
   ".claude/plugins/plan-test/skills/plan-test/scripts/plan_test_gate.py" \
-  "${PLAN_TEST_GATE:-}"
+  "${PLAN_TEST_GATE:-}" \
+  "$HOME/.claude/skills/plan-test/scripts/plan_test_gate.py" \
+  "$HOME/.claude/plugins/plan-test/skills/plan-test/scripts/plan_test_gate.py"
 do
   [ -n "$cand" ] && [ -f "$cand" ] && GATE="$cand" && break
 done
-[ -z "$GATE" ] && exit 0   # 本项目没装 gate 脚本：不是本 hook 的管辖范围
+[ -z "$GATE" ] && exit 0   # 哪里都没装 gate 脚本：不是本 hook 的管辖范围
 
 PY="$(command -v python3 || command -v python)"
 [ -z "$PY" ] && exit 0
 
 SCANNER=""
-for cand in "$(dirname "$0")/gate_scan.py" "hooks/gate_scan.py" ".claude/hooks/gate_scan.py"
+for cand in "$(dirname "$0")/gate_scan.py" "hooks/gate_scan.py" ".claude/hooks/gate_scan.py" \
+            "$HOME/.claude/hooks/gate_scan.py"
 do
   [ -f "$cand" ] && SCANNER="$cand" && break
 done
