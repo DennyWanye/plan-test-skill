@@ -20,6 +20,27 @@
 - `TESTCASE_DIR`: ./testcase
 - `ACCEPTANCE_FILE`: ./acceptance.md
 
+## 流程档位（`FLOW_TIER`，默认 auto）
+
+> **病根**：此前只有二元选择——要么全套 8 阶段（一轮 15–25 万 token），要么"别用本 skill"。
+> 中等改动被迫走全套，代理跑到一半开始自行省略；**一旦学会"这条规则在我这个情况下可以变通"，
+> 其余规则的权威一起塌掉**。分档是为了让裁剪变成明示的、有边界的选择，而不是偷偷跳步。
+
+- `FLOW_TIER`: auto
+  - `auto` = 按下表自动判档并**在开场明确宣布判了哪档、依据是什么**；用户可直接指定 `S`/`M`/`L`。
+
+| 档 | 触发条件（取最高命中档） | 跑什么 | 不跑什么 |
+|----|------------------------|--------|---------|
+| **S** | 单文件/单函数改动，无 UI，无新端点，无数据迁移 | AC 一句话写进 `{ACCEPTANCE_FILE}` + 自动化测试 + 全表面冒烟 + 提交态硬门 | 不建 run-dir、不派挑战子代理、不做 full-audit |
+| **M** | ≤3 文件或 1 个垂直切面；有 UI 但无新状态机/新 provider | phase-A/1/3/4/final（**跳过 phase-0 架构基线与 phase-2 多轮挑战**，plan 迭代 1 轮）+ 机器门全套 | 不做架构 challenger、不做 testcase challenger 多轮 |
+| **L** | 其余：新功能、跨层改动、状态机/provider/权限变更、任何 `input_sensitive=true` 的功能 | 全套 8 阶段 | —— |
+
+- **不可裁剪项（任何档都必做，裁掉即无效交付）**：`{ACCEPTANCE_FILE}` 唯一真相、
+  `COMMIT_STATE_GATE`、`FULL_SURFACE_SMOKE`、`FEATURE_POLICY: only-add`、BLOCKED 升级纪律。
+- S/M 档不建 run-dir 时，**交付措辞不得使用 receipt 模板**，只能写"S 档交付：<范围> + <证据>"，
+  不许出现 100%/SHIP 字样（没有 receipt 就没有那个状态）。
+- 判档有疑义 → 往高了判。裁剪的代价是漏测，判高的代价只是慢。
+
 ## 轮次与出口
 
 - `PLAN_ITERATIONS`: 3
@@ -80,7 +101,7 @@
 > **病根**：多代理 + git worktree 工作法下，验证可以在一棵脏工作树上全绿，而关键文件（尤其"把服务层接到端点上"的路由接线层）未提交，随后被 worktree 清理 / `git clean` / 硬 reset 抹掉——git 里留下**能编译、能过类型检查、单测也绿**的"半截健康"状态，但用户路径根本没接通。以下门专堵这条路。
 
 - `COMMIT_STATE_GATE`: required
-  - 提交态硬门：宣布完成前 `git status --porcelain` 必须为空，且验证针对的是 HEAD 的代码；
+  - 提交态硬门：宣布完成前 `git status --porcelain -- . ':(exclude)<run-dir>'` 必须为空（**排除 gate run-dir**，否则刚写入的 receipt/report 会让本门自己失败），且验证针对的是 HEAD 的代码；
     **对未提交工作树的任何 PASS 一律不作数**。多代理/worktree 参与实现时，
     额外要求"干净态复验"（见 phase-final-dod）。
 - `FULL_SURFACE_SMOKE`: required
@@ -120,6 +141,22 @@
   同时改 UI、Session、Harness、Provider、权限 ≤ 3 类
   - 超限 → validator 返回 `RELEASE_UNIT_TOO_LARGE`，要求拆 program plan + 垂直 slice，
     每个 slice 独立验收。阈值可在 manifest `thresholds` 覆盖（须用户知情），不许为卡数字压缩文字。
+- `APPLICABILITY_DECLARATION`: required
+  - **本节以下各条件门（输入语义敏感 / LLM 载荷驱动 / 冷启动）的适用性判定必须写进 manifest 的
+    `applicability`，不再是口头自决**：三维各一条 `{value, rationale(≥10 字), decided_by}`，
+    由 init 冻结、进 receipt digest、进 report.md。缺任一维 → `APPLICABILITY_UNDECLARED`。
+  - 判「不适用」合法且不拦截——但理由留痕、可追责；判「适用」则场景矩阵必须真的兑现
+    （input_class 去重 ≥ `MANUAL_MIN_DISTINCT_CLASSES` 且含 positive-value 场景 /
+    至少一条 `min_root_runs ≥ 2` / 含 `cold_start` 场景），否则 `APPLICABILITY_GATE_UNSATISFIED`。
+  - **病根**：判一句"这是确定性 UI"，场景矩阵、正向价值门、随机采样、冷启动四道门就合法消失，
+    而 validator 完全不知道发生过这件事——这是本 skill 此前最大的一个洞。
+- `LEDGER_INTEGRITY`: on
+  - 账本每次 CLI 写入追加 integrity 链条目；手工改一行 `runs[].result` → `LEDGER_TAMPERED`。
+    防的是顺手改，不是有决心的伪造（见 `gate/PROTOCOL.md` §5.13）。
+- `AUDITOR_INDEPENDENCE`: expose
+  - `audit --engine` 必填；与 `executor_engine` 相同或未标注 → advisory
+    `AUDITOR_INDEPENDENCE_UNVERIFIED`（曝光不拦截）。审计产物里的 verdict 与命令行不一致 →
+    直接拒绝（`AUDITOR_VERDICT_MISMATCH`）——以产物为准，不许命令行改判。
 - `EVIDENCE_CLASSES`: primary / derived
   - 截图、原始日志、命令回执、DB 记录是 primary；auditor 报告与交付汇总是 derived。
     derived 只辅助审计，不能单独满足 AC/testcase；证据依赖图存在环 →

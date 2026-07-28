@@ -2,7 +2,15 @@
 
 **目的**：把本次功能写成可长期复用的手工/脚本测试用例，分步骤、含预期结果，纳入回归。
 
-> **时序说明（防先测后定义）**：testcase 的**编写与 challenger 迭代定稿必须发生在 phase-4 昂贵真人验收之前**（见 phase-4"昂贵层前置：testcase 冻结"）——不许拿临时、未经挑战的用例跑昂贵验收，测完再回来补定义。本阶段收尾时做的是：把**实际执行结果回写**进 testcase、修正与现实的出入、登记回归套件、同步 index/README。
+> **时序说明（防先测后定义）**：testcase 的**编写与 challenger 迭代定稿必须发生在 phase-4 昂贵真人验收之前**（见 phase-4"昂贵层前置：testcase 冻结"）——不许拿临时、未经挑战的用例跑昂贵验收，测完再回来补定义。本阶段收尾时做的是：把**实际执行结果回写**、修正与现实的出入、登记回归套件、同步 index/README。
+
+> **回写去哪（防与 `ORACLE_FREEZE` 打架）**：被 `testcase_lock` 冻结的是 **oracle 文件本身**
+> ——步骤与预期结果。**实际执行结果一律写在冻结集之外**：`{TESTCASE_DIR}/<组>/results/<run-id>.md`
+> 或 run-dir 的 `report.md`。往冻结文件里回填"实际结果/状态"会直接触发 `FROZEN_ORACLE_CHANGED`
+> ——这不是误报，是设计：**测完回头改期望文件正是最该防的那个动作**。
+> 冻结集在 phase-4 `init` 的 manifest `testcase_files` 里显式列出；不列进去的文件（index.md、
+> results/、README）不受冻结约束，随便改。确需修改期望本身 → 走 `behavior_changes` 用户批准，
+> 不许绕。
 
 ## 步骤
 
@@ -27,6 +35,17 @@
    - 把各文档口径用 `declare-status` 登记进账本（source + scenario + status），由 validator 与重算结果对账——冲突即 `STATUS_CONFLICT`，本阶段不得出口。
    - 典型病灶：RESULTS 已记 PASS，而详细 testcase 顶部还是初始 PENDING——发现即修正到一致，**以实际执行证据（账本 record-run/attach-evidence）为准**，改文档而不是改结论。
    - 冻结 testcase 的输入、结果、证据路径必须逐项对得上（S-2 式"冻结第四话题 A、PASS 结果却记话题 B、证据路径又是第三处"即 FAIL）。
+   - **本步任何文件改动都会让内容指纹变化**（结果回写、README 同步都算），所以顺序固定为：
+     改完文件 → `re-attest --reason "状态同步"` → 再跑预检。**跳过 re-attest 直接跑预检必定
+     `TESTED_RUNTIME_MISMATCH`，与有没有 STATUS_CONFLICT 无关**（独立审计实测）。
+   - **登记完立刻重跑一次预检**——`declare-status` 是 `STATUS_CONFLICT` 的唯一来源，phase-4 那次 check-only 检不到它：
+
+     ```bash
+     python {GATE_SCRIPT} finalize --run-dir <run-dir> --check-only
+     ```
+
+     有 `STATUS_CONFLICT` → 改文档到与账本一致（**不是改账本**），再走一次上面的
+     「改完 → re-attest → 预检」，直到 `READY_FOR_AUDIT`；这一步过了才做第 5 步的 full-audit（审计前输入必须已定型，否则 audit 完又变即 `AUDITOR_INPUT_STALE`）。
 
 4. **子代理迭代**
    - 派 `{CHALLENGER_ENGINE}`，用 `prompts/testcase-iterator.md` 挑战并迭代 testcase（最少 `{TESTCASE_ITERATIONS}` 轮），直到覆盖率能测出各种 bug 与边界情况。

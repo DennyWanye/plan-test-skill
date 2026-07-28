@@ -20,7 +20,11 @@
 
 ## 设计原则
 
-- **机器门是唯一完成 authority**：Markdown 规则是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `skills/plan-test/scripts/plan_test_gate.py`（deterministic validator）重算；最终交付判定只接受 `finalize` 的 exit code 与 `gate-receipt.json`，没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为 `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。稳定诊断码、状态机与 run 目录契约见 `skills/plan-test/gate/PROTOCOL.md`；schema 见 `skills/plan-test/schemas/plan-test-run.schema.json`；自测 `python skills/plan-test/scripts/test_plan_test_gate.py`。
+- **机器门是唯一完成 authority**：Markdown 规则是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `skills/plan-test/scripts/plan_test_gate.py`（deterministic validator）重算；最终交付判定只接受 `finalize` 的 exit code 与 `gate-receipt.json`（**exit 0 = 交付通过；exit 3 = fixture-only 通过，不可交付**），没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为 `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。稳定诊断码（25 类）、状态机与 run 目录契约见 `skills/plan-test/gate/PROTOCOL.md`；schema（1.2.0）见 `skills/plan-test/schemas/plan-test-run.schema.json`；自测 `python skills/plan-test/scripts/test_plan_test_gate.py`（50 个用例）。
+- **门要被调用才存在**：`hooks/` 提供 Stop hook 与 CI 片段，把"必须跑 finalize"从纪律变成强制。两者都不启用时，请如实说明机器门为自愿调用——Markdown 里写"必须跑"不构成强制。
+- **适用性判定入账**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），冻结进账本与 receipt。判「不适用」合法但留痕可追责；判「适用」则场景矩阵必须真的兑现（`APPLICABILITY_GATE_UNSATISFIED`）。此前判一句"这是确定性 UI"就能让场景矩阵、正向价值、随机采样、冷启动四道门合法消失且无人知晓。
+- **账本只能经 CLI 写**：每次写入追加 integrity 链，手改一行 `runs[].result` → `LEDGER_TAMPERED`（防顺手改，不防有决心的伪造）。审计产物里的 verdict 与命令行不一致 → 直接拒绝；`--engine` 与 executor 相同 → advisory 曝光自审自判。
+- **流程分档（`FLOW_TIER`）**：S（单文件小改）/ M（≤3 文件单切面）/ L（全套 8 阶段）。开场必须宣布判档与依据——裁剪是明示选择，不是跑到一半偷偷省略。不可裁剪项：acceptance 唯一真相、提交态硬门、全表面冒烟、只增不减、BLOCKED 升级。
 - **唯一真相来源**：一切（plan 收敛、完成度审计、testcase 覆盖）都回溯到 `acceptance.md` 的验收标准；事实源本身要过行为契约冻结 + acceptance challenger（防"单入口"被扩张成"单 Session"式语义跳跃），实现前冻结 black-box oracle（反转/放宽须用户批准的 `behavior_change_id`）。
 - **每个声明可验证**：不靠"看起来做完了"，而是走可追溯矩阵 `AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 结果`。
 - **每个失败有出口**：所有"循环直到 100%"都有 `MAX_ROUNDS` 上限，超限标记 BLOCKED 升级，不空转烧 token。
@@ -80,6 +84,7 @@ MANUAL_TEST: required
 
 ```
 .claude-plugin/plugin.json          插件清单
+hooks/                              Stop hook + CI 片段（把机器门变成强制调用）
 skills/plan-bs/
 └── SKILL.md                        头脑风暴 & 计划共创入口（引用 plan-test 的共享文档）
 skills/plan-task/
@@ -95,6 +100,12 @@ skills/plan-test/
 ├── phase-4-stage-gate.md           阶段门禁 + 测试策略路由
 ├── phase-5-testcase.md             testcase 维护
 ├── phase-final-dod.md              收尾 DoD + 文档回写
+├── gate/
+│   ├── PROTOCOL.md                 门禁协议（诊断码/状态机/硬规则/**堵不住什么**）
+│   └── ROADMAP.md                  已完成与未完成清单
+├── scripts/
+│   ├── plan_test_gate.py           canonical gate command
+│   └── test_plan_test_gate.py      自测（50 用例）
 ├── methods/
 │   └── research-method.md          调研方法论（毛选式：主要矛盾/反本本/解剖麻雀/实践论）
 ├── prompts/                        各子代理提示词（末行统一 VERDICT: PASS/FAIL 结论行）

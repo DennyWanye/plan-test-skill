@@ -41,8 +41,10 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 ### 4. 验收门禁（测试策略路由）
 
 - 按 `../plan-test/phase-4-stage-gate.md` 执行：便宜的门在前（类型检查→lint→接线断言→脚本测试→核心价值 smoke→全表面冒烟→provider 契约门），贵的真人测试在后；UI 走 MCP 真人点击（`MANUAL_TEST = required` 不可降级），逻辑走可复跑脚本。
-- **⚠️ 时序：进入昂贵层（真人完整矩阵）之前，先完成 phase-5 的步骤 1–4**（testcase 编写 + 幂等/语义等价/状态一致审查 + challenger 迭代定稿），并执行 **gate run-dir init**（冻结 acceptance/testcase/场景矩阵，required 场景自动 NOT_RUN）。测试期间每条执行 `record-run` + `attach-evidence` 当场入账。
+- **⚠️ 时序：进入昂贵层（真人完整矩阵）之前，先完成 phase-5 的步骤 1–3b + 4**（testcase 编写 + 幂等/语义等价审查 + challenger 迭代定稿；**3c 状态一致性审查不在此时做**——那时还没有执行结果可对账，它属于 phase-5 收尾），并执行 **gate run-dir init**（冻结 acceptance/testcase/场景矩阵，required 场景自动 NOT_RUN）。测试期间每条执行 `record-run` + `attach-evidence` 当场入账。
 - 测试全部执行完 → `finalize --check-only` 输出 `READY_FOR_AUDIT` 才进下一步；full-audit 已移到 phase-5 末尾（结果回写与证据冻结之后），不在本步执行。
+- **本步的 check-only 检不到 `STATUS_CONFLICT`**：文档口径要到 phase-5 3c 才 `declare-status` 登记，那里会再跑一次 check-only——那次才是它的检查点（此前把它写成本步出口条件是个假前置）。
+- **gate init 的 manifest 必须含 `applicability` 三维判定**（值 + 理由 + 判定人），否则 `APPLICABILITY_UNDECLARED` 直接拦截；判「适用」还要矩阵真的兑现（见 phase-4 昂贵层前置 2）。
 
 ### 5. testcase 收尾维护 + 独立 full-audit
 
@@ -57,7 +59,7 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
   python {GATE_SCRIPT} finalize --run-dir <run-dir>
   ```
 
-  **本 skill 的最终交付状态只取该命令的 exit code 与结构化 stdout**；exit 0 + `GATE RECEIPT` 才存在"完成"。没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。然后 DoD 清单全绿才宣布完成；交付措辞用 phase-final-dod 的 receipt 模板（含 TESTED HEAD/SCOPE/各 lane/KNOWN GAPS/GATE RECEIPT）。回写 ARCHITECTURE.md（推进 last-calibrated 锚点）、README、changelog。
+  **本 skill 的最终交付状态只取该命令的 exit code 与结构化 stdout**；**exit 0** + `GATE RECEIPT` 才存在"完成"（**exit 3 = fixture-only 通过，不是完成**；exit 1 = FAIL，2 = 用法错误）。**文档回写 → `re-attest` → 重新 audit → finalize** 是固定四步（见 phase-final-dod ⓪）；跳过 re-attest 会 `TESTED_RUNTIME_MISMATCH`，跳过重新 audit 会 `AUDITOR_INPUT_STALE`。没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。然后 DoD 清单全绿才宣布完成；交付措辞用 phase-final-dod 的 receipt 模板（含 TESTED HEAD/SCOPE/各 lane/KNOWN GAPS/GATE RECEIPT）。（ARCHITECTURE.md / README / changelog 的回写已在跑机器门之前完成并提交。）
 - 任何 DoD 项达不成 → BLOCKED 升级，**不谎报完成**。
 
 ## 推进规则
@@ -66,7 +68,7 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 - **广度计数纪律（不许自行解释）**：同一问题的重跑/改写/continuation **不得**被解释成"测了多个场景"——distinct scenario 只按 acceptance 场景矩阵 + phase-4 ①c 账本计数。任何 required 场景仍为 PENDING/PARTIAL/NOT RUN 时，**不得宣布 complete**（`MANUAL_REQUIRED_PENDING_POLICY = block`）。
 - **计划失效即回炉，不许打补丁绕**（phase-3 A2）：执行中若"补丁能让任务完成、但不能让对应 AC 真达成"，那是 plan 层缺陷——停该执行线、回 phase-2 重迭代该部分（重挑战 + 补 spike），回写 plan 后再继续。执行子代理只能上报，无权自行绕行；审计以**原始需求 AC 达成**为锚，不以 plan 任务打勾为锚，主要矛盾未解决 = 整体 FAIL。
 - **价值优先，blocker 早停**：进入打包/全量回归/完整真人矩阵等昂贵步骤前，先过 phase-4 门序的核心价值 smoke（`VALUE_SMOKE_GATE = required`）。**"主要矛盾"对应的必须 AC 一旦 FAIL，立即停止一切收尾动作**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED——可以继续诊断修复，但不许边挂着已知 BLOCKER 边收尾。
-- **交付一致性（防半截提交，见 config"交付一致性门禁"）**：验证必须针对**已提交的 HEAD**——宣布完成前 `git status --porcelain` 必须为空（`COMMIT_STATE_GATE`），对未提交工作树的任何 PASS 一律不作数。**会话被压缩/跨会话续接/换 agent 接手时，推进前第一步先跑一遍全表面冒烟脚本**（`FULL_SURFACE_SMOKE`，phase-4 ② 门序），专抓"上一段未提交工作已丢失"——上一段的"验证通过"不能带过来当证据。增量新增的 AC 必须先进 `{ACCEPTANCE_FILE}` 唯一真相，并至少过 phase-4 兑现表 + DoD 对应行（`INCREMENTAL_AC_MODE`）；全表面冒烟与提交态硬门不得豁免。
+- **交付一致性（防半截提交，见 config"交付一致性门禁"）**：验证必须针对**已提交的 HEAD**——宣布完成前 `git status --porcelain -- . ':(exclude)<run-dir>'` 必须为空（`COMMIT_STATE_GATE`），对未提交工作树的任何 PASS 一律不作数。**会话被压缩/跨会话续接/换 agent 接手时，推进前第一步先跑一遍全表面冒烟脚本**（`FULL_SURFACE_SMOKE`，phase-4 ② 门序），专抓"上一段未提交工作已丢失"——上一段的"验证通过"不能带过来当证据。增量新增的 AC 必须先进 `{ACCEPTANCE_FILE}` 唯一真相，并至少过 phase-4 兑现表 + DoD 对应行（`INCREMENTAL_AC_MODE`）；全表面冒烟与提交态硬门不得豁免。
 - **成本纪律**：记录各阶段耗时；复测按 change-impact 路由——只重跑受本次改动影响的层，未变化的昂贵检查（全量构建/打包/全量回归）不重复执行。
 - **已知失败版本启动警告**：总体 BLOCKED 时用户要求启动测试，必须先告知"这是已知失败版本、目的是复现/补证、非验收版本、已知这些场景会失败"，不许只说"已启动"。
 - **缩小测试范围必须用户显式批准**：批准后回写 acceptance 的范围节（标注"用户批准缩减：原 S-x 移出范围"），交付结论只能表述为**用户批准后的范围**全绿，不得写成原范围全绿。

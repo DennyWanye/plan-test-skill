@@ -32,7 +32,7 @@
 - **静态 fixture 落盘**：`fixtures/gate/pass-minimal/`（正式 finalize → SHIPPABLE +
   receipt）与 `fixtures/gate/fail-companion-conflict/`（check-only → 15 条有序 DIAG，
   前三类为 handoff 冻结序列）；回放器 + provenance null-hash → `PROVENANCE: UNVERIFIED`
-  强制标注。自测 57 用例全绿。
+  强制标注。自测全绿（第三轮去重后为 50 用例）。
 
 ## 已完成（第三轮，2026-07-27：1D-delta，Windows 溯源与兼容闭环）
 
@@ -44,7 +44,7 @@
   `6/6 PASS` 逐项入账；不再把已自动化 PASS 的 S-6 伪装成 NOT_RUN。
 - **Windows 自测兼容**：所有文本 fixture 显式 UTF-8；静态 PASS fixture 使用当前
   `sys.executable`，不再写死 `python3`；evidence 路径统一规范化为 run-dir 相对 POSIX
-  形式并拒绝绝对路径/目录逃逸。Windows 自测 57 用例全绿。
+  形式并拒绝绝对路径/目录逃逸。Windows 自测全绿（当时口径 57；第三轮去重后为 50）。
 
 ## 未完成（后续独立 slice，勿打包成超大 plan）
 

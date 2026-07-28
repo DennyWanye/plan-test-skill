@@ -12,6 +12,8 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 **核心原则**
 - **唯一真相来源**：一切（plan 收敛、完成度审计、testcase 覆盖）都回溯到 `acceptance.md` 里的验收标准。事实源本身要过**行为契约冻结**（phase-2）——acceptance 写错，100% 只会更稳定地做错。
 - **机器门是唯一完成 authority**（见 `gate/PROTOCOL.md` + `config.md`"机器门禁"）：Markdown 是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `scripts/plan_test_gate.py` 重算；**最终交付判定只接受 `finalize` 的 exit code**，没有有效 `gate-receipt.json` 的手写 SHIP/100% 一律无效。qualitative auditor 负责发现未知问题，deterministic validator 负责阻止已知违规，两者不可互替。
+- **条件门的适用性判定是 fact，不是口头判断**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 gate manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），由 init 冻结进账本与 receipt。判"不适用"合法，但**理由留痕、事后可追责**；判"适用"则场景矩阵必须真的兑现，否则 `APPLICABILITY_GATE_UNSATISFIED`。此前判一句"这是确定性 UI"就能让四道门合法消失且无人知晓。
+- **机器门要真的被调用才存在**：`hooks/` 提供 Stop hook 与 CI 片段，把"必须跑 finalize"从纪律变成强制。未启用任一种时，交付说明里要如实写"机器门为自愿调用"。
 - **每个声明可验证**：不说"看起来做完了"，而是逐条核对可追溯矩阵。
 - **每个失败有出口**：所有"循环直到 100%"都有 `MAX_ROUNDS`，超限 → 标记 BLOCKED 升级给用户。
 - **功能只增不减**：遇分歧按最佳实践自决（**自决仅限实现层**——plan 层缺陷走 phase-3 A2 回炉，不许打补丁绕），但绝不少做。
@@ -21,7 +23,8 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 
 1. **Announce**：输出 "I'm using the plan-test skill to run the full plan→execute→test workflow."
 2. **读配置**：读取本 skill 的 `config.md`；若项目根存在 `.claude/plan-test.config.md`，用它覆盖默认值。本文档中所有 `{大写变量}` 在运行时用配置值替换。
-3. **建 TodoWrite**：把下面 8 个阶段建成 todo，逐项 in_progress → completed 推进。
+3. **判档并宣布**（`FLOW_TIER`，见 config.md"流程档位"）：按改动面判 S/M/L，**明确说出判了哪档、依据是什么、因此跳过哪些阶段**。判档有疑义往高了判。裁剪必须是明示的选择，不是跑到一半偷偷省略——**一旦开始"这条规则在我这个情况下可以变通"，其余规则的权威会一起塌掉**。
+4. **建 TodoWrite**：把该档要跑的阶段建成 todo，逐项 in_progress → completed 推进。
 
 ## 阶段全景
 

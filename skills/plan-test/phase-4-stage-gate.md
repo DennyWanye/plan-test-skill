@@ -73,6 +73,13 @@
 
 ## ② 门的顺序（红则先修，不进下一层；主要矛盾优先于昂贵收尾）
 
+> **冷路径必须排在最前**（`COLD_START_SCENARIO` 适用时）：下面第 5、6 步会起服务、造数据、
+> 打遍所有端点，**跑完系统必然是暖的**，此后再"补跑冷路径"只是暖态重放。此前 ③ 排在 ② 之后
+> 却要求"必须先跑冷路径"，是自相矛盾的死结。**正确顺序**：
+> **第 0 步 gate init 开账（见本节末"昂贵层前置 2"，冷路径适用时必须提前到这里做，否则
+> `record-run` 会因账本不存在而报错）→ ③ 冷路径场景实跑并 `record-run` 入账 → 本节 1–8**。
+> 冷路径不适用时，init 仍按"昂贵层前置 2"的位置执行即可。
+
 1. 类型检查（tsc --noEmit / dart analyze 等）
 2. lint
 3. **服务层-路由接线断言（`WIRING_CHECK = required`）**：本次在 services/、prompts 等处新 `export` 的函数/枚举/新增入参，routes/ 入口层必须有**真实引用**。轻量机检：`grep -rL "<新导出名>" <routes目录>` 命中"无任何路由引用" → 人工确认是否漏接，漏接即 FAIL。运行时白名单数组（如路由里的 `PERSONAS = ['friend','roast','quiet']`）必须与对应类型全集同步：用 `satisfies readonly <Type>[]` **且**加一条 exhaustiveness 断言测试——"数组少一个枚举值"tsc 完全不报错，必须让它变红。**类型检查绿 ≠ 运行时白名单同步。**
@@ -91,7 +98,26 @@
 python {GATE_SCRIPT} init --run-dir <plan-folder>/verification/<run-id> --manifest manifest.json
 ```
 
-manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、场景矩阵（含 required/ui/gate_type/expected_run_created/required_lanes/min_root_runs）、release_unit 体量指标、baseline HEAD。init 自动把全部 required 场景建为 `NOT_RUN`——**此后状态只能靠 `record-run` + `attach-evidence` 记录的事实由 validator 重算**，任何手写 PASS 不作数。
+manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、场景矩阵（含 required/ui/gate_type/expected_run_created/required_lanes/min_root_runs/**input_class**/**cold_start**）、**适用性判定 `applicability`**、`executor_engine`、release_unit 体量指标、baseline HEAD。init 自动把全部 required 场景建为 `NOT_RUN`——**此后状态只能靠 `record-run` + `attach-evidence` 记录的事实由 validator 重算**，任何手写 PASS 不作数。
+
+**适用性判定必须写进 manifest（`APPLICABILITY_UNDECLARED` 会拦截）**：三维各一条
+`{value, rationale(≥10 字), decided_by}`——
+
+```json
+"applicability": {
+  "input_sensitive":    {"value": true,  "decided_by": "user",
+                         "rationale": "LLM 调研 agent，输出质量随输入语义变化"},
+  "llm_payload_driven": {"value": false, "decided_by": "agent",
+                         "rationale": "LLM 只做文本展示，不驱动端侧状态机"},
+  "stateful_init":      {"value": true,  "decided_by": "agent",
+                         "rationale": "依赖登录态与异步注册的检索服务"}
+}
+```
+
+判「不适用」是合法的、不拦截的——但**理由会进 receipt digest 与 report.md，事后可追责**。
+判「适用」则矩阵必须真的兑现（input_class 去重 ≥3 且含 positive-value / min_root_runs≥2 /
+含 cold_start 场景），否则 `APPLICABILITY_GATE_UNSATISFIED`。config.md 里那些"输入语义敏感
+才适用"的条件门，从此不再是一句口头判断。
 
 **Blocker 早停铁律**：一旦"主要矛盾"对应的必须 AC 判 FAIL，**立即停止一切完成收尾**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED；可以继续做诊断与修复，修复后从本门序重新过。**已知 BLOCKER 还继续收尾 = 谎报进度**。
 
@@ -117,7 +143,8 @@ manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、�
 python {GATE_SCRIPT} finalize --run-dir <run-dir> --check-only
 ```
 
-- 输出 `READY_FOR_AUDIT` 才能进入 phase-5；任何 DIAG（`REQUIRED_SCENARIO_NOT_RUN` / `STATUS_CONFLICT` / `UI_EVIDENCE_MISSING` / `RISK_CLOSURE_MISSING` 等）→ 回去补测或补证据，不许"先进下一阶段再补"。
+- 输出 `READY_FOR_AUDIT` 才能进入 phase-5；任何 DIAG（`REQUIRED_SCENARIO_NOT_RUN` / `UI_EVIDENCE_MISSING` / `RISK_CLOSURE_MISSING` / `APPLICABILITY_*` 等）→ 回去补测或补证据，不许"先进下一阶段再补"。
+- **关于 `STATUS_CONFLICT` 的时序**：本阶段**尚未** `declare-status`（文档口径登记在 phase-5 3c 回写时才发生），所以此处的 check-only 只可能因别的诊断 FAIL。此前把"check-only 无 STATUS_CONFLICT"写成本阶段出口条件、却把登记动作放在下一阶段，是一个假的前置条件。**正确顺序**：phase-4 只记测试事实 → phase-5 回写文档并 `declare-status` → **phase-5 末尾重跑一次 `finalize --check-only`**，那一次才是 STATUS_CONFLICT 的真实检查点。
 - 预检**不要求** auditor 已执行（否则永远无法进入审计阶段）；它检查的是除 auditor/receipt 外的全部输入与测试完整性。
 
 ## 出口

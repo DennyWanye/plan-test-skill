@@ -37,9 +37,10 @@ timing 与预期 receipt 输入。**本 slice 不执行 finalize**；1B-delta �
 内容要求：
 
 - manifest.json 含 SHIPPABLE 状态机所需的全部前置：`source_request_text`（或文件）、
-  `acceptance_file`（fixture 内置的 acceptance 样例文件）、`fixture_only: true` 及
-  `baseline.head`（合成值，fixture 模式不校验 git）——缺任一项 state 停在 DRAFT，
-  期望不可达；
+  `acceptance_file`（fixture 内置的 acceptance 样例文件）、`fixture_only: true`、
+  `baseline.head`（合成值，fixture 模式不校验 git）及 **`applicability` 三维判定**
+  （schema 1.2.0 起，缺任一维即 `APPLICABILITY_UNDECLARED`）——缺任一项 state 停在
+  DRAFT 或被拦截，期望不可达；
 - 1 个 required UI 场景（`gate_type: positive-value`、`expected_run_created: true`）；
 - 1 条 root run（含 business_terminal、session_id、run_id_under_test）；
 - 1 份 primary 证据（`ui_action: true`，artifacts/ 下真实文件）；
@@ -49,7 +50,9 @@ timing 与预期 receipt 输入。**本 slice 不执行 finalize**；1B-delta �
   - `measured: false`：declared 模式申报一段 manual_e2e；
 - steps.jsonl 以**正式 `finalize`** 终结（fixture_only=true，receipt/report 恒标
   FIXTURE-ONLY，不可作真实交付证据）；expected-state.txt = `STATE: SHIPPABLE`，
-  expected-diagnostics.txt 为空。fail fixture（§3）则以 `finalize --check-only` 终结。
+  expected-diagnostics.txt 为空。**退出码为 3 而非 0**——fixture-only 通过与真实交付通过
+  刻意分开（PROTOCOL §2 exit code 表）；回放器据此断言。fail fixture（§3）则以
+  `finalize --check-only` 终结。
 
 ## 3. Companion normalized FAIL fixture：`fail-companion-conflict/`
 
@@ -130,3 +133,13 @@ DIAG RELEASE_UNIT_TOO_LARGE: ...
 | timing：--exec 实测 / declared 分离 / 排序幂等 / TIMING_GAP | **1B-delta（本 plan）** | ❌ 待实现 |
 | Companion fixture 带真实溯源 hash | **1D-delta（本 plan）** | ❌ BLOCKED：依赖 F:\ 可达机器 |
 | Windows 路径归一化自测 | 1D-delta | ❌ 本机 macOS 无法真实验证 |
+
+### 3.4 期望变更记录（HANDOFF §8：改冻结期望必须留理由）
+
+- **2026-07-27（schema 1.2.0）**：`expected-diagnostics.txt` 由 15 条增至 18 条，新增三条
+  `APPLICABILITY_UNDECLARED`（input_sensitive / llm_payload_driven / stateful_init）。
+  理由：Companion 历史 run 本来就**没有**做过适用性判定，而它恰恰是一个 input-sensitive
+  的调研 agent——新门把这一类逃逸也照出来了。**这是让历史更红、不是更绿**，因此不违反
+  "不得为让历史变绿修改历史证据/期望"的禁令；fixture 的历史数据本身一字未改。
+  前三类诊断顺序（REQUIRED_SCENARIO_NOT_RUN → STATUS_CONFLICT →
+  DELIVERY_VERDICT_CONTRADICTS_LEDGER）保持冻结不变。
