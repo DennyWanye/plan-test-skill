@@ -1,7 +1,9 @@
-链长下界不变量：2
-hook 不依赖目录名：1
-继任者须覆盖 required 场景：2
-退役横幅置顶 + 进 receipt：2
-报告渲染审计与链状态：1
-PROTOCOL 承认 genesis 挡不住重放：1
-acceptance 残留旧路径：0
+hook 按形状识别（不靠文件名/目录名）：1
+hook 用 git ls-files 尊重 gitignore：2
+hook 自动化测试条数：8
+链的定位已改准（承认 O(1) 可洗白）：1
+继任者场景须 required 且 PASS：1
+仓外 run-dir 需显式声明：2
+重复退役横幅已删（应为 1）：1
+归档账本已删除（应为 0）：(eval):21: no matches found: plans/2026-07-27-gate-hardening/audit-history/*/ledger.archived.json
+       0

@@ -6,6 +6,6 @@ test_verdict_line_form_also_checked (__main__.AuditorIndependenceTestCase)
 非 JSON 的审计产物按末行 VERDICT: X 解析（与子代理结论行契约一致）。 ... ok
 
 ----------------------------------------------------------------------
-Ran 3 tests in 0.335s
+Ran 3 tests in 0.341s
 
 OK

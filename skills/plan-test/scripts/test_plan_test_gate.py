@@ -1329,6 +1329,76 @@ def integrity_break(led):
     return None
 
 
+class StopHookTestCase(RealRepoAttestationTestCase):
+    """Stop hook 的自动化测试。
+
+    独立审计连续多轮指出 hook 零自动化测试、证据退化成散文。这里把它的关键行为固化：
+    识别靠账本**形状**（不靠文件名/目录名——两者各被打穿过一次），且不误伤业务文件。
+    """
+
+    HOOK = os.path.join(os.path.dirname(HERE), "..", "..", "hooks")
+
+    def hook_repo(self):
+        """把 gate 与 hook 装进当前 throwaway 仓，返回运行 hook 的函数。"""
+        hooks_src = os.path.abspath(os.path.join(HERE, "..", "..", "..", "hooks"))
+        dst = os.path.join(self.repo, "hooks")
+        os.makedirs(dst, exist_ok=True)
+        for name in ("stop-gate-check.sh", "gate_scan.py"):
+            shutil.copy(os.path.join(hooks_src, name), os.path.join(dst, name))
+        gate_dst = os.path.join(self.repo, "skills", "plan-test", "scripts")
+        os.makedirs(gate_dst, exist_ok=True)
+        shutil.copy(GATE, os.path.join(gate_dst, "plan_test_gate.py"))
+        self.git("add", "-A")
+        self.git("commit", "-qm", "install gate+hook")
+
+        def run():
+            return subprocess.run(["bash", "hooks/stop-gate-check.sh"], cwd=self.repo,
+                                  capture_output=True, text=True,
+                                  env=dict(os.environ, CLAUDE_PROJECT_DIR=self.repo))
+        return run
+
+    def test_hook_passes_when_no_ledger(self):
+        run = self.hook_repo()
+        self.assertEqual(run().returncode, 0)
+
+    def test_hook_blocks_unclosed_ledger_anywhere(self):
+        """run-dir 不在 verification/ 下也必须被发现（第八轮打穿点）。"""
+        run = self.hook_repo()
+        self.init_real_run()
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        r = run()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("REQUIRED_SCENARIO_NOT_RUN", r.stderr)
+
+    def test_renaming_ledger_does_not_hide_it(self):
+        """把账本改名同样藏不住（第九轮打穿点：按文件名识别仍是按名字识别）。"""
+        run = self.hook_repo()
+        self.init_real_run()
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        os.rename(os.path.join(self.run_dir, "plan-test-run.json"),
+                  os.path.join(self.run_dir, "ledger.archived.json"))
+        self.assertEqual(run().returncode, 2, "账本改名后 hook 看不见了")
+        os.rename(os.path.join(self.run_dir, "ledger.archived.json"),
+                  os.path.join(self.run_dir, "zzz-random-name.json"))
+        self.assertEqual(run().returncode, 2)
+
+    def test_hook_ignores_business_json_and_gitignored_files(self):
+        """业务 JSON 与被 .gitignore 忽略的文件都不参与识别（误报方向）。"""
+        run = self.hook_repo()
+        self.write(".gitignore", ".venv/" + chr(10))
+        os.makedirs(os.path.join(self.repo, ".venv", "pkg"), exist_ok=True)
+        self.write(".venv/pkg/manifest.json",
+                   '{"run_id":"x","scenarios":[{"scenario_id":"S-1"}],"applicability":{}}')
+        self.write("tests/verification/cases/manifest.json",
+                   '{"scenarios":["登录","下单"],"acceptance_file":"spec.md"}')
+        self.write("docs/verification/q1/report.md", "# 来料检验报告\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "business files")
+        self.assertEqual(run().returncode, 0, run().stderr)
+
+
 class ClosingWorkflowTestCase(RealRepoAttestationTestCase):
     """按 phase-final-dod ⓪ 的收尾四步逐字执行，必须真的能走完。
 

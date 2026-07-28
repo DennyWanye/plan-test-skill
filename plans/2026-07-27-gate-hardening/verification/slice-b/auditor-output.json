@@ -1,155 +1,180 @@
 {
   "verdict": "FAIL",
-  "engine": "claude-subagent(auditor-r8)",
+  "engine": "claude-subagent(auditor-r9)",
   "slice": "B",
-  "round": 8,
-  "method_note": "同 slice-a：全部结论本轮重得，未采信实现者日志与 r7 报告。/tmp/r8/lab 下另建 B1-B5、NV、HALF 等专用于 hook 触发面探测的一次性 git 仓。AC-5 用 `git show 39c592c:...` 自己做 AST 逐函数比对，未采信 ac5.log。AC-6 在 /tmp/r8/lab/T4 干净 git 仓里按 phase-final-dod ⓪ 四步逐字执行。全量自测独立复跑 Ran 98 tests OK。本机 GNU bash 3.2.57(1)-release (arm64-apple-darwin25)。真实交付仓只跑只读命令。",
+  "round": 9,
+  "method_note": "全部结论本轮重得，未采信实现者日志、ac*.log 的自述与 r8 报告的结论。skills/ 与 hooks/ 整份拷到 /tmp/r9，实验在 /tmp/r9/lab 下的一次性 git 仓（P1/P2/ARCH/T2/T3/R3/R7/DOD/NOISE/NOISE2/H1）完成。交付仓只跑只读命令（finalize --check-only、git show/diff、grep），未 init、未 render、未写入除本文件外的任何文件。AC-5 用 `git show 39c592c:...` 自算函数集合差；AC-6 在 /tmp/r9/lab/DOD 的一次性仓按 phase-final-dod ⓪ 六步逐字执行；hook 在系统自带 /bin/bash 3.2.57 下实跑。全量自测独立复跑：Ran 100 tests OK（20.9s）。",
   "previous_findings_closed": [
     {
-      "finding": "GB7-1（r7 high）：leftovers 列表把 report.md 当 gate 产物，任意 */verification/*/report.md 让零账本仓库 exit 2",
-      "closed": true,
-      "how_verified": "stop-gate-check.sh:84 的 leftovers 现在只认 auditor-input.json / auditor-output.json / gate-receipt.json 三个 gate 专属名，并在 :82-83 写明为什么不认 report.md。/tmp/r8/lab/B1 原样复现 r7 的最小用例（唯一内容是 `docs/verification/2026-q1/report.md`，内容『# 供应商来料检验报告』，全仓 0 账本）→ hook exit 0。"
-    },
-    {
-      "finding": "GB7-2（r7 medium）：run-1/2/3 移到 audit-history/ 后，acceptance.md 里指向它们的两处路径没跟着改",
+      "finding": "GB8-2（r8 high）：把 run-dir 建在 verification/ 之外即可整体绕过 Stop hook",
       "closed": false,
-      "how_verified": "acceptance.md:43『审计报告见 verification/run-1/auditor-output.json』、:55『……verification/run-2/auditor-output.json』逐字未改，而 `ls plans/2026-07-27-gate-hardening/verification/` 只有 slice-a、slice-b，两个被指向的文件实际在 audit-history/run-1|2/。slice-b/artifacts/ac11.log 里那行『acceptance 指向已归档路径：0』记录的正是这个 0，却被排在一串『应为 1』的检查项中间，读起来像一条通过项。"
+      "how_verified": "**仓库内**的目录名绕过确已堵住：/tmp/r9/lab 里 run-dir 放在 plans/p/... 与任意路径下，hook 都能按账本文件名找到并 exit 2。但同一类的两个更彻底的形态本轮实测仍然成立：(a) 改文件名——/tmp/r9/lab/P1 把 plan-test-run.json 改名为 ledger.archived.json，hook 从 exit 2 变 exit 0；用交付仓自己的 audit-history/run-3 复现（/tmp/r9/lab/ARCH）结果相同；(b) run-dir 整个放在仓库之外——/tmp/r9/lab/P2 `init --run-dir /tmp/r9/lab/outside/run-x`，init 无任何提示、record-run 记 fail、finalize --check-only exit 1，而 hook exit 0，仓库里只留下一个 manifest（连它也可以放在仓外）。"
     },
     {
-      "finding": "GB7-3（r7 medium）：ac7.log 的证据集按上一轮那条具体攻击标定，新引入的判据无负样本；建议把 hook 纳入自测",
+      "finding": "GB8-1（r8 medium）：hook 会因通用形态的业务文件阻断零账本仓库",
       "closed": false,
-      "how_verified": "slice-b/artifacts/ac7.log 本轮变成三行『业务 report.md → exit=0 / 业务 manifest 含 run_id → exit=0 / 账本被删留 auditor 产物 → exit=2』——不但没有为新判据补负样本，反而比 r7 版少了两条（『真半截 init → exit=2』『纯业务目录 → exit=0』被删掉）。我实测到的两条仍在的误报形态（GB8-1）与漏报形态（GB8-2）都没有任何断言。`grep -c stop-gate-check test_plan_test_gate.py` = 0，hook 至今零自动化测试，第三轮相同。"
+      "how_verified": "半截 init 的 manifest 形状判据收紧了（须 scenarios 为带 scenario_id 的对象数组 + applicability/source_request_*/run_id 之一），r8 的 B2 形态（scenarios + acceptance_file）确已不再误报。但 r8 同一条里点名的另一半未动：目录里出现 auditor-input.json / auditor-output.json / gate-receipt.json 之一即无条件判定为 gate 残留（stop-gate-check.sh:105-107，`sys.exit(0)` 前不做任何内容检查）。/tmp/r9/lab/NOISE2：一个零账本仓库，只有 docs/examples/auditor-output.json（内容是业务自己的审计样例）→ hook exit 2，打印『该目录有 gate manifest / gate 产物却没有 plan-test-run.json』。本轮改成全仓扫描后，这条误报的触发面从 `*/verification/*` 扩大到了整个仓库。"
     },
     {
-      "finding": "GB7-4（r7 low）：hook 对每个 verification/ 子目录各起一个 python 解释器",
+      "finding": "GB8-3（r8 low）：ac7.log 不增反减，且 hook 至今 0 条自动化测试",
       "closed": false,
-      "how_verified": "stop-gate-check.sh:80-93 结构未变，仍是每候选目录一次 `\"$PY\" -c`；README『它检查什么』一节仍无量级说明。非正确性问题，原样开着。"
+      "how_verified": "ac7.log 本轮改成了四行散文（『A) …exit 2（此前 0）』），既不回显命令也不回显真实输出，末尾写『复现命令见本轮对话』——对下一位审计者不可复跑，比 r7/r8 版更弱。test_plan_test_gate.py 对 stop-gate-check.sh 的引用计数仍为 0（grep 命中 0）。"
     },
     {
-      "finding": "GB6-3 / A6-2（r6→r7）：retire 的继任者可以不在同一个仓库里",
-      "closed": true,
-      "how_verified": "/tmp/r8/lab/XR：绝对路径、`../` 相对路径、本仓内指向他仓的 symlink 三种写法全部 exit 2『继任 run 不在本仓库内』。RetireTestCase 10/10（含 test_successor_must_be_in_same_repo）由我复跑。注意『继任者与被退役 run 无关系』这一半仍开着，见 slice-a。"
+      "finding": "GB7-2/GB8：acceptance.md:43/55 指向已不存在的审计报告路径",
+      "closed": false,
+      "how_verified": "acceptance.md:43 仍写 `audit-history/run-1/auditor-output.json`、:55 仍写 `run-2/auditor-output.json`；实际文件名本轮又改成了 `audit-report.archived.json`，两处引用因此比上一轮更远离真实路径。ac11.log 把『acceptance 残留旧路径：0』记成一条读起来像通过的 grep 计数（它 grep 的是 `verification/run-`，正好绕开了 `audit-history/run-N/auditor-output.json` 这个真实断链）。"
     },
     {
-      "finding": "r7 已判闭环并本轮复验仍成立：GB6-2 半截 init 的四种形态、hook 先 check-only 后问 retire-status、交付仓自身 hook exit 0",
-      "closed": true,
-      "how_verified": "/tmp/r8/lab/HALF：有 gate manifest 无账本 → exit 2；删掉 manifest 只留 auditor-output.json → exit 2。/tmp/r8/lab/FX：fixture-only 账本 → exit 2（fixture 分支排在 rc 分支之前）。真实交付仓 `bash hooks/stop-gate-check.sh` → exit 0，两个 slice `finalize --check-only` 均 READY_FOR_AUDIT。"
+      "finding": "r8：AC-6 四处死结只有第①处有可复跑证据",
+      "closed": false,
+      "how_verified": "ac6.log 仍只是 ClosingWorkflowTestCase 6 条（全部围绕收尾四步 = 死结①）。acceptance.md 的 Slice 划分段明写 AC-6 在 Slice B 中『以可复跑的文档断言脚本作为证据（检查四处修法各自的关键段落是否存在）』——skills/plan-test/scripts/ 下只有 plan_test_gate.py 与 test_plan_test_gate.py 两个文件，该脚本不存在。"
+    },
+    {
+      "finding": "r8：交付仓工作树并非干净，两份 auditor-input.json 为已修改未提交",
+      "closed": false,
+      "how_verified": "`git diff --stat` 实测仍是 2 files changed（slice-a/slice-b 的 auditor-input.json，共 +114/-14）。本轮内容是第 9 轮的冻结输入更新（frozen_for 从 round 8 改成 round 9、chain_len/ledger_revision 同步），属正常流程产物；但任务描述里「工作树干净」这一前提与实测不符，且两个 slice 当前 finalize --check-only 都是 exit 1（TESTED_RUNTIME_MISMATCH），尚无 receipt。"
     }
   ],
   "fix_is_class_level": [
     {
-      "attack_class": "拿通用文件名/目录名当 gate 信号（误报方向）",
+      "attack_class": "①『改个名字就让 run 从唯一强制点前消失』",
       "class_level": false,
-      "probe": "report.md 这个键确实修对了（/tmp/r8/lab/B1 exit 0）。但同类仍有触发键，且都没进 README：①/tmp/r8/lab/B2 —— `tests/verification/cases/manifest.json`，内容 `{\"scenarios\":[{\"name\":\"login\"}],\"acceptance_file\":\"spec/login.feature\"}`（一个很普通的 BDD/验收清单），全仓 0 账本 → hook exit 2『该 run 目录没有 plan-test-run.json：init 只开了一半』；②/tmp/r8/lab/B3 —— `src/verification/out/auditor-output.json`（业务侧审计工具的输出也常叫这个名）→ hook exit 2。判据里 `scenarios` 列表与 `acceptance_file` / `acceptance_text` 都是通用名，`-type d -name verification` 仍是全仓遍历。误报面确实收窄了（比 r6 的 run_id、r7 的 report.md 都窄），但 README:35-43 把触发面描述成『只对真正的 gate 记账物生效……业务代码目录即使叫 verification/……也不会触发』，仍是按上一轮被抓到的那个键写的。"
+      "probe": "见 previous_findings_closed 第 1 条。识别依据从目录名换成文件名，仍是名字；README:33-34 自称『全仓按内容查找，不依赖目录名』，下一句却是『现在按账本文件名与 manifest 形状识别』，自相矛盾。实测两条逃逸：改名（ARCH，用交付仓自己的归档产物）与 run-dir 在仓外（P2）。"
     },
     {
-      "attack_class": "拿目录名当 gate 信号（漏报方向——同一根因的另一面，四轮无人检查）",
+      "attack_class": "②『把链改成自洽的样子来洗白已篡改的事实』",
       "class_level": false,
-      "probe": "/tmp/r8/lab/NV：把 run-dir 建在 `plans/run-x/`（不在任何 verification/ 目录下），`init` 照常成功且不给任何提示，随后 record-run 记 S-1=fail、declare-status phase-4/phase-5 均硬报 PASS、set-delivery SHIP。`finalize` exit 1 并列出 REQUIRED_SCENARIO_NOT_RUN / STATUS_CONFLICT×2 / DELIVERY_VERDICT_CONTRADICTS_LEDGER 四条诊断——而 `hooks/stop-gate-check.sh` exit 0，因为两处 find 都写死了 `-path '*/verification/*'`（:66）与 `-type d -name verification`（:102）。整套门禁唯一的强制点可以被『把目录换个名字』整体绕过，而 hooks/README 能力表把『建了账本却不闭环』一列标为 ✓——这一列在此形态下是假的。"
+      "probe": "详见 slice-a 报告 A9-1。/tmp/r9/lab/T2：4 行把 fail 洗成 pass，finalize exit 0 + receipt + hook exit 0；/tmp/r9/lab/T3：删事实同步降低下界，`len(log) < expected` 恒假。对本 slice 的直接影响是 AC-7：hook 的全部判断都建立在 finalize --check-only 的退出码上，链一旦可被 O(1) 伪造，hook 的『账本自相矛盾』一列随之失效。"
     },
     {
-      "attack_class": "关键状态不进人读产物",
+      "attack_class": "③『拿一张无关的 receipt 给失败 run 背书』",
       "class_level": false,
-      "probe": "见 slice-a A8-3 与 fix_is_class_level 第三条：退役进了 report（位置在第 23 行、且横幅自述『下方场景状态』而场景状态在其上方）但没进 receipt；审计者身份与审计结论、integrity 链状态都不进 report。"
+      "probe": "详见 slice-a 报告。对本 slice 的直接影响：hook 的『已退役的历史 run 会被跳过，但退役本身有守卫』这条依赖 retire-status，而 /tmp/r9/lab/R3 实测——继任者 manifest 里多写一行 `{\"scenario_id\":\"S-1\",\"required\":false}`、一次都没跑（自己的 receipt 里写着 S-1: NOT_RUN）→ retire exit 0、retire-status VALID、hook exit 0。"
+    },
+    {
+      "attack_class": "④『关键状态不进人读产物』",
+      "class_level": true,
+      "probe": "顶部横幅、receipt 的 retired/superseded_by、report 的「审计与账本完整性」小节三处均已落地并在 /tmp/r9/lab/R3 与 T2 的产物中实见。两处反作用见 slice-a 报告（旧横幅未删；新小节对伪造账本打印「自洽」）。"
     }
   ],
   "ac_findings": [
     {
       "ac": "AC-5",
       "closed": true,
-      "evidence": "自己用 AST 重算，未采信 ac5.log：`git show 39c592c:skills/plan-test/scripts/test_plan_test_gate.py` → 34 条 test_*，当前 86 条。按 (类名, 函数名) 精确配对 missing=[]；按函数名集合 old−new=[]；逐函数 AST dump 比对：29 条完全未变，5 条有差异且全部是收紧（GateTestCase.test_full_pass_path_and_receipt_idempotent 三处 assertEqual(rc,0)→FIXTURE_EXIT 且多加一条 assertIn(\"FIXTURE-ONLY\")；test_audit_stale_after_fact_change、test_invalidate_receipt、TimingTestCase.test_timing_gap_advisory_does_not_block、FixtureReplayTestCase.test_pass_minimal 同类），无一放松。新增 52 条。全量自测独立复跑 Ran 98 tests OK。",
-      "note": "归档质量仍未改（r5→r8 四轮）：ac5.log 仍是三行『== 缺失（应为空）== / == 新增 == / 52』，不回显命令、不可自证。"
+      "evidence": "`git show 39c592c:skills/plan-test/scripts/test_plan_test_gate.py` 自算函数集合：old=34、new=88，`comm -23` 输出为空——无一丢失。抽查断言是否被掏空：34 条留存用例中 6 条函数体有改动，assert 总数 105→106，逐条 diff 显示改动方向是**收紧**（test_pass_minimal / test_invalidate_receipt 把 `assertEqual(rc, 0)` 改成 `assertEqual(rc, FIXTURE_EXIT)`，即 0→3；test_full_pass_path_and_receipt_idempotent 断言数 9→10），无一处放松。全量自测独立复跑 Ran 100 tests OK。",
+      "note": "ac5.log 仍是三行、不回显命令（『== 缺失（应为空）== / == 新增 == / 54』），第五轮相同。结论我自己复算过是真的，但该归档件本身不足以让下一位审计者复跑。"
     },
     {
       "ac": "AC-6",
-      "closed": true,
-      "evidence": "死结①在 /tmp/r8/lab/T4 干净 git 仓里按 phase-final-dod ⓪ 逐字执行：基线 finalize → exit 0 + receipt 5377ff63…；写 ARCHITECTURE.md/README.md → finalize exit 1 / TESTED_RUNTIME_MISMATCH；`re-attest --reason \"收尾文档回写\"` → kind=doc-only changed=2；故意跳过第③步直接 finalize → 仍 exit 1（第 3 步『不能省』属实）；重审入账后 finalize → exit 0 + GATE RECEIPT 6474da765cbb8ac6…；`git add -A && git commit` 后重跑 finalize → 逐字相同的 receipt；再 `echo x >> src/app.py` → TESTED_RUNTIME_MISMATCH。ClosingWorkflowTestCase 6/6 复跑绿。",
-      "note": "沿用 r5→r7 的轻微未闭环：acceptance 承诺『四处各自的可复跑文档断言脚本』，实际只有死结①有可执行证据，②③④仍是人工核对（测试文件对 phase-*.md 的引用都不是断言）。"
+      "closed": false,
+      "evidence": "死结①（receipt vs 文档回写）在 /tmp/r9/lab/DOD 按 phase-final-dod ⓪ 逐字执行确实走得通：改 README → 直接 finalize 报 TESTED_RUNTIME_MISMATCH → re-attest 输出 kind=doc-only changed=1 → 重新 audit → finalize exit 0 + receipt 99ee46b0… → git commit 后复跑 finalize 仍 exit 0 → `git status --porcelain -- . ':(exclude)<run-dir>'` 空输出。死结②（phase-4↔5 STATUS_CONFLICT，phase-4-stage-gate.md:147 + phase-5-testcase.md:41-47）、③（冻结 oracle vs 结果回写，phase-5-testcase.md:7-12）、④（冷路径 vs 全表面冒烟，phase-4-stage-gate.md:76-80）四处文本我逐段读过，给的都是明确的先后顺序与「回写去哪」的具体落点，不是换说法。",
+      "note": "判 not closed 的理由只在证据侧：acceptance.md 为本 slice 承诺的『可复跑的文档断言脚本』不存在，ac6.log 只覆盖死结①。②③④仍是人工核对——与 r8 相同，四轮未动。"
     },
     {
       "ac": "AC-7",
       "closed": false,
-      "evidence": "第二句与 bash 3.2 成立：/tmp/r8/lab/T1 未闭环账本 → hook exit 2 并回灌 DIAG；`bash -n` 在 GNU bash 3.2.57(1)-release (arm64-apple-darwin25) 通过。第一句『在无账本时放行』连续第四轮被打穿，只是触发键又换了一个：/tmp/r8/lab/B2（零账本仓，唯一内容 `tests/verification/cases/manifest.json = {\"scenarios\":[{\"name\":\"login\"}],\"acceptance_file\":\"spec/login.feature\"}`）→ hook exit 2；/tmp/r8/lab/B3（零账本仓，唯一内容 `src/verification/out/auditor-output.json`）→ hook exit 2。并且反方向也破了：/tmp/r8/lab/NV 把 run-dir 建在 `plans/run-x/`，账本里 required 场景 S-1=fail、delivery 硬写 SHIP、finalize exit 1 四条诊断，hook 却 exit 0——『有账本 → 每个都跑 check-only』这句只对 `*/verification/*` 下的账本成立。",
-      "note": "r4 是目录名、r6 是 manifest 的 run_id 键、r7 是 report.md、r8 是 scenarios+acceptance_file 与 auditor-output.json；漏报方向（run-dir 不在 verification/ 下）四轮无人测过，而它比误报严重得多——它让整个强制点可被一次改名绕过。"
+      "evidence": "三句里第二、三句成立：`bash -n` 通过；系统自带 /bin/bash 3.2.57 下实跑正常；账本未闭环 → exit 2 并打印诊断（/tmp/r9/lab/P1 基线）；fixture_only 账本 → exit 2（/tmp/r9/lab/H1）。第一句『无账本时放行』被 /tmp/r9/lab/NOISE2 证伪：零账本仓库只要任一目录里有名为 auditor-output.json / auditor-input.json / gate-receipt.json 的文件即 exit 2。『账本未闭环即阻止』也被两条逃逸证伪：改文件名（P1/ARCH）与 run-dir 在仓外（P2），两者 hook 均 exit 0。",
+      "note": "另有一条本轮引入的性能/噪声代价：全仓 find 不排除 .gitignore 忽略目录（只 prune node_modules/.git/fixtures），每命中一个 manifest.json 就 fork 一次 python3。/tmp/r9/lab/NOISE 实测 401 个 .venv 下的 manifest.json → hook 耗时 7.6s（4.6s user + 2.2s sys），且这在每次 Stop 都会发生。"
     },
     {
       "ac": "AC-8",
       "closed": true,
-      "evidence": "/tmp/r8/lab/T4 实测：finalize 拿到 receipt 6474da765cbb8ac6… 后 `git add -A && git commit` → 重跑 finalize 得逐字相同的 receipt（COMMIT-INVARIANT: YES）；`echo x >> src/app.py` 一个字节 → TESTED_RUNTIME_MISMATCH 命中 1；同一轮 commit 已包含 run-dir 自身，未使 receipt 失效。RealRepoAttestationTestCase 4/4、ClosingWorkflowTestCase 6/6 复跑绿。回答『提交本身有没有破坏什么』：没有——内容指纹按内容判定，提交不改变门禁结论，实测确认。",
+      "evidence": "RealRepoAttestationTestCase 4 条在本轮全量复跑中通过；/tmp/r9/lab/DOD 独立复现了其中两条形态：git add + git commit 不改内容时 finalize 仍 exit 0（步骤 5），改 README 一处内容立刻 TESTED_RUNTIME_MISMATCH（步骤 1 后的直接 finalize）；提交 run-dir 自身不使 receipt 失效（DOD 步骤 5 的 git add -A 含 run-dir）。",
       "note": "无。"
     },
     {
       "ac": "AC-10",
       "closed": true,
-      "evidence": "doc-only 路径在 /tmp/r8/lab/T4 走通（kind=doc-only changed=2、既有测试结论继续有效、跳过重审时被 AUDITOR_INPUT_STALE 拦住）；ReAttestTestCase 22/22 复跑绿（含 behavioral 分支、可执行位入指纹、相对路径 run-dir 排除）。",
+      "evidence": "ReAttestTestCase 全量复跑通过；/tmp/r9/lab/DOD 实测 doc-only 路径（re-attest 输出 kind=doc-only changed=1，既有测试结论保留，finalize 恢复 exit 0）。/tmp/r9/lab/T2 中对未变内容跑 re-attest 得『NO CHANGE：内容与上次 attestation 一致』，无误判。doc_only_globs 只能收窄（test_custom_doc_globs_can_only_narrow）、行为文本永不算文档（test_behavioral_text_is_never_doc_only）两条正样本/反样本齐备。",
       "note": "无。"
     },
     {
       "ac": "AC-11",
       "closed": false,
-      "evidence": "有真进展：hooks/README:41-43『仍会漏掉的』一段现在与代码一致（去掉了 report.md 并说明为什么刻意不认它），PROTOCOL §5.7 的 .gitignore / symlink / 超大仓退回三条标注仍在，能力表『压根不建账本』两列仍如实标 ✗。但『不得以「已防住」的措辞掩盖』第三轮仍不成立：①README:35-39『只对真正的 gate 记账物生效……业务代码目录即使叫 verification/、里面的 manifest.json 即使含 run_id 键，也不会触发』——B2/B3 两个纯业务仓被实测阻断，触发面描述仍按上一轮的键写；②能力表仍没有反映相反方向的偏差（『没建账本也可能被误拦』），r6→r7→r8 三轮未加；③能力表第一列『建了账本却不闭环 = ✓』在 run-dir 不位于 verification/ 时是假的（/tmp/r8/lab/NV 实测 hook exit 0），无任何限定说明；④本轮新增的『链首必须是 init』『genesis 锚』『继任者须同仓』三条机制在 PROTOCOL 中 0 次出现。",
-      "note": "acceptance.md:43/55 的失效证据指针（GB7-2）也仍在。"
+      "evidence": "PROTOCOL §5.7（:146-151）对 .gitignore 文件、symlink 目标、超大仓退回旧口径三条如实标注，措辞无掩盖；hook 对『压根不建账本』一列在能力表里标 ✗ 也是真的。但本轮新产生的两条最大缺口没有进任何缺口清单：hooks/README『仍会漏掉的』一节（:38-41）只列了 manifest 为 {}、目录里只有 artifacts/、只剩 report.md 三种，不含『gate 产物改名』与『run-dir 在仓库之外』；而这两条恰是交付仓自己正在使用（改名）或未被任何一轮测过（仓外）的。",
+      "note": "audit-history/README 确实记录了改名这件事，但把它描述成合规归档（『这不是让失败的 run 消失』），未标注它同时是唯一强制点的一条绕过路径——ARCH 实测显示，从 hook 的视角看它就是消失了。"
     },
     {
       "ac": "AC-12",
       "closed": true,
-      "evidence": "planted-ledger：/tmp/r8/lab/T4 在 `src/sneaky/` 塞一份真账本副本再改 `src/app.py` → 仍报 TESTED_RUNTIME_MISMATCH（排除范围不因塞账本而扩大）；sibling：/tmp/r8/lab/R2 两个 run 在 init 时互相声明 related_run_dirs，对兄弟 run 的整套写入（record-run / attach-evidence / declare-status / audit / finalize）不使对方失效，run-succ 正常 finalize 出 receipt 432fec40…。ReAttestTestCase 中对应两条随 22/22 复跑绿。",
+      "evidence": "test_sibling_slice_run_dir_does_not_invalidate / test_exclusion_is_init_order_independent / test_planted_ledger_cannot_hide_changes / test_fake_manifest_cannot_hide_a_directory 四条复跑通过；/tmp/r9/lab/R3 用 related_run_dirs 显式声明的两个兄弟 run 实测互不弄红（未声明时 /tmp/r9/lab/R2 会互相触发 TESTED_RUNTIME_MISMATCH，符合『排除范围须显式声明』的设计）。",
       "note": "无。"
     }
   ],
   "new_issues": [
     {
-      "id": "GB8-1",
-      "severity": "medium",
-      "status": "new（本轮修法的剩余误报面，README 未覆盖）",
-      "title": "hook 仍会因通用形态的业务文件阻断零账本仓库：scenarios+acceptance_file 的 manifest、以及任意 */verification/*/auditor-output.json",
-      "detail": "最小复现：/tmp/r8/lab/B2 = `git init` + `tests/verification/cases/manifest.json`，内容 `{\"scenarios\":[{\"name\":\"login\"}],\"acceptance_file\":\"spec/login.feature\"}` → hook exit 2，要求『补跑 init 并把测试事实入账，或删掉这个空目录』；/tmp/r8/lab/B3 = `src/verification/out/auditor-output.json` → 同样 exit 2。判据 `scenarios 列表 + (applicability|acceptance_file|acceptance_text|source_request_text|source_request_file) 之一` 里，acceptance_file / acceptance_text 是通用名，BDD/验收清单天然长这样。建议把判据收到 gate 专属键上（applicability 或 source_request_*，即 init 一定会写、业务不会写的那些），并把最终判据逐条写进 README，配一组正/负样本用例。"
-    },
-    {
-      "id": "GB8-2",
+      "id": "B9-1",
       "severity": "high",
-      "status": "new（四轮无人测过的方向）",
-      "title": "把 run-dir 建在 verification/ 之外即可整体绕过 Stop hook，而能力表把这一列标为 ✓",
-      "detail": "/tmp/r8/lab/NV 全程转录：`init --run-dir plans/run-x`（不在任何 verification/ 下）成功且无任何提示 → record-run S-1 result=fail → declare-status phase-4/phase-5 均硬报 PASS → set-delivery SHIP → `finalize` exit 1，四条诊断 REQUIRED_SCENARIO_NOT_RUN / STATUS_CONFLICT×2 / DELIVERY_VERDICT_CONTRADICTS_LEDGER → `hooks/stop-gate-check.sh` exit 0。两处 find 都硬编码了 verification 路径（:66、:102），而 cmd_init 对 run-dir 位置零约束（只有 related_run_dirs 被要求形如 `.../verification/<单层>`）。这是整套门禁唯一强制点的一条『改个目录名即绕过』的路径。最便宜的补法：init 时若 run-dir 不匹配 `*/verification/<单层>` 就拒绝或强制入账一条可见标记；或把 hook 的第一次扫描改成全仓找 `plan-test-run.json`（排除 fixtures/node_modules）而不限定父目录名。在补上之前，hooks/README 能力表第一列必须加限定。"
+      "status": "new（本轮修法未覆盖的同类更彻底形态；九轮内首次被探）",
+      "title": "run-dir 建在仓库之外时 hook 完全无感，且 init 对此零校验零提示",
+      "detail": "/tmp/r9/lab/P2 全程转录：`init --run-dir /tmp/r9/lab/outside/run-x --manifest <repo>/manifest-rid-out.json`（manifest 里 repo_root 指向仓库）→ INIT OK，无任何提示；record-run S-1 result=fail；`finalize --run-dir /tmp/r9/lab/outside/run-x --check-only` → exit 1、REQUIRED_SCENARIO_NOT_RUN；`CLAUDE_PROJECT_DIR=<repo> bash hooks/stop-gate-check.sh` → exit 0。仓库里唯一残留是 manifest-rid-out.json，而它同样可以放在仓外，那时仓库里一个字节的痕迹都没有。这比 r8 点名的目录名绕过更彻底：目录名绕过至少还留着账本在仓里，仓外则连扫描对象都不存在。cmd_init 目前不校验 run-dir 是否位于 repo_root 之下（对比：successor_receipt_status 已有 realpath 同仓判定，说明这个校验模式在代码里已经存在，只是没用在 init 上）。"
     },
     {
-      "id": "GB8-3",
+      "id": "B9-2",
+      "severity": "medium",
+      "status": "new（本轮全仓扫描引入）",
+      "title": "hook 全仓 find 不尊重 .gitignore，每个 manifest.json fork 一次 python3；真实项目上每次 Stop 都要付这笔钱",
+      "detail": "stop-gate-check.sh:99-101 的 find 只 prune node_modules/.git/*/fixtures/*，不 prune .venv、vendor、dist、target、build、Pods 等常见忽略目录，也不走 `git ls-files`。/tmp/r9/lab/NOISE 实测：401 个 .venv/lib/python3.11/site-packages/*/manifest.json → hook 7.6s wall（4.6s user + 2.2s sys），rc=0（无误报，但钱照付）。一个装了几十个前端/Python 依赖的真实仓很容易到数千个 manifest.json。CI 片段用的是 `git ls-files`（README:65），hook 却用 find——两者口径不一致，且 hook 这一侧更慢也更容易踩到忽略目录。"
+    },
+    {
+      "id": "B9-3",
+      "severity": "medium",
+      "status": "new（r8 GB8-1 的另一半，未修且触发面本轮扩大）",
+      "title": "零账本仓库里任何一个名为 auditor-output.json / auditor-input.json / gate-receipt.json 的文件都会硬阻断收尾，且提示不可操作",
+      "detail": "stop-gate-check.sh:105-107：`if any(os.path.isfile(os.path.join(d,f)) for f in ('auditor-input.json','auditor-output.json','gate-receipt.json')): sys.exit(0)` —— 纯文件名判定，不看内容。/tmp/r9/lab/NOISE2：仓库只有 README.md + docs/examples/auditor-output.json → hook exit 2，提示『补跑 init 并把测试事实入账，或删掉这个目录』；对一个从没用过 plan-test 的项目而言这两条建议都不可执行。半截 init 的 manifest 分支本轮已经改成了形状判定，这三个文件名分支没有跟着改——同一函数内两种严格度。修法可对齐：读文件、要求它含 gate 特有形状（如 auditor-output 须有 verdict + engine/slice，gate-receipt 须有 receipt digest 字段）。"
+    },
+    {
+      "id": "B9-4",
       "severity": "low",
-      "status": "new（归档质量，本轮引入）",
-      "title": "ac7.log 本轮不增反减，且 hook 仍无任何自动化测试",
-      "detail": "slice-b/artifacts/ac7.log 从 r7 的四行变成三行，删掉了『真半截 init → exit=2』与『纯业务目录 → exit=0』两条既有形态，只保留了三条与本轮修法一一对应的项。test_plan_test_gate.py 对 stop-gate-check.sh 的引用计数仍为 0——它是整套门禁唯一的强制点，也是唯一靠人工敲命令验证的组件，而它已连续四轮出现同类回归。"
+      "status": "new（本轮改动使既有提示语失效）",
+      "title": "fixture-only 账本的处置建议『请移出 verification/ 目录』在全仓扫描后已经无效，而真正有效的动作恰好是本轮想堵的改名",
+      "detail": "stop-gate-check.sh:60-63 的提示沿用了只扫 verification/ 时代的措辞。本轮改成全仓扫描后，把 fixture 账本移到任何目录都仍会被找到；唯一能让它消失的动作是给 plan-test-run.json 改名（即 A9-2/B9-1 所述的逃逸）。等于门在提示里教了一个已失效的动作，而把有效的那个留在暗处。"
     }
   ],
   "unclosed_gaps": [
-    "AC-7 第一句：零账本仓库仍会被业务形态的文件阻断（B2 的 scenarios+acceptance_file manifest、B3 的 auditor-output.json），README 描述的触发面仍只覆盖上一轮被点名的键。",
-    "AC-7 的隐含前提：run-dir 不在 verification/ 下时 hook 完全无感——一个 required 场景 fail、delivery 硬写 SHIP 的账本可以照常收尾（/tmp/r8/lab/NV）。四轮未被测过，能力表第一列因此是假的。",
-    "AC-11：hooks/README 能力表仍无『可能误伤无账本仓库』方向的标注（三轮）；本轮新增的三条机制（链首须 init / genesis 锚 / 继任者须同仓）在 PROTOCOL 中 0 次出现。",
-    "acceptance.md:43/55 仍指向已不存在的 verification/run-1|2/auditor-output.json（GB7-2 未闭环），而 ac11.log 把这一项记成了一条读起来像通过的检查行。",
-    "AC-6（沿用四轮）：四处死结只有第①处有可复跑证据，②③④仍是人工核对。",
-    "归档质量：ac5.log 仍三行不回显命令（四轮）；ac7.log 本轮反而减项；hooks/stop-gate-check.sh 至今 0 条自动化测试（三轮建议未采纳）。",
-    "retire 不校验继任者与被退役 run 的实质关系（详见 slice-a）。",
-    "交付仓工作树并非干净：slice-a/slice-b 的 auditor-input.json 两份为已修改未提交（`git diff --stat` 实测 2 files changed），而它们正是本轮审计要消费的冻结输入。"
+    "AC-7 第一句（无账本时放行）被 NOISE2 证伪；第二句（账本未闭环即阻止）被 P1/ARCH 的改名与 P2 的仓外 run-dir 证伪。能力表『建了账本却不闭环 = ✓』因此仍不成立，只是失效条件从「换目录名」变成了「换文件名 / 出仓」。",
+    "AC-11：本轮最大的两条缺口（gate 产物改名、run-dir 在仓外）不在 hooks/README 的『仍会漏掉的』清单里；audit-history/README 把改名描述成合规归档而非强制点绕过。",
+    "AC-6：acceptance.md 为本 slice 承诺的文档断言脚本不存在；死结②③④四轮仍是人工核对。",
+    "acceptance.md:43/55 指向的审计报告路径三轮未修，本轮因归档改名而更远离真实文件名；ac11.log 的 grep 口径正好绕开这处断链。",
+    "ac5.log 三行不回显命令（第五轮）；ac7.log 本轮退化为四行散文 + 『复现命令见本轮对话』，对下一位审计者不可复跑；hooks/stop-gate-check.sh 至今 0 条自动化测试（第四轮建议未采纳）——它是整套门禁唯一的强制点。",
+    "交付仓工作树非干净：两份 auditor-input.json 未提交；两个 slice 当前 finalize --check-only 均 exit 1（TESTED_RUNTIME_MISMATCH），尚无 receipt。"
   ],
   "overstated_claims": [
     {
-      "where": "hooks/README.md:35-39",
-      "text": "「只对**真正的 gate 记账物**生效……业务代码目录即使叫 `verification/`、里面的 `manifest.json` 即使含 `run_id` 键，也不会触发——**这两种误报都是独立审计实测抓到后才修的**」",
-      "assessment": "前半句被 /tmp/r8/lab/B2、B3 证伪（`{\"scenarios\":[…],\"acceptance_file\":…}` 的业务 manifest、以及 `*/verification/*/auditor-output.json` 都会阻断零账本仓库）。后半句为真且诚实，但整段语气仍暗示误报面已收敛，实际是第三次换了一个键。"
+      "where": "hooks/README.md:33-34",
+      "text": "「**全仓按内容查找，不依赖目录名**：……现在按账本文件名与 manifest 形状识别。」",
+      "assessment": "同一条要点的前半句与后半句互相否定：文件名也是名字。实测 /tmp/r9/lab/ARCH——用交付仓自己的 audit-history/run-3，`.archived` 命名下 hook exit 0，改回规范名同一份字节 exit 2。半截 init 那一路确实改成了形状判定（这一半是真的），账本这一路没有。"
     },
     {
       "where": "hooks/README.md:85-89 能力表，『建了账本却不闭环』一列 Stop hook = ✓",
-      "text": "「Stop hook | ✓（除非经守卫校验的正当退役） | **✗** | ✓ | ✓ | ✗ |」",
-      "assessment": "该 ✓ 隐含『run-dir 位于 */verification/<单层>』这个前提，而 init 对此零约束、零提示。/tmp/r8/lab/NV 实测：run-dir 在 `plans/run-x/`、required 场景 fail、delivery 写 SHIP、finalize exit 1 —— hook 仍 exit 0。表里必须给这一列加限定，或把 hook 的扫描改成不依赖目录名。"
+      "text": "「Stop hook | ✓（除非经守卫校验的正当退役） | ✗ | ✓ | ✓ | ✗ |」",
+      "assessment": "r8 判过一次（当时的隐含前提是 run-dir 在 */verification/ 下）。本轮换了个隐含前提——账本文件名未改、且 run-dir 在仓内——两者都没有任何机制保证，也都没有写进旁注。P1/ARCH/P2 三处实测该 ✓ 仍不成立。另『账本自相矛盾 = ✓』一列也受 slice-a A9-1 影响：链可 O(1) 伪造时，check-only 的退出码不再是可信输入。"
+    },
+    {
+      "where": "hooks/README.md:36-39",
+      "text": "「只对**真正的 gate 记账物**生效……业务代码目录即使叫 `verification/`、里面的 `manifest.json` 即使含 `run_id` 键，也不会触发——**这两种误报都是独立审计实测抓到后才修的**」",
+      "assessment": "manifest 那一路属实（B2 形态已修）。但同一条判定里的三个文件名分支（auditor-input/auditor-output/gate-receipt）仍是无条件命中，NOISE2 实测一个零账本业务仓被 exit 2 阻断。这句话本身也印证了 r8 的核心评语：修的是「上一位审计者点名的那两个键」，同一函数里同类的另外三个分支没动。"
+    },
+    {
+      "where": "hooks/README.md:104-107",
+      "text": "「手写 `\"retired\": true` 不生效（会打印 `LEDGER_TAMPERED`）」",
+      "assessment": "被 /tmp/r9/lab/R7 证伪：手写 retired/retired_reason/superseded_by 后调用被测系统自己导出的 `integrity_append(d,'retire')`，integrity_check 返回 None，全程无 LEDGER_TAMPERED。实际拦住它的是 retire-status 对继任者的独立复算（继任 run 未覆盖 required 场景 → INVALID）。归因写错的后果是实质性的：只要继任者满足那条字符串包含判定（R3 已证明成本是一行 manifest），手写退役同样通过。"
     },
     {
       "where": "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac7.log",
-      "text": "「业务 report.md → exit=0（期望 0）／业务 manifest 含 run_id → exit=0（期望 0）／账本被删留 auditor 产物 → exit=2（期望 2）」",
-      "assessment": "三条结论各自为真，但取样只覆盖前两轮被点名的形态，且比 r7 版少了两条既有形态。据此得出的『hook 不误伤业务 verification 目录』仍是以偏概全（B2/B3 会被误伤），且完全没有覆盖漏报方向（NV）。"
+      "text": "「A) run-dir 不在 verification/ 下 → hook 仍拦：exit 2（此前 0）／C) 业务 report.md + BDD manifest（字符串数组）→ exit 0，不误报／D) 继任者场景无关（Z-9）→ retire 拒绝 exit 2」",
+      "assessment": "三条各自为真，但都只取样了 r8 报告里被点名的那个具体形态：(A) 换成改文件名或出仓即失效（P1/ARCH/P2）；(C) 换成 auditor-output.json 即误报（NOISE2）；(D) 换成『继任者 manifest 里多写一行 required:false 且从不执行』即通过（R3）。以此三条支持『四条类级修法已完成』是以偏概全，且抽样方式与 r8 批评的模式完全一致。"
     },
     {
       "where": "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac11.log",
-      "text": "「本轮类级修法自查：删链是否仍是逃生门（应为 0）：0 ／ 链首条须为 init：1 ／ genesis 锚：3 ／ 继任者须同仓：2 ／ 退役进报告：1 ／ acceptance 指向已归档路径：0」",
-      "assessment": "这是一组 grep 计数，不是攻击复现——它证明『代码里写了这几行』，不证明『这一类被堵住』。实测反例：『链首条须为 init』计数为 1，而伪造一条 op=init 的条目即可绕过（slice-a A8-1）；『genesis 锚』计数为 3，而 genesis 在 existence-only 校验下可以完全不写（slice-a A8-2）；『acceptance 指向已归档路径：0』这一项本身就是 GB7-2 未修的证据，却排在一串『应为 1』的项中间。以 grep 计数充当『类级修法自查』的证据，恰是 r7 那句评语所指的做法。"
+      "text": "「链长下界不变量：2 ／ hook 不依赖目录名：1 ／ 继任者须覆盖 required 场景：2 ／ …… ／ acceptance 残留旧路径：0」",
+      "assessment": "r8 已判过一次同类：这是 grep 计数，证明「代码里写了这几行」，不证明「这一类被堵住」。本轮它给出三处与实测相反的读数——『hook 不依赖目录名：1』（实际依赖文件名，ARCH 证伪）、『继任者须覆盖 required 场景：2』（覆盖只查声明不查执行，R3 证伪）、『acceptance 残留旧路径：0』（:43/:55 两处仍断链，grep 口径 `verification/run-` 正好绕开 `audit-history/run-N/` 这个真实形态）。"
+    },
+    {
+      "where": "plans/2026-07-27-gate-hardening/audit-history/README.md（`.archived` 一节）",
+      "text": "「这不是让失败的 run 消失：三份账本记录的仍然是「未闭环」这个真实状态……它们只是不再参与收尾阻断」",
+      "assessment": "「不再参与收尾阻断」正是 r8 第 1 条所定义的那条逃逸的效果，只是换了实施手段（从改目录名换成改文件名）。/tmp/r9/lab/ARCH 实测：`.archived` 名下 hook exit 0，改回规范名同一份字节 exit 2 并打印两条诊断。与「直接删除目录」相比，git 可见性相同，但删除不会在仓库里留下一份看似仍在强制范围内的权威记录。这一节应当明确写成：本仓当前依赖一条已知的 hook 逃逸路径来归档失败 run。"
     }
   ]
 }

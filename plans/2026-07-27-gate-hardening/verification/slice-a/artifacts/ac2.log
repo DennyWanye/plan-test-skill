@@ -13,6 +13,6 @@ test_truncated_chain_is_rejected (__main__.IntegrityTestCase)
 把链压成一条 init 同样不作数——链长必须对得上账本里的事实条数。 ... ok
 
 ----------------------------------------------------------------------
-Ran 7 tests in 0.850s
+Ran 7 tests in 0.853s
 
 OK

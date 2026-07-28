@@ -43,6 +43,6 @@ test_sibling_slice_run_dir_does_not_invalidate (__main__.ReAttestTestCase)
 一次交付拆成多个 slice 时，兄弟 run-dir 的记账不得算成交付内容变化。 ... ok
 
 ----------------------------------------------------------------------
-Ran 22 tests in 6.059s
+Ran 22 tests in 5.802s
 
 OK

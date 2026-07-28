@@ -615,8 +615,16 @@ def integrity_facts_digest(ledger):
 def integrity_append(ledger, op):
     """每次写入追加一条链条目：chain_n = sha256(chain_{n-1} + op + facts_digest_n)。
 
-    作用不是防有决心的伪造（代理能重算整条链），而是让"悄悄手改一条 run 记录"
-    从 1 步变成"必须显式重写整条链"——把无意/顺手的篡改变成有意为之。
+    **它到底能做什么、不能做什么（第九轮独立审计实测后如实改写）**：
+    链只把**末条** facts_digest 与当前快照对账，中间条目从不与真实状态比对。因此改一条事实后
+    只需重算末条 facts_digest 与末条 chain、再同步 integrity.chain——**4 行、O(1)，与链长无关**。
+    早先文档说的"必须重算整条链""必须逐条重放"都被证伪过，是把估计换措辞重述。
+
+    正确的定位：**它只能发现"改了文件但没同步链"的编辑**（顺手改、脚本误写、合并冲突残留），
+    发现不了任何愿意多写四行的对手。这是本地无密钥哈希链的固有上限——文件与校验逻辑都在
+    被测者手里，怎么设计都一样。**要真正防篡改，锚点必须在被测者写不到的地方**：
+    CI 从 git 历史重算并比对 receipt，或把 receipt 推到 append-only 的远端存储。
+    见 hooks/README.md「方式 B：CI」。
     """
     integ = ledger.setdefault("integrity", {"chain": "", "log": []})
     if op == "init":
@@ -675,9 +683,8 @@ def integrity_check(ledger):
         return "integrity.log 为空"
     if log[0].get("op") != "init":
         return "integrity 链首条不是 init（op=%s）——链被删除后重建过" % log[0].get("op")
-    # 链长必须对得上账本里的事实条数：每次 CLI 写入恰好追加一条。
-    # 只查"链首是 init"是不够的——把链截断成一条 init 同样自洽（独立审计实测：
-    # `d.pop('integrity'); integrity_append(d,'init')` 两行即可洗白，此后全走正规 CLI 拿 receipt）。
+    # 链长下界：只封"把链压短"这一个形态。**它不构成防篡改**——改末条即可 O(1) 洗白，
+    # 与链长无关（第九轮独立审计实测）。保留它只是因为成本为零，能挡住最省事的那一种编辑。
     expected = expected_chain_length(ledger)
     if len(log) < expected:
         return ("integrity 链只有 %d 条，账本里的事实至少需要 %d 条——链被截断或重建"
@@ -1206,6 +1213,14 @@ def cmd_init(args):
         manifest = json.load(f)
     repo = os.path.abspath(manifest.get("repo_root") or os.getcwd())
     fixture = bool(manifest.get("fixture_only"))
+    if not fixture:
+        try:
+            rel = os.path.relpath(os.path.realpath(run_dir), os.path.realpath(repo))
+        except ValueError:
+            rel = ".."
+        if rel.startswith("..") and not args.allow_external_run_dir:
+            die("run-dir 在仓库之外（%s）：这样仓库里不会留下任何记账痕迹，hook/CI 也看不见它。\n"
+                "确需如此请显式加 --allow-external-run-dir，该选择会记入账本。" % run_dir)
     ledger = {
         "schema_version": SCHEMA_VERSION,
         "run_id": manifest.get("run_id") or ("run-" + time.strftime("%Y%m%d-%H%M%S")),
@@ -1223,6 +1238,7 @@ def cmd_init(args):
         "declared_statuses": [],
         "delivery": {},
         "applicability": manifest.get("applicability") or {},
+        "external_run_dir": bool(getattr(args, "allow_external_run_dir", False)),
         "doc_only_globs": manifest.get("doc_only_globs"),
         "executor_engine": manifest.get("executor_engine"),
         "release_unit": manifest.get("release_unit") or {},
@@ -1714,11 +1730,6 @@ def cmd_render(args):
                             r["retry"], r["abort"], r["test_count"]))
         checkpoints = [e for e in (ledger.get("events") or []) if e.get("type") == "checkpoint"]
         lines.append("- checkpoints: %d" % len(checkpoints))
-    if ledger.get("retired"):
-        lines.append("> ⚠ 本 run 已退役：%s；继任 run = %s。退役只影响 hook/CI 是否阻断，"
-                     "不改变账本状态（下方场景状态仍是真实结论）。"
-                     % (ledger.get("retired_reason"), ledger.get("superseded_by")))
-        lines.append("")
     sup = ledger.get("superseded_evidence") or []
     if sup:
         lines.append("## 被顶替的证据（attach-evidence --replace 留痕）")
@@ -1818,7 +1829,14 @@ def cmd_retire(args):
         else:
             mine = {sc["scenario_id"] for sc in (ledger_self.get("scenarios") or [])
                     if sc.get("required")}
-            theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])}
+            # 继任者那边必须是 **required 且重算为 PASS** 的场景。只比 scenario_id 字符串集合
+            # 会被"多写一行 required:false 且一次都没跑"绕过（第九轮独立审计实测：绕过成本从
+            # "另建一个 run"降到"多写一行"）。
+            succ_status = validate(args.superseded_by, succ, mode="render",
+                                   fixture=bool(succ.get("fixture_only")))[1]["scenario_statuses"]
+            theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])
+                      if sc.get("required")
+                      and succ_status.get(sc["scenario_id"]) == "PASS"}
             missing = sorted(mine - theirs)
             if missing:
                 ok, detail = False, ("继任 run 未覆盖本 run 的 required 场景：%s——"
@@ -1863,9 +1881,19 @@ def cmd_retire_status(args):
     ok, detail = successor_receipt_status(ledger.get("superseded_by") or "",
                                           ledger.get("repo_root") or os.getcwd())
     if ok:
-        succ = load_ledger_quiet(ledger.get("superseded_by") or "") or {}
+        succ_dir = ledger.get("superseded_by") or ""
+        succ = load_ledger_quiet(succ_dir) or {}
         mine = {sc["scenario_id"] for sc in (ledger.get("scenarios") or []) if sc.get("required")}
-        theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])}
+        # 读侧与写侧同口径复算——r5 的"读/写侧不对称"教训不能在新字段上重演
+        succ_status = validate(succ_dir, succ, mode="render",
+                               fixture=bool(succ.get("fixture_only")))[1]["scenario_statuses"] if succ else {}
+        theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])
+                  if sc.get("required") and succ_status.get(sc["scenario_id"]) == "PASS"}
+        my_acc = (ledger.get("acceptance") or {}).get("sha256")
+        su_acc = (succ.get("acceptance") or {}).get("sha256")
+        if my_acc and su_acc and my_acc != su_acc:
+            print("INVALID: 继任 run 的 acceptance 与本 run 不同")
+            sys.exit(1)
         if mine - theirs:
             ok, detail = False, "继任 run 未覆盖本 run 的 required 场景：%s" % ", ".join(sorted(mine - theirs)[:5])
     if not ok:
@@ -1902,6 +1930,8 @@ def main(argv=None):
     p.add_argument("--run-dir", required=True)
     p.add_argument("--manifest", required=True)
     p.add_argument("--force", action="store_true")
+    p.add_argument("--allow-external-run-dir", action="store_true",
+                   help="允许把 run-dir 放到仓库之外（仓里不留痕迹，hook/CI 看不见）；选择会记入账本")
     p.set_defaults(fn=cmd_init)
 
     p = sub.add_parser("record-run")

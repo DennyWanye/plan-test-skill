@@ -21,6 +21,6 @@ test_successor_must_cover_required_scenarios (__main__.RetireTestCase)
 继任者必须真的承接工作：覆盖被退役 run 的 required 场景，且同一份 acceptance。 ... ok
 
 ----------------------------------------------------------------------
-Ran 11 tests in 3.495s
+Ran 11 tests in 3.505s
 
 OK

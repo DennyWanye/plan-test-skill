@@ -32,18 +32,21 @@ finalize"，也挡不住一个想尽快收尾的代理直接不跑——这是�
 
 它检查什么（故意保守，避免误伤）：
 
-- **全仓按内容查找，不依赖目录名**：run 目录叫什么是调用者定的，早期版本只扫 `*/verification/*`，
-  把 run-dir 放到 `plans/run-x/` 就能整体绕过唯一的强制点（独立审计实测：finalize exit 1
-  四条诊断，hook 却 exit 0）。现在按账本文件名与 manifest 形状识别。
-- 只对**真正的 gate 记账物**生效：已 init 的账本（`plan-test-run.json`）、含 gate manifest
-  的半截 run 目录（manifest 的 `scenarios` 须是**带 `scenario_id` 的对象数组**，且含 `applicability` /
-  `source_request_*` / `run_id` 之一——按**形状**而非键名识别，BDD 的字符串数组清单不会误报），或「账本被删但 `auditor-*.json` / `gate-receipt.json` 还在」的残留
-  目录（那是让失败 run 悄悄消失的最便宜路径）。业务代码目录即使叫 `verification/`、里面的
-  `manifest.json` 即使含 `run_id` 键，也不会触发——**这两种误报都是独立审计实测抓到后才修的**。
-  没开账本的会话（S 档、纯问答、探索）不受影响；
-- **仍会漏掉的**：`manifest.json` 内容为 `{}`、run 目录里只有 `artifacts/`、或只剩 `report.md`
-  ——`report.md` 是通用文件名（业务的「来料检验报告」也叫这个），把它当 gate 信号会误伤
-  `docs/verification/**`，所以刻意不认它。这些形态与普通目录无法区分，hook 放行；
+- **按账本的内容形状识别，既不靠目录名也不靠文件名**（`gate_scan.py`）：两者各被独立审计
+  打穿过一次——第八轮把 run-dir 放到 `plans/run-x/` 绕过，第九轮把账本改名为
+  `ledger.archived.json` 绕过（本仓当时的"归档"方案自己就是这条逃逸的实例）。名字由被测者定，
+  任何基于名字的识别都会输。现在的判据是：同时含 `schema_version`/`run_id`/`scenarios`/`integrity`
+  四个键的 JSON 就是账本，叫什么都一样。
+- 用 `git ls-files -c -o --exclude-standard` 而非 `find`：尊重 `.gitignore`（否则 `.venv` 里
+  几百个 manifest.json 会把每次 Stop 拖到 7 秒以上，还会误报），实测 0.04s。
+- 半截 init（有 gate manifest 却没有账本）同样按形状识别：manifest 的 `scenarios` 须是
+  **带 `scenario_id` 的对象数组**且含 `applicability` / `source_request_*` / `run_id` 之一。
+  业务目录即使叫 `verification/`、业务 manifest 即使含 `run_id`、业务文档即使叫 `report.md`，
+  都不会触发——**这三种误报都是独立审计实测抓到后才修的**。没开账本的会话（S 档、纯问答、
+  探索）不受影响；
+- **仍会漏掉的**：把账本整个删掉（git diff 里可见，但 hook 当场无感）；把 run-dir 放到仓库
+  之外（`init` 现在要求显式 `--allow-external-run-dir` 并记入账本，但那只约束经 CLI 的路径）；
+  `manifest.json` 内容为 `{}` 或目录里只有 `artifacts/`——这些与普通目录无法区分，hook 放行；
 - 对每个 run-dir 跑 `finalize --check-only`；FAIL 则以非零退出并打印诊断，让代理必须回去补；
 - 它**不判断代理说了什么**，只判断账本状态。措辞类违规（手写 SHIP）仍由
   `DELIVERY_VERDICT_CONTRADICTS_LEDGER` 在账本侧兜。
@@ -100,7 +103,9 @@ jobs:
 - **伪造证据**：截图/日志由代理自己生产，门只能校验它没被事后改动。
 
 **已退役的历史 run 会被跳过，但退役本身有守卫**：hook 先跑 `finalize --check-only`，失败后才
-询问 `retire-status`——后者要求账本链自洽、retire 经 CLI 执行、且继任 run 已 SHIPPABLE。
+询问 `retire-status`——后者要求账本链自洽、retire 经 CLI 执行、继任 run 已 SHIPPABLE、
+acceptance 相同，且**继任者那边对应场景是 required 且重算为 PASS**（只比 scenario_id 集合会被
+"多写一行 required:false 且一次没跑"绕过，独立审计实测）。
 手写 `"retired": true` 不生效（会打印 `LEDGER_TAMPERED`），无继任者的退役被直接拒绝。
 第一版无守卫的 retire 曾被独立审计实测成「加个字段就让门消失」，与 `fixture_only` 同形态。
 

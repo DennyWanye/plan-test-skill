@@ -1,6 +1,8 @@
 {
-  "acceptance_sha256": "97483cade7df1a03f01485a36b980d6d50c246031a4ca96895718d468a9c19b5",
-  "content_digest": "dad91bb3f40a588d",
+  "acceptance_sha256": "d5052fe2f2d98a1f2a877bcd3ddeeab9981468f319a820d733c165cf26a7e5f8",
+  "chain_first_op": "init",
+  "chain_len": 89,
+  "content_digest": "8bc680902d5e7aeb",
   "evidence": [
     {
       "path": "artifacts/ac1.log",
@@ -31,11 +33,9 @@
     "plans/2026-07-27-gate-hardening/verification/slice-a",
     "plans/2026-07-27-gate-hardening/verification/slice-b"
   ],
-  "frozen_for": "full-audit slice-a (round 8, post-commit)",
-  "has_genesis": false,
-  "integrity_chain": "9c4b2de3392abd12",
-  "integrity_first_op": "init",
-  "ledger_revision": 69,
+  "frozen_for": "full-audit slice-a (round 9)",
+  "integrity_chain": "f86d405b04c0627d",
+  "ledger_revision": 89,
   "runs": [
     {
       "result": "pass",
@@ -152,6 +152,50 @@
     {
       "result": "pass",
       "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-9-auditor-artifact"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-1-applicability"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-2-ledger-integrity"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-3-auditor-consistency"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-4-fixture-exit3"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-9-auditor-artifact"
     }
   ],
   "scenarios": [

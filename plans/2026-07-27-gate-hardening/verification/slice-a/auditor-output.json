@@ -1,145 +1,161 @@
 {
   "verdict": "FAIL",
-  "engine": "claude-subagent(auditor-r8)",
+  "engine": "claude-subagent(auditor-r9)",
   "slice": "A",
-  "round": 8,
-  "method_note": "全部结论本轮重得，未采信实现者日志与 r7 报告。skills/ 与 hooks/ 整份拷到 /tmp/r8，实验在 /tmp/r8/lab 下的一次性 git 仓（T1-T7、AP、AP2、R1、R2、XR、FX、NV、HALF、B1-B5）完成。真实交付仓只跑只读命令（finalize --check-only、hooks/stop-gate-check.sh、git show/diff），未 render、未 init、未写入除本文件外的任何文件。全量自测独立复跑：Ran 98 tests OK（18.9s）。AC-4 自己 import 测试模块调 replay_fixture('pass-minimal') 得 returncode=3。",
+  "round": 9,
+  "method_note": "全部结论本轮重得，未采信实现者日志、ac*.log 的自述与 r8 报告的结论。skills/ 与 hooks/ 整份拷到 /tmp/r9，实验在 /tmp/r9/lab 下的一次性 git 仓（P1/P2/ARCH/T1/T2/T3/R1/R3/R6/R7/DOD/NOISE/NOISE2/H1）完成。交付仓只跑只读命令（finalize --check-only、git show/diff、grep），未 init、未 render、未写入除本文件外的任何文件。全量自测独立复跑：Ran 100 tests OK（20.9s）。AC-4 自己 import 测试模块调 replay_fixture('pass-minimal', tmpdir) 得 returncode=3。",
   "previous_findings_closed": [
     {
-      "finding": "A7-1（r7 high）：_append 守卫的第二个合取项让『删 integrity 键 / 清空 log』绕过验链，下一条 CLI 写入在被篡改快照上重建新链",
+      "finding": "r3：假 manifest / 预置账本可以把一个目录从内容指纹里藏掉",
       "closed": true,
-      "how_verified": "守卫已改成 `if broken:`（plan_test_gate.py:1267-1271），且 integrity_check 增加了『链非空』『log[0].op == init』两条结构不变量（:650-659）。形态实测全部被拦：/tmp/r8/lab/T1 `del d['integrity']` + checkpoint → exit 2『账本缺少 integrity 链——账本无效』，随后 check-only 仍报 LEDGER_TAMPERED；/tmp/r8/lab/T2 `integrity={'chain':'','log':[]}` + checkpoint → exit 2『integrity.log 为空』。r7 复述的那条路径确已死。"
+      "how_verified": "test_fake_manifest_cannot_hide_a_directory / test_ledger_planted_before_init_cannot_hide_changes / test_planted_run_dir_after_receipt_cannot_hide_backdoor 三条本轮全量复跑通过；declared_exclusion_scope（plan_test_gate.py:272-296）仍按 init 时冻结的显式声明判定，不按「目录里有账本文件」判定。"
     },
     {
-      "finding": "A7-2（r7 medium）：缺链错误文案指向并不存在的『PROTOCOL §5.12 迁移』",
+      "finding": "r5：retire 无守卫，加个字段就让门消失",
       "closed": true,
-      "how_verified": "文案已改为『账本缺少 integrity 链——账本无效（删掉链不是绕过，是把账本作废）』（:652）；全仓 grep『迁移』只剩 :662 的一条设计注释，不再指向不存在的迁移程序。"
+      "how_verified": "/tmp/r9/lab/R7 实测：手写 retired/superseded_by 并用系统自带 integrity_append 补一条 op=retire 链条目 → integrity_check 返回 None（链是自洽的），但 retire-status 在读侧独立复算继任者，仍报 INVALID、hook exit 2。守卫不再只在写侧。注意：拦住它的是 retire-status 的继任者校验，不是链——README 声称的「会打印 LEDGER_TAMPERED」在此形态下不成立（见 overstated_claims）。"
     },
     {
-      "finding": "A6-3（r6→r7）：retire 对 fixture-only 账本先打印 RETIRED（exit 0）再由 retire-status 判 INVALID——守卫只在读侧不在写侧",
-      "closed": true,
-      "how_verified": "cmd_retire 开头即拒（:1757-1758）。/tmp/r8/lab/FX 实测：fixture-only 账本 `retire --superseded-by <一个真实 SHIPPABLE run>` → exit 2『RETIRE 拒绝：fixture-only run 不得以退役方式退出阻断』，不再先打印成功再打脸。"
-    },
-    {
-      "finding": "A6-2 的一半（r6→r7）：retire 的继任者可以位于另一个仓库（跨仓借 receipt）",
-      "closed": true,
-      "how_verified": "successor_receipt_status 增加 realpath 同仓判定（:1706-1712）。/tmp/r8/lab/XR 三种入口全部 exit 2：绝对路径 `/tmp/r8/lab/R2/verification/run-succ`、相对路径 `../R2/verification/run-succ`、本仓内指向他仓的 symlink `verification/link-succ`——三者都报『继任 run 不在本仓库内』。"
-    },
-    {
-      "finding": "A6-2 的另一半（r6→r7 连续两轮）：继任者与被退役 run 可以毫无关系",
+      "finding": "r6：篡改是一次性的——改完再敲一条无害命令就把痕迹盖过去",
       "closed": false,
-      "how_verified": "/tmp/r8/lab/R2 实测：被退役 run 的唯一 required 场景 S-1 记 fail，继任 run（同仓、已 finalize、receipt 432fec40…）的唯一场景是『Z-9 完全无关的场景』→ `retire --reason \"这个先不做了\"` exit 0、`retire-status` VALID、hook exit 0。cmd_retire / successor_receipt_status 对『继任者是否承接了被退役 run 的任何一条 required 场景 / acceptance 是否同源』零校验。"
+      "how_verified": "_append 的 `if broken:` 守卫对**留下断链**的篡改确实生效（test_tamper_detection_survives_further_writes 复跑通过）。但该守卫的前提是篡改必然留下断链，而 /tmp/r9/lab/T2 证明不必：只重算末条 facts_digest + 末条 chain（4 行），integrity_check 直接返回 None，后续 CLI 写入、audit、finalize 全程无阻。「痕迹」压根没产生，也就无所谓被盖过去。"
     },
     {
-      "finding": "A6-4 / GA-2（r5→r7 连续三轮）：退役状态在 report.md 与 receipt 中 0 次显形",
-      "closed": false,
-      "how_verified": "report 侧确已实现（cmd_render:1670-1674），但三点不符：①位置不是『顶部』——/tmp/r8/lab/R2 render 出的 report.md 里横幅在第 23 行，排在适用性判定、排除范围、命中排除文件、场景状态四节之后；②横幅自述『下方场景状态仍是真实结论』，而场景状态实际在横幅上方（第 21-22 行），指路方向相反；③receipt 侧仍 0 显形：build_receipt(:1117-1143) 无任何 retired/superseded_by 字段，原 finding 的『report/receipt』只兑现了一半。"
-    },
-    {
-      "finding": "r7 已判闭环并本轮复验仍成立：LEDGER_TAMPERED 当场检出、写入侧全命令封锁、audit 读不出 verdict 时拒绝命令行代为申报、retire 缺继任者/指向自己被拒",
+      "finding": "r7：删 integrity 键 / 清空 log 让下一条 CLI 写入在被篡改快照上重建新链",
       "closed": true,
-      "how_verified": "/tmp/r8/lab/T1 手改 runs[0].result fail→pass → checkpoint / record-run 均 exit 2 且 check-only 仍报 LEDGER_TAMPERED；/tmp/r8/lab/T4 三形态 audit 实测：产物 verdict=FAIL vs --verdict PASS → exit 2、散文 + 文末 `VERDICT: FAIL` 行 vs PASS → exit 2、纯自然语言 → exit 2『缺结论行按 FAIL 处理，不接受命令行代为申报』。RetireTestCase 10/10 复跑绿。"
+      "how_verified": "/tmp/r9/lab/T1 复跑 r8 原探针 `d['runs'][0]['result']='pass'; d.pop('integrity'); integrity_append(d,'init')` → exit 1『LEDGER_TAMPERED: integrity 链只有 1 条，账本里的事实至少需要 2 条』。r7/r8 复述的那条路径确已死。"
+    },
+    {
+      "finding": "A8-1（r8 high）：伪造一条 op=init 的单条链即可永久抹掉 LEDGER_TAMPERED",
+      "closed": true,
+      "how_verified": "同上 T1；expected_chain_length（:633-651）+ `len(log) < expected` 判据（:679-683）确实拦下该形态。但它只封了这一个形态，不是这一类——见 fix_is_class_level 第 2 条。"
+    },
+    {
+      "finding": "A8-2（r8 medium）：genesis 锚是装饰性的，docstring 却把它写成一道成本",
+      "closed": false,
+      "how_verified": "PROTOCOL:236-238 的措辞已改准（承认 genesis 只是账本自有字段的纯函数、挡不住重放），这一半是真进展。但 plan_test_gate.py:653-654 的 docstring 逐字未改（仍写「链被删掉重建时，重建者必须连它一起伪造」），且两份真实交付账本仍无 genesis 字段（python 复算 'genesis' in ledger['integrity'] → False，两个 slice 皆是），existence-only 校验（:684）使它对现存账本零作用。"
+    },
+    {
+      "finding": "A8-3（r8 low）：退役横幅位置与自述方位与实现不符",
+      "closed": false,
+      "how_verified": "顶部横幅已加（:1626-1630），/tmp/r9/lab/R3 的 report.md 第 3 行确实是它。但 :1717-1721 的**旧横幅一行未删**，仍被渲染在场景状态之后——实测同一份 report.md 第 28 行仍写着「下方场景状态仍是真实结论」，而场景状态在第 27 行、位于它上方。r8 点名的那句错误自述逐字仍在产物里，只是又多了一份正确的在顶部。"
+    },
+    {
+      "finding": "A8「ac9.log 只归档 1 条用例，AC-9 第三句在本 slice 内无证据」",
+      "closed": false,
+      "how_verified": "slice-a/artifacts/ac9.log 本轮仍是 `Ran 1 test`（test_unparseable_output_rejected）。AC-9 的另两句（validator 侧 AUDITOR_VERDICT_MISMATCH、hook 拦 fixture_only 账本）在本 slice 内仍无证据。r6→r7→r8→r9 四轮相同。"
     }
   ],
   "fix_is_class_level": [
     {
-      "attack_class": "用后续合法写入洗白已篡改的账本（r7 A7-1 的类）",
+      "attack_class": "①『改个名字就让 run 从唯一强制点前消失』——r8 把它描述成「hook 依赖目录名」，实现者的修法是「全仓按内容识别」",
       "class_level": false,
-      "probe": "r7 点名的两条形态（删 integrity 键 / 清空 log）已堵死，但同一类换一个形态即复活，且比 r7 的入口更省事。/tmp/r8/lab/T6 完整转录：init → record-run(S-1, result=fail) → 一次离线编辑（result 改 pass + 写一条链）→ 之后 attach-evidence / declare-status×2 / set-delivery / audit 全部走正规 CLI 且全部 exit 0（链正常增长到 6 条、首条 op=init）→ `finalize` exit 0 + GATE RECEIPT ade4a01ab7ccb657… → `hooks/stop-gate-check.sh` exit 0 → render 出的 report.md 写着『S-1 [required]: PASS』，grep『篡改|LEDGER_TAMPERED』计数 0。伪造那条链的最小成本见 /tmp/r8/lab/T7：`import plan_test_gate as g; d['runs'][0]['result']='pass'; d.pop('integrity'); g.integrity_append(d,'init')` —— 用被测系统自己导出的函数，两条语句，integrity_check 当场返回 None。为什么这是键级不是类级：r7 的 unclosed_gaps 原句是『integrity_check 无结构不变式：不校验 log[0].op == \"init\"，也不校验链长与账本事件数的对应关系』，本轮只实现了被逗号分开的前半句；后半句恰好是能拦住本探针的那条（T6 的账本有 1 run + 1 evidence + 2 declared_status + delivery + auditor，最少需要 7 条链条目，实际只有 6 条）。新增的回归用例 test_rebuilt_chain_without_init_is_rejected 同样按修法标定：它伪造的链 op 写的是 'checkpoint'，把这个字符串改成 'init' 用例即从捕获变成放行。"
+      "probe": "修法只把识别依据从**目录名**换成了**文件名**，仍是名字。账本用 `-name plan-test-run.json` 找（stop-gate-check.sh:52-54），半截 init 用 `-name manifest.json/auditor-*.json/gate-receipt.json` 找（:99-101）。两者同时改名即整体绕过。/tmp/r9/lab/P1：一个 required 场景 fail 的 run，`mv plan-test-run.json ledger.archived.json` → hook 从 exit 2 变 exit 0。/tmp/r9/lab/ARCH 用**交付仓自己的** audit-history/run-3 实测：`.archived` 命名下 hook exit 0；把 ledger.archived.json / manifest.archived.json 改回规范名，同一份字节立刻 exit 2 并打印 RELEASE_UNIT_TOO_LARGE + TESTED_RUNTIME_MISMATCH。也就是说，本次为「修 r8 第 1 条」而采用的归档方案，本身就是这条攻击类的一个实例，且现在被写进 audit-history/README 当作推荐做法。"
     },
     {
-      "attack_class": "借一张无关的 receipt 给本次失败背书（retire）",
+      "attack_class": "②『把链改成自洽的样子来洗白已篡改的事实』——r8 描述成「链截断」，实现者的修法是链长下界不变量",
       "class_level": false,
-      "probe": "『跨仓』这一具体入口彻底堵死（绝对路径 / 相对路径 / symlink 三种写法全 exit 2，/tmp/r8/lab/XR），fixture-only 也在写侧拒绝（/tmp/r8/lab/FX）。但类的核心——继任者与被退役 run 之间需要什么关系——仍是零：/tmp/r8/lab/R2 里继任者只需在同仓、自己 SHIPPABLE，场景可以完全无关（Z-9），acceptance 是否同源、是否覆盖被退役 run 的任一 required 场景，机器一概不问。同仓限制只是把『借外仓的 receipt』换成『借本仓另一个 run 的 receipt』，而在真实交付里后者恰恰更容易凑出来。"
+      "probe": "链长下界只封了「把链压短」这一个形态，而洗白根本不需要动链长。integrity_check 只把**最后一条** facts_digest 与当前快照对账（:702-703），中间条目的 facts_digest 从不与任何真实状态对照，因此 4 行即可：改事实 → 重算末条 facts_digest → 重算末条 chain → 同步 integ['chain']。/tmp/r9/lab/T2：S-1 唯一 root run 记 fail 的账本，经此 4 行后 finalize --check-only exit 0，续跑 audit + finalize 得 STATE: SHIPPABLE、receipt d2703d4b…、report 写「账本链：自洽（3 条写入，链首 init）」、hook exit 0，而账本里那条 run 的真实结论是 fail。规模无关：对交付仓真实的 89 条 / 98 条链直接复算，同样 4 行后 integrity_check 返回 None（loglen 89==expected 89、98==98）。另 /tmp/r9/lab/T3 证明下界可被主动降低：删掉一条 fail run 后 expected 从 3 降到 2 而 log 仍 3 条，`len(log) < expected` 恒假。"
     },
     {
-      "attack_class": "关键状态不进人读产物",
+      "attack_class": "③『拿一张与本次工作无关的 receipt 给失败 run 背书』",
       "class_level": false,
-      "probe": "退役进了 report（位置与自述方向有误，见 A8-3），但同类状态仍有未进的：①gate-receipt.json 完全没有退役字段（build_receipt 的键集实测：receipt_version / run_id / schema_version / validator_version / state / ledger_sha256 / evidence_manifest_sha256 / acceptance_sha256 / testcase_lock_sha256 / auditor_input_sha256 / auditor_output_sha256 / head / dirty_patch_sha256 / fixture_only / scenario_statuses / content_digest）；②审计者身份与审计结论（auditor.engine / verdict / executor_engine）在 report.md 里一个字都没有——cmd_render 从不渲染 auditor 块，读报告的人看不出这次是谁审的、结论是什么，只有触发 AUDITOR_INDEPENDENCE_UNVERIFIED 时才作为 advisory 露一行；③integrity 链本身（长度、首条 op、genesis 是否存在）不进 report、不进 receipt——本轮新增的三条不变量在人读界面 0 显形，因此 A8-1 那种被截断的链在任何人读产物里都看不出来。"
+      "probe": "新守卫（:1808-1826）只做 scenario_id 的**字符串集合包含**判定：`{被退役 run 的 required id} - {继任者 manifest 里列出的全部 id}` 为空即算「承接」。继任者对这些场景是否跑过、跑成什么样，一律不看。/tmp/r9/lab/R3：被退役 run 的 S-1 记 fail；继任者只跑了 Z-9，manifest 里额外写一行 `{\"scenario_id\":\"S-1\",\"required\":false}` 且一次都没跑 → retire exit 0、retire-status VALID、hook exit 0；而继任者自己的 gate-receipt.json 里 scenario_statuses 明写 `S-1: NOT_RUN`。绕过成本从 r8 的「另建一个 run」降到「在继任者 manifest 里多写一行」。acceptance 相同这一条也只在写侧（cmd_retire）校验，读侧 cmd_retire_status（:1865-1871）只复算场景覆盖、不复算 acceptance sha——两侧不对称。"
+    },
+    {
+      "attack_class": "④『关键状态不进人读产物』",
+      "class_level": true,
+      "probe": "顶部横幅、receipt 的 retired/superseded_by 字段、report 的「审计与账本完整性」小节三处都真的落地了（/tmp/r9/lab/R3 与 T2 实测可见）。但落地方式有两处反作用：旧横幅未删导致同一份 report 里并存两句互相矛盾的方位自述（见 A8-3）；新小节的「账本链：自洽」在 T2 的伪造账本上照样打印「自洽」，把一个只有 fail 记录的 run 向人读者背书为链无异常——这一节的可信度不高于它所复用的 integrity_check。"
     }
   ],
   "ac_findings": [
     {
       "ac": "AC-1",
       "closed": true,
-      "evidence": "三仓独立复验：/tmp/r8/lab/AP 删掉 stateful_init 维度 → init 即提醒、check-only 命中 APPLICABILITY_UNDECLARED 1 次；/tmp/r8/lab/AP2 三维全 true 而矩阵不兑现 → APPLICABILITY_GATE_UNSATISFIED 命中 3 次；正样本 /tmp/r8/lab/T4（三维齐全全 false、理由达标）→ APPLICABILITY 类诊断计数 0 且全流程 finalize exit 0 + receipt。ApplicabilityTestCase 10/10 由我复跑。",
-      "note": "本轮改动（_append 守卫、结构不变量、retire 同仓、render 横幅）均不触及 validate_applicability。"
+      "evidence": "ApplicabilityTestCase 10 条（含正样本 test_satisfied_matrix_passes）在本轮全量复跑中通过；validate_applicability（:706-758）对未声明报 APPLICABILITY_UNDECLARED、对声明适用但矩阵未兑现报 APPLICABILITY_GATE_UNSATISFIED；/tmp/r9/lab 全部 lab run 的 manifest 都带完整三维声明，未出现误报。",
+      "note": "本轮未发现新问题。"
     },
     {
       "ac": "AC-2",
       "closed": false,
-      "evidence": "AC-2 字面两句成立：绕过 CLI 改 runs[].result → LEDGER_TAMPERED（/tmp/r8/lab/T1），删链条目 → LEDGER_TAMPERED（IntegrityTestCase.test_dropped_chain_entry_detected 复跑），全程走 CLI 不误报（/tmp/r8/lab/T4）。但 AC-2 要保护的那件事仍可被抹掉：/tmp/r8/lab/T6、T7 —— 一次离线编辑（改 result + 调被测系统自己的 integrity_append(d,'init') 两条语句）即让 LEDGER_TAMPERED 永久消失，随后全程正规 CLI 走到 finalize exit 0 + receipt ade4a01ab7ccb657… + hook exit 0 + report『S-1 [required]: PASS』。r7 在同一句里点名的两条结构不变量本轮只实现了一条。",
-      "note": "新增回归用例 test_rebuilt_chain_without_init_is_rejected 只覆盖『伪造链的首条 op 不是 init』，把该 literal 改成 'init' 即放行；其 docstring 里的『或 genesis 不符』在全套 98 个用例中零断言（grep 证实 genesis 在测试文件里仅出现于这句 docstring）。"
+      "evidence": "AC-2 原文：「绕过 CLI 修改 runs[].result 或删除链条目 → LEDGER_TAMPERED」。/tmp/r9/lab/T2 直接证伪前半句：绕过 CLI 把 runs[0].result 从 fail 改成 pass，再重算末条 facts_digest/chain（共 4 行、无需重放任何写入），finalize --check-only exit 0，全程无 LEDGER_TAMPERED，最终拿到有效 receipt 与 hook exit 0。IntegrityTestCase 7 条用例全部只覆盖**朴素**形态（直接改 result 不动链、pop 末条、del integrity、伪造 checkpoint 首条、r8 原探针的单条 init），无一条构造「链长不变、只重算末条」这一最简形态。",
+      "note": "本轮新增的 test_truncated_chain_is_rejected 逐字复刻 r8 报告里的那条命令，是「照名字修」的又一实例。"
     },
     {
       "ac": "AC-3",
       "closed": true,
-      "evidence": "/tmp/r8/lab/T4 实测三形态：①产物 JSON verdict=FAIL + `--verdict PASS` → exit 2『以审计产物为准，不许命令行改判』；②散文 + 文末独立行 `VERDICT: FAIL` + `--verdict PASS` → 同样 exit 2；③自审自判 advisory 不拦截由 AuditorIndependenceTestCase 3/3 覆盖并由我复跑。",
-      "note": "无变化。"
+      "evidence": "/tmp/r9/lab/DOD 实测：auditor-output 写 {\"verdict\":\"FAIL\"} 而命令行 --verdict PASS → exit 2『以审计产物为准，不许命令行改判』；AuditorIndependenceTestCase 3 条（含 VERDICT: 行形式、自审自判 advisory 不拦截）复跑通过。",
+      "note": "无。"
     },
     {
       "ac": "AC-4",
       "closed": true,
-      "evidence": "自己 import 测试模块调 replay_fixture('pass-minimal', tmp) → returncode=3、FIXTURE_EXIT=3、unverified=False，stdout 含 `STATE: SHIPPABLE` / `FINALIZE: PASS (FIXTURE-ONLY)` / `GATE RECEIPT: ee23b1c224a5502a…` / `FIXTURE-ONLY：exit=3，本 receipt 不可作为真实交付证据`。AST 逐函数比对 39c592c 与当前：涉及 exit code 的 5 处差异全是把 assertEqual(rc,0) 收紧成 FIXTURE_EXIT（另加一条 assertIn(\"FIXTURE-ONLY\")），无一放松。",
-      "note": "无变化。"
+      "evidence": "自己 import test_plan_test_gate 调 replay_fixture('pass-minimal', tmpdir) → returncode=3，stdout 末行『FIXTURE-ONLY：exit=3，本 receipt 不可作为真实交付证据』；GateTestCase 的完整 PASS 路径同样断言 FIXTURE_EXIT（test_pass_minimal / test_invalidate_receipt 的断言相较 39c592c 是从 0 收紧到 3，非放松）。",
+      "note": "无。"
     },
     {
       "ac": "AC-9",
-      "closed": true,
-      "evidence": "①读不出 verdict 的 auditor-output（内容『我看了一遍，感觉没问题。』）→ `audit --verdict PASS` exit 2 并打印『缺结论行按 FAIL 处理，不接受命令行代为申报』（/tmp/r8/lab/T4）；②AUDITOR_VERDICT_MISMATCH 仍在 blocking 码表内；③hook 拦下 fixture-only 账本：/tmp/r8/lab/FX 一个 check-only 自身 exit 0 的 fixture_only 账本 → hook exit 2 并给出『不能作为交付证据』文案，且退役救不了它（写侧直接拒）。",
-      "note": "归档仍不自足（第三轮同一条）：slice-a/artifacts/ac9.log 只有 `Ran 1 test`，第③句的证据落在 slice-b/artifacts/ac14.log。结论本身我独立复测为真。"
+      "closed": false,
+      "evidence": "第一句成立（/tmp/r9/lab/DOD：output 里读不出 verdict → audit exit 2）。第三句「hook 必须拦下 fixture_only 账本」在 /tmp/r9/lab/H1 实测成立（exit 2）。但本 slice 归档的 ac9.log 仍只有 1 条用例，validator 侧 AUDITOR_VERDICT_MISMATCH 与 hook 三情形在 slice-a 内零证据。",
+      "note": "另：hook 对 fixture-only 账本给出的处置建议『确属 fixture 演练请移出 verification/ 目录』已经过期——hook 本轮改成全仓扫描后，移出 verification/ 不再有任何作用，真正有效的动作反而是改文件名（即 ①的逃逸）。"
     }
   ],
   "new_issues": [
     {
-      "id": "A8-1",
+      "id": "A9-1",
       "severity": "high",
-      "status": "new（本轮修法的同类遗漏；r7 已在同一句里点名，只实现了一半）",
-      "title": "伪造一条 op=init 的单条链即可永久抹掉 LEDGER_TAMPERED，且被测系统自己导出的 integrity_append 会替伪造者算好一切（含 genesis）",
-      "detail": "最小复现 /tmp/r8/lab/T7：`import plan_test_gate as g; d['runs'][0]['result']='pass'; d.pop('integrity'); g.integrity_append(d,'init')` —— 两条语句，integrity_check 立即返回 None，check-only 从 LEDGER_TAMPERED 变成 READY_FOR_AUDIT。完整交付路径见 /tmp/r8/lab/T6（finalize exit 0 + receipt ade4a01ab7ccb657… + hook exit 0 + report『S-1 PASS』，篡改字样 0 次）。关键点在成本：PROTOCOL §5 第 13 条把本设计的价值定义为『把成本从「顺手改一行」抬到「离线重写整条链」』，而真正的『重写整条链』其实做不到——每条链条目的 facts_digest 是当时的历史快照，只拿到最终账本的伪造者无法重算它们；他要做的恰恰不是重放整条链，而是把链截断成一条。被文档当作成本下界的那个动作比实际路径更难，实际路径反而更省事。可行的类级补法（r7 已点名）：链长/首条快照与账本事件数的对应不变量——T6 的账本需要 ≥7 条链条目而实际只有 6 条，一个计数即可判死。"
+      "status": "new（本轮修法未覆盖的同类最简形态；四轮内首次被探）",
+      "title": "只重算链的末条即可把任意事实改写成自洽账本，成本与链长无关，且新增的 report「账本链：自洽」会替伪造者背书",
+      "detail": "integrity_check（:664-705）对中间链条目只做递推哈希核对，从不把它们的 facts_digest 与任何真实状态对照；唯一与内容绑定的是末条与当前快照的相等（:702）。因此 4 行即可：改事实 → log[-1]['facts_digest']=integrity_facts_digest(d) → log[-1]['chain']=sha256_text(prev+op+fd) → integ['chain']=log[-1]['chain']。/tmp/r9/lab/T2 全程转录：唯一 root run 记 fail → 4 行 → check-only exit 0 → audit → finalize exit 0 + receipt d2703d4b… → render 输出『账本链：自洽（3 条写入，链首 init）』『S-1 [required]: PASS』→ hook exit 0。对交付仓真实账本（89/98 条链）直接复算同样返回 None。修法方向：facts_digest 应对**每次写入后的增量**取证（如把该次写入的参数并入摘要），或对全链做一次「按 op 重放能否得到当前 fact」的可复算性检查；只加长度下界不触及这一点。"
     },
     {
-      "id": "A8-2",
+      "id": "A9-2",
+      "severity": "high",
+      "status": "new（本轮修法引入并被交付仓自身采用）",
+      "title": "把 gate 产物改名即可让失败 run 整体消失于唯一强制点，而这正是本次为修 r8 第 1 条所采用的归档方案",
+      "detail": "stop-gate-check.sh 两处扫描均按文件名：账本 `-name plan-test-run.json`（:52-54），半截 init `-name manifest.json -o -name auditor-input.json -o -name auditor-output.json -o -name gate-receipt.json`（:99-101）。/tmp/r9/lab/ARCH 用交付仓自己的 audit-history/run-3 实测：`.archived` 命名 → hook exit 0；改回规范名 → exit 2 并打印 RELEASE_UNIT_TOO_LARGE + TESTED_RUNTIME_MISMATCH。与「直接删除 run 目录」的实质差别：删除后仓库里不再有任何自称为 gate 记账物的东西，读者不会误以为它仍在强制范围内；改名保留了一份看起来权威的完整记录，却已在强制之外，且 README 把它描述成『不是让失败的 run 消失』——从 hook 的视角看它恰恰就是消失了。二者对 git 可见性一样，对人的误导性不一样。"
+    },
+    {
+      "id": "A9-3",
       "severity": "medium",
-      "status": "new（本轮引入）",
-      "title": "genesis 锚在三个层面都是装饰性的，而代码 docstring 把它写成了一道成本",
-      "detail": "plan_test_gate.py:633-634 docstring：『开账锚：init 时刻的不可变身份。链被删掉重建时，重建者必须连它一起伪造。』实测三点均不成立：①integrity_check 对它是『存在才校验』（:658），两个 slice 的真实账本 has_genesis=false，因此伪造者根本不必写 genesis（/tmp/r8/lab/T6 全程无该字段、一路 exit 0）；②即使要写，integrity_genesis() 是账本自有字段的纯函数，重算一行；③被测系统导出的 integrity_append(d,'init') 会自动把 genesis 一起写好（/tmp/r8/lab/T7）。PROTOCOL 全文 0 次提到 genesis，测试文件里 genesis 只出现在一句 docstring 中且无任何断言。回应实现者的自问：把『缺 genesis』降级为『存在才校验』这个决定本身是对的（不该靠制造迁移断裂实现严格性），它没有让『链首必须是 init』形同虚设——那条不变量独立成立且确有效果；真正形同虚设的是 genesis 本身。问题不在降级，而在 docstring 把一个装饰性字段描述成一道额外成本。"
-    },
-    {
-      "id": "A8-3",
-      "severity": "low",
-      "status": "new（本轮修法引入）",
-      "title": "退役横幅的位置与自述方向与实现不符",
-      "detail": "cmd_render 把横幅 append 在场景状态与耗时分解之后（:1670-1674），/tmp/r8/lab/R2 的 report.md 实测在第 23 行，而非声称的『顶部』；横幅文字写『下方场景状态仍是真实结论』，而场景状态在第 21-22 行、位于横幅上方。要么把插入点移到头部块（RUN/STATE 之后），要么把文案改成『上方』。"
+      "status": "new（read/write 两侧不对称）",
+      "title": "retire 的 acceptance 同源校验只在写侧，retire-status 不复算——手写 retired 可绕过它",
+      "detail": "cmd_retire（:1812-1817）校验 my_acc != su_acc 即拒；cmd_retire_status（:1865-1871）只复算 scenario 覆盖，不复算 acceptance。r5 的教训（守卫只在写侧不在读侧）在这个新字段上重演了一次。配合 /tmp/r9/lab/R7 已证实的「手写 retired + integrity_append('retire') 不产生 LEDGER_TAMPERED」，一个同仓、列出了相同 scenario_id、但 acceptance 完全不同的 run 可以作为继任者被手写进账本而不被读侧发现。"
     }
   ],
   "unclosed_gaps": [
-    "AC-2 / 攻击类①：伪造一条 op=init 的链条目即可永久抹掉篡改痕迹并走到 exit 0 + 有效 receipt + hook exit 0（/tmp/r8/lab/T6、T7）。r7 在同一句里点名的两条结构不变量只实现了一条；缺的那条（链长与账本事件数的对应）恰好是能拦住本探针的那条。",
-    "retire 仍不校验继任者与被退役 run 的任何实质关系（场景 / acceptance / 覆盖面）——同仓限制堵住的是跨仓，不是『借无关 receipt』本身（/tmp/r8/lab/R2：继任者唯一场景『Z-9 完全无关的场景』→ VALID + hook exit 0）。r6→r7→r8 连续三轮。",
-    "gate-receipt.json 里没有退役字段；report.md 里没有审计者身份与审计结论、没有 integrity 链状态——本轮新增的三条链不变量在人读产物中 0 显形。",
-    "slice-a/artifacts/ac9.log 仍只归档 1 条用例，AC-9 第三句在本 slice 内无证据（须引 slice-b/ac14.log）——r6→r7→r8 三轮相同。",
-    "本轮新增的『链首必须是 init』『genesis 锚』两条机制在 PROTOCOL 中 0 次出现——normative 文档未随实现更新（§5 第 13 条只写了链的递推式与验链时机）。"
+    "AC-2 被最简形态直接证伪（T2）：改一行事实 + 重算末条 = 有效 receipt + hook exit 0，且新增的报告小节替它写「自洽」。",
+    "①这一类未闭：识别依据从目录名换成了文件名，改名逃逸仍成立，且交付仓自身的三个失败 run 正在使用它（ARCH 实测）。",
+    "③这一类未闭：继任者只需在 manifest 里多写一个 scenario_id（可 required:false、可从未执行、receipt 里明写 NOT_RUN）即算「承接」（R3 实测）。",
+    "A8-3 只闭了一半：旧的方位错误横幅（:1717-1721）逐字保留，与新顶部横幅并存于同一份 report。",
+    "ac9.log 仍只归档 1 条用例，AC-9 第二、三句在本 slice 内无证据——r6→r7→r8→r9 四轮相同。",
+    "integrity_genesis 的 docstring（:653-654）仍宣称「重建者必须连它一起伪造」，而两份真实交付账本都没有该字段、校验是 existence-only。PROTOCOL 已改准，代码内文档未同步。"
   ],
   "overstated_claims": [
     {
-      "where": "skills/plan-test/gate/PROTOCOL.md §5 第 13 条",
-      "text": "「有决心的伪造者可以离线重算整条链再写回文件……它把成本从「顺手改一行」抬到「离线重写整条链」」",
-      "assessment": "同段的『写入前先验链：链一旦对不上，任何后续 CLI 写入都被拒绝』本轮已成为真话（三种链残缺形态实测全部 exit 2，r7 的证伪不再成立）。但成本那句仍是错的，且错在偏乐观的一侧：实测抹掉篡改不需要重算整条链（历史快照拿不到，真要重放反而更难），只需把链截断成一条 op=init 的条目——用被测系统自己导出的 integrity_append 两条语句完成（/tmp/r8/lab/T7）。这是 r7 已判过一次的同一句话的同一方向的偏差。"
+      "where": "skills/plan-test/gate/PROTOCOL.md §5 第 13 条（:236-238）",
+      "text": "「有决心的伪造者可以逐条重放全部写入来重建一条对得上的链……成本被抬到「逐条重放」而不是「改一行」」",
+      "assessment": "r8 判过一次同类过度承诺（当时写的是「离线重算整条链」），本轮把说法从「重算整条链」改成「逐条重放」，量级没变，而实测成本是**4 行、O(1)、与链长无关**（T2 对 3 条链与 89/98 条真实链的结果相同）。这是把被证伪的乐观估计换个措辞重述，不是改准。"
     },
     {
-      "where": "skills/plan-test/scripts/plan_test_gate.py:633-634 integrity_genesis docstring",
+      "where": "commit 265811a 提交信息第 2 条",
+      "text": "「新增链长下界不变量——链长不得小于账本里的事实条数。伪造者现在必须逐条重放全部写入。」",
+      "assessment": "同上被 T2 证伪；另被 T3 从相反方向证伪——判据是单向下界（`len(log) < expected`），删掉事实会同步降低 expected，删一条 fail run 后 loglen 3 / expected 2，判据恒假。"
+    },
+    {
+      "where": "skills/plan-test/scripts/plan_test_gate.py:635-637 expected_chain_length docstring",
+      "text": "「这条不变量是「链截断/重建」这一类攻击的类级封堵」",
+      "assessment": "它封的是「压成一条 init」这一个形态（r8 报告里点名的那条命令），不是这一类。同类中更简单的两个形态（T2 末条重算、T3 降低下界）都不触发它。把单形态修补自称为「类级封堵」，正是 r8 核心评语所指的行为。"
+    },
+    {
+      "where": "skills/plan-test/scripts/test_plan_test_gate.py:783 test_rebuilt_chain_without_init_is_rejected docstring",
+      "text": "「即便手工造出一条自洽的链，首条不是 init（或 genesis 不符）也不作数」",
+      "assessment": "r8 已判过一次，本轮逐字未改。括号里那半句仍然零覆盖：该用例伪造的 integrity 块里没有 genesis 字段，被拒的原因是 op='checkpoint'；全套 100 条用例中仍没有任何一条构造过 genesis 不符的账本（grep 'genesis' 命中 0 条测试）。"
+    },
+    {
+      "where": "skills/plan-test/scripts/plan_test_gate.py:653-654 integrity_genesis docstring",
       "text": "「开账锚：init 时刻的不可变身份。链被删掉重建时，重建者必须连它一起伪造。」",
-      "assessment": "三重不成立：existence-only 校验使伪造者可以完全不写 genesis（/tmp/r8/lab/T6 实测全程无该字段、一路 exit 0）；即使要写也是账本自有字段的纯函数；被测系统自己的 integrity_append('init') 会替他写好。"
-    },
-    {
-      "where": "skills/plan-test/scripts/test_plan_test_gate.py:782 test_rebuilt_chain_without_init_is_rejected 的 docstring",
-      "text": "「即便手工造出一条自洽的链，首条不是 init（或 genesis 不符）也不作数。」",
-      "assessment": "括号里那半句零覆盖——该用例伪造的 integrity 块里根本没有 genesis 字段，被拒是因为 op='checkpoint'，与 genesis 无关；全套 98 个用例中没有任何一条构造过 genesis 不符的账本。用例名与 docstring 的断言范围大于它实际验证的范围，与 r7 对 test_tamper_detection_survives_further_writes 的判断同型。"
-    },
-    {
-      "where": "skills/plan-test/gate/PROTOCOL.md §8c（:163）",
-      "text": "「**退役不是赦免，是把举证责任转移给另一个已通过的 run**」",
-      "assessment": "r6、r7 已连判两轮过度承诺，本轮该句逐字未改。同仓限制是真进展，但机器仍只校验继任者自己 SHIPPABLE，不校验它承接了被退役 run 的任何一条 required 场景（/tmp/r8/lab/R2：S-1 fail 的 run 被一个只测 Z-9 的 run 退役 → VALID、hook exit 0）。『举证责任转移』在实现里没有对应物。另：§8c 也未写出本轮新增的『继任者必须同仓』这条真实约束。"
+      "assessment": "PROTOCOL 同批次已把这句改准，代码里这句原样保留，形成同一仓库内两处互相矛盾的规范性描述。两份真实交付账本 integrity 里都不含 genesis。"
     }
   ]
 }

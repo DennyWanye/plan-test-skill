@@ -1,6 +1,8 @@
 {
-  "acceptance_sha256": "97483cade7df1a03f01485a36b980d6d50c246031a4ca96895718d468a9c19b5",
-  "content_digest": "dad91bb3f40a588d",
+  "acceptance_sha256": "d5052fe2f2d98a1f2a877bcd3ddeeab9981468f319a820d733c165cf26a7e5f8",
+  "chain_first_op": "init",
+  "chain_len": 98,
+  "content_digest": "8bc680902d5e7aeb",
   "evidence": [
     {
       "path": "artifacts/ac5.log",
@@ -35,12 +37,66 @@
     "plans/2026-07-27-gate-hardening/verification/slice-a",
     "plans/2026-07-27-gate-hardening/verification/slice-b"
   ],
-  "frozen_for": "full-audit slice-b (round 8, post-commit)",
-  "has_genesis": false,
-  "integrity_chain": "779860851c5c50b3",
-  "integrity_first_op": "init",
-  "ledger_revision": 75,
+  "frozen_for": "full-audit slice-b (round 9)",
+  "integrity_chain": "2797e7c19f24d11e",
+  "ledger_revision": 98,
   "runs": [
+    {
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-6-deadlock-docs"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-10-reattest"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-11-honest-gaps"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-12-slice-isolation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-5-no-regression"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-6-deadlock-docs"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-7-hook-enforcement"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-8-content-attestation"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-10-reattest"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-11-honest-gaps"
+    },
+    {
+      "result": "pass",
+      "scenario": "AC-12-slice-isolation"
+    },
     {
       "result": "pass",
       "scenario": "AC-5-no-regression"

@@ -21,14 +21,20 @@
 - `run-2/` —— 第二次 + 第二轮审计（判 FAIL：attestation 只在 init 写一次，收尾必然锁死）
 - `run-3/` —— 第三次，被 `RELEASE_UNIT_TOO_LARGE` 拦下（task_count=12 > 10），因此拆成两个 slice
 
-## 为什么文件都带 `.archived` 后缀
+## 为什么这里没有账本文件（第九轮审计之后的更正）
 
 第八轮独立审计指出：Stop hook 早先只扫 `*/verification/*`，**把 run 目录改个名字就能整体绕过
 唯一的强制点**。修法是改成全仓按内容识别——而这一改立刻照出：把历史 run「移出 verification/」
 本身就是在利用那个即将被堵掉的弱点。
 
-所以这里进一步把 gate 产物改名（`plan-test-run.json` → `ledger.archived.json` 等），
-让它们不再以活跃 gate 记账物的形态存在。**内容一个字节没改**，改名在 git 里可见。
+第一次的做法是把 gate 产物改名（`plan-test-run.json` → `ledger.archived.json`）。
+**第九轮审计把这条也打穿了**：hook 当时按文件名识别账本，改名即隐身——而本仓的"归档"方案
+自己就是这条逃逸的一个实例。hook 已改为按**账本形状**识别（同时含 schema_version / run_id /
+scenarios / integrity 的 JSON 就是账本，无论叫什么名字），改名不再有效。
+
+因此这里的三份账本与 manifest **已被删除**（删除在 git diff 里可见，是显式动作），
+只保留审计报告与 gate 报告——它们才是这三次 run 的价值所在。要查当时的账本原文，
+`git show` 前一个 commit 即可。
 
 这不是让失败的 run 消失：三份账本记录的仍然是「未闭环」这个真实状态，审计报告原样保留。
 它们只是不再参与收尾阻断——因为工作已由 slice-a / slice-b 承接，而 `retire` 这条路走不通
