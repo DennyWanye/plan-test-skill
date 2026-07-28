@@ -16,6 +16,6 @@ test_undeclared_blocks (__main__.ApplicabilityTestCase)
 完全不声明适用性 → 拦截（此前是默认状态，无人可查）。 ... ok
 
 ----------------------------------------------------------------------
-Ran 10 tests in 1.091s
+Ran 10 tests in 1.130s
 
 OK

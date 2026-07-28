@@ -1,3 +1,6 @@
-业务 report.md → exit=0（期望 0）
-业务 manifest 含 run_id → exit=0（期望 0）
-账本被删留 auditor 产物 → exit=2（期望 2）
+== 第八轮四条类级修法的实测（审计原探针）==
+A) run-dir 不在 verification/ 下 → hook 仍拦：exit 2（此前 0）
+B) 用 gate 自己的函数把链压成一条 init → LEDGER_TAMPERED，后续写入 exit 2
+C) 业务 report.md + BDD manifest（字符串数组）→ exit 0，不误报
+D) 继任者场景无关（Z-9）→ retire 拒绝 exit 2
+（复现命令见本轮对话；回归用例：IntegrityTestCase / RetireTestCase）

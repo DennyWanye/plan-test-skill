@@ -159,8 +159,11 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
      --reason "已被 slice-a/b 取代" --superseded-by NEW
    ```
 
-   - `--superseded-by` **必填**：继任 run 必须是非 fixture、当前 SHIPPABLE、receipt 未失效的
-     真实 run，否则直接拒绝（exit 2）。**退役不是赦免，是把举证责任转移给另一个已通过的 run**。
+   - `--superseded-by` **必填**：继任 run 必须是非 fixture、当前 SHIPPABLE、receipt 未失效、
+     **在同一仓库内**、**acceptance 相同**、且**覆盖被退役 run 的全部 required 场景**，
+     否则直接拒绝（exit 2）。**退役不是赦免，是把举证责任转移给另一个已通过的 run**——
+     少了「覆盖」这一条，就成了拿一张无关的 receipt 背书（独立审计实测：用一个唯一场景是
+     `Z-9` 的同仓 run 就能退役掉 `S-1` FAIL 的 run）。
    - 退役后账本仍如实是未闭环状态：`finalize --check-only` 照样 FAIL。它只影响一件事——
      Stop hook / CI 不再因这个已被取代的 run 阻断收尾。
    - 判定统一走 `retire-status --run-dir D`（exit 0 = 退役成立）；hook 与 CI **不得自行解读
@@ -226,8 +229,13 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
     否则篡改检测是一次性的：改完再敲一条无害命令（`checkpoint` 就行），新条目会拿被篡改的
     快照重新盖章，痕迹永久消失并照常拿到有效 receipt（独立审计实测，成本只是「改一行 +
     多敲一条命令」）。
-    **仍然防不住什么（如实说）**：有决心的伪造者可以离线重算整条链再写回文件——链不是签名，
-    没有密钥。它把成本从「顺手改一行」抬到「离线重写整条链」，并让这件事只能是显式的、
+    **结构不变量同样重要**：链首必须是 `init`，且**链长不得小于账本里的事实条数**
+    （每次 CLI 写入恰好追加一条）。只查链值与链首都不够——把链压成一条 `init` 同样自洽，
+    独立审计用两行代码（`d.pop('integrity'); integrity_append(d,'init')`）就洗白过一次篡改，
+    此后全走正规 CLI 拿到 receipt。
+    **仍然防不住什么（如实说）**：有决心的伪造者可以逐条重放全部写入来重建一条对得上的链——
+    链不是签名，没有密钥；`genesis` 也只是账本自有字段的纯函数，挡不住重放，它只能发现
+    「链被整体换成另一个 run 的」。成本被抬到「逐条重放」而不是「改一行」，且只能是显式的、
     写进 diff 的行为。要真正防伪造，锚点必须在被测者写不到的地方（CI、远端存储）。
 14. **审计产物 > 命令行**：`audit --verdict` 与 `auditor-output`（JSON 的 `verdict`
     字段或文末 `VERDICT: PASS/FAIL` 行）不一致 → `audit` 直接拒绝（exit 2），

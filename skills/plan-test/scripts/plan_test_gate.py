@@ -630,6 +630,26 @@ def integrity_append(ledger, op):
     integ["chain"] = entry["chain"]
 
 
+def expected_chain_length(ledger):
+    """账本里每一条可追加事实都对应一次 CLI 写入，因此链长有下界。
+
+    这条不变量是"链截断/重建"这一类攻击的类级封堵：伪造者不能再把链压成一条 init，
+    必须逐条重放全部写入才对得上——那已经是显式的、成本高得多的行为。
+    """
+    n = 1  # init
+    for key in ("runs", "evidence", "declared_statuses", "timing", "attestations",
+                "superseded_evidence"):
+        n += len(ledger.get(key) or [])
+    n += len(ledger.get("events") or [])
+    if ledger.get("auditor"):
+        n += 1
+    if ledger.get("delivery"):
+        n += 1
+    if ledger.get("retired"):
+        n += 1
+    return n
+
+
 def integrity_genesis(ledger):
     """开账锚：init 时刻的不可变身份。链被删掉重建时，重建者必须连它一起伪造。"""
     return canonical_digest({
@@ -655,6 +675,13 @@ def integrity_check(ledger):
         return "integrity.log 为空"
     if log[0].get("op") != "init":
         return "integrity 链首条不是 init（op=%s）——链被删除后重建过" % log[0].get("op")
+    # 链长必须对得上账本里的事实条数：每次 CLI 写入恰好追加一条。
+    # 只查"链首是 init"是不够的——把链截断成一条 init 同样自洽（独立审计实测：
+    # `d.pop('integrity'); integrity_append(d,'init')` 两行即可洗白，此后全走正规 CLI 拿 receipt）。
+    expected = expected_chain_length(ledger)
+    if len(log) < expected:
+        return ("integrity 链只有 %d 条，账本里的事实至少需要 %d 条——链被截断或重建"
+                % (len(log), expected))
     if integ.get("genesis") and integ["genesis"] != integrity_genesis(ledger):
         return "integrity genesis 与开账身份不符——账本被替换或链被重建"
     # 缺 genesis 不单独判死：真正的不变量是"链首必须是 init"（上面已查）。
@@ -1136,6 +1163,8 @@ def build_receipt(run_dir, ledger, computed):
         "head": att.get("head") or baseline.get("head"),
         "dirty_patch_sha256": att.get("dirty_patch_sha256") or baseline.get("dirty_patch_sha256"),
         "fixture_only": bool(ledger.get("fixture_only")),
+        "retired": bool(ledger.get("retired")),
+        "superseded_by": ledger.get("superseded_by"),
         "scenario_statuses": computed["scenario_statuses"],
     }
     identity = {k: v for k, v in receipt.items() if k not in RECEIPT_IDENTITY_EXCLUDE}
@@ -1593,7 +1622,12 @@ def cmd_render(args):
             stale = True
             diags.append(Diag("RECEIPT_STALE", "receipt digest 与当前输入不符——输入已变化"))
     shippable = (not blocking(diags)) and computed["state"] == "SHIPPABLE" and receipt and not stale
-    lines = ["# plan-test gate report", "",
+    banner = []
+    if ledger.get("retired"):
+        banner = ["> ⚠ **本 run 已退役**：%s；继任 run = %s。"
+                  "退役只影响 hook/CI 是否阻断，**不改变下面任何一条结论**。"
+                  % (ledger.get("retired_reason"), ledger.get("superseded_by")), ""]
+    lines = ["# plan-test gate report", ""] + banner + [
              "RUN: %s" % ledger.get("run_id"),
              "STATE: %s" % ("SHIPPABLE" if shippable else "BLOCKED"),
              "TESTED HEAD: %s" % ((ledger.get("runtime_attestation") or {}).get("head")
@@ -1640,6 +1674,19 @@ def cmd_render(args):
                 a.get("recorded_at"), a.get("change_kind"), a.get("changed_count"),
                 a.get("reason")))
         lines.append("")
+    auditor = ledger.get("auditor") or {}
+    lines.append("## 审计与账本完整性")
+    if auditor:
+        lines.append("- 审计：verdict=%s engine=%s（产物 %s）" % (
+            auditor.get("verdict"), auditor.get("engine"), auditor.get("output_path")))
+    else:
+        lines.append("- 审计：**未执行**")
+    _chain_break = integrity_check(ledger)
+    lines.append("- 账本链：%s（%d 条写入，链首 %s）" % (
+        "自洽" if not _chain_break else "**异常：%s**" % _chain_break,
+        len(((ledger.get("integrity") or {}).get("log")) or []),
+        ((((ledger.get("integrity") or {}).get("log")) or [{}])[0]).get("op")))
+    lines.append("")
     lines.append("## 场景状态（由 validator 重算）")
     for s in ledger.get("scenarios") or []:
         sid = s["scenario_id"]
@@ -1758,6 +1805,25 @@ def cmd_retire(args):
         die("RETIRE 拒绝：fixture-only run 不得以退役方式退出阻断（合成数据本就不是交付证据）")
     repo_self = ledger_self.get("repo_root") or os.getcwd()
     ok, detail = successor_receipt_status(args.superseded_by, repo_self)
+    if ok:
+        # 同仓还不够：继任者必须真的"承接"了这次的工作，否则就是拿一张无关的 receipt 背书。
+        # 独立审计实测：S-1 fail 的 run 被一个唯一场景是「Z-9 完全无关」的同仓 run 退役即通过。
+        succ = load_ledger_quiet(args.superseded_by) or {}
+        my_acc = (ledger_self.get("acceptance") or {}).get("sha256")
+        su_acc = (succ.get("acceptance") or {}).get("sha256")
+        if my_acc and su_acc and my_acc != su_acc:
+            ok, detail = False, ("继任 run 的 acceptance 与本 run 不同（%s… vs %s…）——"
+                                 "不是同一份验收标准，承接不成立"
+                                 % (str(my_acc)[:8], str(su_acc)[:8]))
+        else:
+            mine = {sc["scenario_id"] for sc in (ledger_self.get("scenarios") or [])
+                    if sc.get("required")}
+            theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])}
+            missing = sorted(mine - theirs)
+            if missing:
+                ok, detail = False, ("继任 run 未覆盖本 run 的 required 场景：%s——"
+                                     "退役是把举证责任转移过去，不是让它消失"
+                                     % ", ".join(missing[:5]))
     if not ok:
         die("RETIRE 拒绝：%s。退役只允许在工作已被另一个**通过的** run 承接时使用；"
             "确实要放弃这次验证，请直接删除该 run 目录（删除会出现在 git diff 里，是可见动作）。"
@@ -1796,6 +1862,12 @@ def cmd_retire_status(args):
         sys.exit(1)
     ok, detail = successor_receipt_status(ledger.get("superseded_by") or "",
                                           ledger.get("repo_root") or os.getcwd())
+    if ok:
+        succ = load_ledger_quiet(ledger.get("superseded_by") or "") or {}
+        mine = {sc["scenario_id"] for sc in (ledger.get("scenarios") or []) if sc.get("required")}
+        theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])}
+        if mine - theirs:
+            ok, detail = False, "继任 run 未覆盖本 run 的 required 场景：%s" % ", ".join(sorted(mine - theirs)[:5])
     if not ok:
         print("INVALID: %s" % detail)
         sys.exit(1)

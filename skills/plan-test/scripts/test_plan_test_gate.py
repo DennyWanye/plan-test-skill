@@ -798,6 +798,32 @@ class IntegrityTestCase(GateHarness):
         self.assertEqual(out.returncode, 1)
         self.assertIn("LEDGER_TAMPERED", out.stdout)
 
+    def test_truncated_chain_is_rejected(self):
+        """把链压成一条 init 同样不作数——链长必须对得上账本里的事实条数。
+
+        独立审计的原探针：`d.pop('integrity'); integrity_append(d, 'init')` 两行，
+        此后全走正规 CLI 也能拿到 receipt。只查"链首是 init"拦不住它。
+        """
+        self.init([{"scenario_id": "S-1", "required": True}])
+        self.record("S-1", result="fail")
+        self.artifact("artifacts/x.log", "log")
+        self.attach("artifacts/x.log", scenario="S-1")
+        led = self.read_ledger()
+        led["runs"][0]["result"] = "pass"
+        # 用被测系统自己的函数重建一条"自洽"的单条链
+        sys.path.insert(0, HERE)
+        import importlib
+        gate = importlib.import_module("plan_test_gate")
+        led.pop("integrity", None)
+        gate.integrity_append(led, "init")
+        self.write_ledger(led)
+        out = self.finalize(check_only=True)
+        self.assertEqual(out.returncode, 1, "截断成一条 init 的链被放行了")
+        self.assertIn("LEDGER_TAMPERED", out.stdout)
+        # 后续写入同样被拒
+        r = run_gate(["checkpoint", "--run-dir", self.run_dir, "--note", "继续"])
+        self.assertEqual(r.returncode, 2)
+
     def test_cli_writes_keep_chain_valid(self):
         """正样本：全程走 CLI 的账本链必须自洽。"""
         self.full_pass_run()
@@ -1386,7 +1412,7 @@ class RetireTestCase(RealRepoAttestationTestCase):
         # 继任 run 目录须在 init 之前就存在（related_run_dirs 校验存在性）
         os.makedirs(os.path.join(self.repo, "plans", "p", "verification", "succ", "artifacts"))
 
-    def successor(self):
+    def successor(self, scenario_id="S-1"):
         """造一个真正通过的继任 run（非 fixture、SHIPPABLE、receipt 未失效）。"""
         d = os.path.join(self.repo, "plans", "p", "verification", "succ")
         manifest = {
@@ -1394,7 +1420,7 @@ class RetireTestCase(RealRepoAttestationTestCase):
             "acceptance_file": os.path.join(self.repo, "acceptance.md"),
             "applicability": self.applicability_block(),
             "related_run_dirs": ["plans/p/verification/run-1"],
-            "scenarios": [{"scenario_id": "S-1", "required": True}],
+            "scenarios": [{"scenario_id": scenario_id, "required": True}],
         }
         with open(os.path.join(d, "manifest.json"), "w", encoding="utf-8") as f:
             f.write(json.dumps(manifest, ensure_ascii=False))
@@ -1402,8 +1428,8 @@ class RetireTestCase(RealRepoAttestationTestCase):
         with open(os.path.join(d, "artifacts", "s1.log"), "w") as f:
             f.write("ok")
         run_gate(["attach-evidence", "--run-dir", d, "--path", "artifacts/s1.log",
-                  "--kind", "primary", "--scenario", "S-1"], cwd=self.repo)
-        run_gate(["record-run", "--run-dir", d, "--scenario", "S-1", "--kind", "root",
+                  "--kind", "primary", "--scenario", scenario_id], cwd=self.repo)
+        run_gate(["record-run", "--run-dir", d, "--scenario", scenario_id, "--kind", "root",
                   "--result", "pass"], cwd=self.repo)
         for name, body in (("auditor-input.json", '{"frozen":true}'),
                            ("auditor-output.json", '{"verdict":"PASS"}')):
@@ -1468,6 +1494,20 @@ class RetireTestCase(RealRepoAttestationTestCase):
         r = self.check()
         self.assertEqual(r.returncode, 1)
         self.assertIn("REQUIRED_SCENARIO_NOT_RUN", r.stdout)
+
+    def test_successor_must_cover_required_scenarios(self):
+        """继任者必须真的承接工作：覆盖被退役 run 的 required 场景，且同一份 acceptance。
+
+        独立审计实测：S-1 fail 的 run 被一个唯一场景是「Z-9 完全无关」的同仓 run 退役即通过——
+        那不是转移举证责任，是拿一张无关的 receipt 背书。
+        """
+        self.init_real_run(related_run_dirs=["plans/p/verification/succ"])
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        succ = self.successor(scenario_id="Z-9")     # 场景完全无关
+        r = self.retire(os.path.relpath(succ, self.repo))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("未覆盖", r.stderr)
 
     def test_successor_must_be_in_same_repo(self):
         """继任者不能指向别的仓库——那等于"借"一张无关的 receipt 给本次失败背书。"""

@@ -1,9 +1,7 @@
-== 本轮类级修法自查 ==
-删链是否仍是逃生门（应为 0）：0
-链首条须为 init：1
-genesis 锚：3
-继任者须同仓：2
-退役进报告：1
-PROTOCOL 承认链不是签名：1
-README 列出仍会漏掉的形态：1
-acceptance 指向已归档路径：0
+链长下界不变量：2
+hook 不依赖目录名：1
+继任者须覆盖 required 场景：2
+退役横幅置顶 + 进 receipt：2
+报告渲染审计与链状态：1
+PROTOCOL 承认 genesis 挡不住重放：1
+acceptance 残留旧路径：0

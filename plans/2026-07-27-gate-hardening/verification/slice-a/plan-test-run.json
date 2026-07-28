@@ -564,6 +564,257 @@
       "reason": "第七轮审计：按攻击类修复（删链/跨仓继任/通用文件名误报）",
       "recorded_at": "2026-07-28T01:40:36+0800",
       "runs_index": 23
+    },
+    {
+      "change_kind": "behavioral",
+      "changed_count": 6,
+      "changed_paths": [
+        "hooks/README.md",
+        "hooks/stop-gate-check.sh",
+        "plans/2026-07-27-gate-hardening/acceptance.md",
+        "skills/plan-test/gate/PROTOCOL.md",
+        "skills/plan-test/scripts/plan_test_gate.py",
+        "skills/plan-test/scripts/test_plan_test_gate.py"
+      ],
+      "content_digest": "75e44183bbd1f251accbd4cf5e4661c83d22baffa76f63edd9cea48ca5f0b5c7",
+      "dirty_patch_sha256": "7866008cf13ecaf7513e57108b334b5c597d9663df0a42b73853d9ac051ce651",
+      "exclusion_count": 23,
+      "exclusion_scope": [
+        "plans/2026-07-27-gate-hardening/verification/slice-a",
+        "plans/2026-07-27-gate-hardening/verification/slice-b"
+      ],
+      "exclusions": [
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac1.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac2.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac3.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac4.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac9.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/full-suite.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/auditor-input.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/auditor-output.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/manifest.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/plan-test-run.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac10.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac11.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac12.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac13.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac14.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac5.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac6.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac7.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac8.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/auditor-input.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/auditor-output.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/manifest.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/plan-test-run.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ]
+      ],
+      "head": "4ed8f9484876b66dd9eef9f3d4f2793ae80dd397",
+      "reason": "第八轮审计：按攻击类修（hook 目录名依赖、链截断、继任者实质关系、状态显形）",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "runs_index": 29
+    },
+    {
+      "change_kind": "behavioral",
+      "changed_count": 23,
+      "changed_paths": [
+        "plans/2026-07-27-gate-hardening/audit-history/README.md",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-input.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-report.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-input.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-output.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/ledger.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/manifest.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/manifest.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/plan-test-run.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-input.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-report.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-input.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-output.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/ledger.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/manifest.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/manifest.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/plan-test-run.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/gate-report.archived.md",
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/ledger.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/manifest.archived.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/manifest.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/plan-test-run.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/report.md"
+      ],
+      "content_digest": "8bc680902d5e7aebbb7d4906df674d8faf4b4cedbc1ee392a903b659ea71eb85",
+      "dirty_patch_sha256": "b80196758ce6e33b6bbfa778b3c7d8af5e335afc9c36224258b49d5ad741c1f8",
+      "exclusion_count": 23,
+      "exclusion_scope": [
+        "plans/2026-07-27-gate-hardening/verification/slice-a",
+        "plans/2026-07-27-gate-hardening/verification/slice-b"
+      ],
+      "exclusions": [
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac1.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac2.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac3.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac4.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac9.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/full-suite.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/auditor-input.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/auditor-output.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/manifest.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-a/plan-test-run.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-a"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac10.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac11.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac12.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac13.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac14.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac5.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac6.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac7.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac8.log",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/auditor-input.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/auditor-output.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/manifest.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ],
+        [
+          "plans/2026-07-27-gate-hardening/verification/slice-b/plan-test-run.json",
+          "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
+        ]
+      ],
+      "head": "4ed8f9484876b66dd9eef9f3d4f2793ae80dd397",
+      "reason": "归档历史 run 的 gate 产物改名（内容未改）",
+      "recorded_at": "2026-07-28T18:50:35+0800",
+      "runs_index": 35
     }
   ],
   "baseline": {
@@ -1038,52 +1289,52 @@
   "events": [],
   "evidence": [
     {
-      "attached_at": "2026-07-28T01:40:36+0800",
-      "evidence_id": "ev-b0a6ec79aaa7",
+      "attached_at": "2026-07-28T18:49:36+0800",
+      "evidence_id": "ev-be5a809235b3",
       "kind": "primary",
       "path": "artifacts/ac1.log",
       "scenario_id": "AC-1-applicability",
-      "sha256": "b0a6ec79aaa704b4b7341c9d32b80a7c2d5bedab0d84c53e93e00ef0a4800a12"
+      "sha256": "be5a809235b396f7fae4f54a5c9aedb7c81ab992cf85fd5a444d197e0575fc33"
     },
     {
-      "attached_at": "2026-07-28T01:40:37+0800",
-      "evidence_id": "ev-ead03400b5f2",
+      "attached_at": "2026-07-28T18:49:36+0800",
+      "evidence_id": "ev-503f15131043",
       "kind": "primary",
       "path": "artifacts/ac2.log",
       "scenario_id": "AC-2-ledger-integrity",
-      "sha256": "ead03400b5f26944235d6523199605c6cfbe002d65b800cd54c79668c5da448b"
+      "sha256": "503f151310433c2cc8cb394e81b02516469a898aea42e40f9284eb52949da5ee"
     },
     {
-      "attached_at": "2026-07-28T01:40:37+0800",
-      "evidence_id": "ev-6723f44f18be",
+      "attached_at": "2026-07-28T18:49:36+0800",
+      "evidence_id": "ev-5a12cf56b81c",
       "kind": "primary",
       "path": "artifacts/ac3.log",
       "scenario_id": "AC-3-auditor-consistency",
-      "sha256": "6723f44f18be9cd7fb9866264662eb9839226bd823e31849bd1ff1465dd99f57"
+      "sha256": "5a12cf56b81ca8919da2a6ae9f1a9ca454ea8da0698349f3a8a97b0969500ba0"
     },
     {
-      "attached_at": "2026-07-28T01:40:37+0800",
-      "evidence_id": "ev-d071c2171a1b",
+      "attached_at": "2026-07-28T18:49:36+0800",
+      "evidence_id": "ev-5c866171d1b8",
       "kind": "primary",
       "path": "artifacts/ac4.log",
       "scenario_id": "AC-4-fixture-exit3",
-      "sha256": "d071c2171a1bfe23b9b95bf2f3969df50fd031c5da53920deaf2fd9759ade6ec"
+      "sha256": "5c866171d1b840199c17483f43ae918b4f95af816a20d2f0b8c8acd45506c9ed"
     },
     {
-      "attached_at": "2026-07-28T01:40:37+0800",
-      "evidence_id": "ev-4da16c06afa0",
+      "attached_at": "2026-07-28T18:49:36+0800",
+      "evidence_id": "ev-9d4cd631a91d",
       "kind": "primary",
       "path": "artifacts/ac9.log",
       "scenario_id": "AC-9-auditor-artifact",
-      "sha256": "4da16c06afa05fe1db1c3c2ddf94e19a863801a99f574157c719b473412e2cec"
+      "sha256": "9d4cd631a91dc4c93f6a0ef669d95b60afe3e9f9465f2169745a17798693ea54"
     },
     {
-      "attached_at": "2026-07-28T01:40:37+0800",
-      "evidence_id": "ev-d00330587f03",
+      "attached_at": "2026-07-28T18:49:36+0800",
+      "evidence_id": "ev-79bab7ab0dac",
       "kind": "primary",
       "path": "artifacts/full-suite.log",
       "scenario_id": "AC-1-applicability",
-      "sha256": "d00330587f03752f0d55f3cefad2ea6b1c1ad3fcbf9d6ef157a620126c7c85ef"
+      "sha256": "79bab7ab0dac3c1977f010b3bb55371c7870fb1570a74c626ae1fef80d70b27b"
     }
   ],
   "exclusion_scope": [
@@ -1093,7 +1344,7 @@
   "executor_engine": "claude-fable-5(main-loop)",
   "fixture_only": false,
   "integrity": {
-    "chain": "9c4b2de3392abd12d3e8ac680f6847e7798745c54f592abf69a4bec9a09cbe34",
+    "chain": "f86d405b04c0627d00ecd331696d7d129d15e9dcf77fee056a282412deca6fdb",
     "log": [
       {
         "at": "2026-07-28T00:00:26+0800",
@@ -1577,6 +1828,146 @@
         "facts_digest": "1eb17f125ceab6b67851f8f348414b078ff7629affeece4ccb7c4ccf9f16622a",
         "op": "record-run",
         "seq": 69
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "7895293a130034b81c695cb8ce64129f753a83d3bc4aa3aaef9ab3e700e0d54b",
+        "facts_digest": "0aa7a580030bfacbb5288448d62ec40a5ce78ef04ffadbe512deaa67cfa0e590",
+        "op": "record-timing",
+        "seq": 70
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "bcd95ac8e89156c1fcdfbe4d63c428360cbf5552aa39b133e9b94dac87d13800",
+        "facts_digest": "532ec212ed5a25bb0cbf36ba47878df6b7e018bdc5df29402998532f5c88f0d9",
+        "op": "re-attest",
+        "seq": 71
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "79851761d8a55b269a4026c607c795d76cb4b6bbbbe97595ac21ffd9c3e3a833",
+        "facts_digest": "1ec7f6266d290761a1a1cf188dff2dfac0976e081f9939f11a811bf5a32b7f24",
+        "op": "attach-evidence",
+        "seq": 72
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "0625780180a4d442975c7cfbf7a8257dfe9eba522ddb70ab1ea16f324c10098e",
+        "facts_digest": "5b24a79380e5162493e999c8ad160d6973c59d401c0d7f84964e6c4e72e89b59",
+        "op": "record-run",
+        "seq": 73
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "0deaad39fc7d6bf677e31c6ea2782ed0fd1b9d5fd0e6dac2c1b1b5bb5a888f20",
+        "facts_digest": "0649552cecf0e4a9b302c405c89914de83aae11d2cd98157b9cacad812e7fe82",
+        "op": "attach-evidence",
+        "seq": 74
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "e562c5b372d7d0620c6b7e42ed62cb56ab46b2534373981dfcbcbb41333dcccc",
+        "facts_digest": "8632f064743405e5f84427979a0352f2c50840a4e6b6113b9f2b4fac03412a05",
+        "op": "record-run",
+        "seq": 75
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "da2819b39b8fd748c71141b939d08dbe350ec4467a4c3c9df18036ddff6640ba",
+        "facts_digest": "12168b75a0a8b44c6e945c2b4f1c42d78fec242dd593a71100fed1471c5cfed4",
+        "op": "attach-evidence",
+        "seq": 76
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "4cd0209db1d2244105bb672352f87ed919f29223df98529b280ee79c14d9a635",
+        "facts_digest": "df85296fef07c790c9f7f80722df360ac92ede5a1aad08b7db94fd72c220e17b",
+        "op": "record-run",
+        "seq": 77
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "06867442bbf8a05d5f36afae3451cdc2e0a1967a767a3d06a57e5402ac61913d",
+        "facts_digest": "4005674ecfa00634638b57599f53cf99f75ea626d240893d09deb1ee63a0ddfc",
+        "op": "attach-evidence",
+        "seq": 78
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "71967a18ddc0cd9b2291adf9ebf568f662943252558473f4153b1fd25523b620",
+        "facts_digest": "59c784cb841e5a5d5bd431c384f4ea1d424429eda4148743c164a524dcacc9e5",
+        "op": "record-run",
+        "seq": 79
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "237705b8ffd36d456707b600a492fb641f6e4a373bc088a583b325fb082adf3d",
+        "facts_digest": "969284ae806b1691b3ecd515a192a5bcdcf0f2ea8dd0fa09b05ff7e97627e18c",
+        "op": "attach-evidence",
+        "seq": 80
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "e195558d915c4ef9d3d376286825e9d343fb8ee259c0877fd50871e8490431ed",
+        "facts_digest": "78f59796e06029cbcfafd0a5d4db43197879a2be7555e5eed9c52406873338f4",
+        "op": "record-run",
+        "seq": 81
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "328317e68bfc74e86101059d45876589ab8798e1007b6afc446c06a62e3e2867",
+        "facts_digest": "e4ad0f92b5214ff43d0c041a13e3be5a72d31102c1bb4d1ea3f7f4ce02539bff",
+        "op": "attach-evidence",
+        "seq": 82
+      },
+      {
+        "at": "2026-07-28T18:49:36+0800",
+        "chain": "77cae0f5a8e916da715491ba625f5f332338bfde18a12826ebcffcc5521a8613",
+        "facts_digest": "1a64d4405c7c38c6d566b35d6a0601375b2a2292f1632c47f144e6c548e9079d",
+        "op": "record-run",
+        "seq": 83
+      },
+      {
+        "at": "2026-07-28T18:50:35+0800",
+        "chain": "ea553e4346c7a07e817aa61fdf73d2744acfbdb23f5c4479a932161c8e74f9de",
+        "facts_digest": "8389c44672583d822f625b5ceb55986bf9bf9c15e5f55cd827ddfcc182783514",
+        "op": "re-attest",
+        "seq": 84
+      },
+      {
+        "at": "2026-07-28T18:50:35+0800",
+        "chain": "e3dbc9899a0fd86912715d0a5ebaeec242952e577bbc4c700f6ef42b063c388b",
+        "facts_digest": "6ae2014d8ea52f32b9f5333b632157ef3ad90abffd29ac97a30b1c69cb81e7ac",
+        "op": "record-run",
+        "seq": 85
+      },
+      {
+        "at": "2026-07-28T18:50:35+0800",
+        "chain": "110a5d3abbd5b7223df848e43ebb081e7a7429c1b9bb5dc6cfa4fdd2ea386440",
+        "facts_digest": "1b2dd51c8e927de4500a6d30a1b59e6492fac1d3b8b450dc294abb9a0978fbf7",
+        "op": "record-run",
+        "seq": 86
+      },
+      {
+        "at": "2026-07-28T18:50:35+0800",
+        "chain": "3cfc8686e003c612185baacb96c0bf6ffc3101f45d4b6e343b5c3750915943a9",
+        "facts_digest": "b414a13b4581181c1e2e51d66ed151b418bebd6307f327c862b205931aa7d098",
+        "op": "record-run",
+        "seq": 87
+      },
+      {
+        "at": "2026-07-28T18:50:36+0800",
+        "chain": "d025540a0b8c6f74080a33d66a3646e65532b8e8bac1e55538a128b924f75105",
+        "facts_digest": "edd0a2e11fb156b6be6364471b5873e2f4e57eb7ce09541fc9d956226c7e14b7",
+        "op": "record-run",
+        "seq": 88
+      },
+      {
+        "at": "2026-07-28T18:50:36+0800",
+        "chain": "f86d405b04c0627d00ecd331696d7d129d15e9dcf77fee056a282412deca6fdb",
+        "facts_digest": "630685bd371453b7e604a625cc08339183ea976716b10802cde575d95a8abc07",
+        "op": "record-run",
+        "seq": 89
       }
     ]
   },
@@ -1589,7 +1980,7 @@
     "task_count": 5
   },
   "repo_root": "/Users/denny/planSkill/plan-test",
-  "revision": 69,
+  "revision": 89,
   "run_id": "gate-hardening-slice-a",
   "runs": [
     {
@@ -1881,18 +2272,147 @@
       "recorded_at": "2026-07-28T01:40:37+0800",
       "result": "pass",
       "scenario_id": "AC-1-applicability"
+    },
+    {
+      "business_terminal": "100/100 全绿",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-1-applicability"
+    },
+    {
+      "business_terminal": "100/100 全绿",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-2-ledger-integrity"
+    },
+    {
+      "business_terminal": "100/100 全绿",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-3-auditor-consistency"
+    },
+    {
+      "business_terminal": "100/100 全绿",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-4-fixture-exit3"
+    },
+    {
+      "business_terminal": "100/100 全绿",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-9-auditor-artifact"
+    },
+    {
+      "business_terminal": "100/100 全绿",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-1-applicability"
+    },
+    {
+      "business_terminal": "100/100 全绿（归档改名后复跑）",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:50:35+0800",
+      "result": "pass",
+      "scenario_id": "AC-1-applicability"
+    },
+    {
+      "business_terminal": "100/100 全绿（归档改名后复跑）",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:50:35+0800",
+      "result": "pass",
+      "scenario_id": "AC-2-ledger-integrity"
+    },
+    {
+      "business_terminal": "100/100 全绿（归档改名后复跑）",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:50:35+0800",
+      "result": "pass",
+      "scenario_id": "AC-3-auditor-consistency"
+    },
+    {
+      "business_terminal": "100/100 全绿（归档改名后复跑）",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:50:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-4-fixture-exit3"
+    },
+    {
+      "business_terminal": "100/100 全绿（归档改名后复跑）",
+      "driver": "ai",
+      "engine_terminal": "exit 0",
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-07-28T18:50:36+0800",
+      "result": "pass",
+      "scenario_id": "AC-9-auditor-artifact"
     }
   ],
   "runtime_attestation": {
     "change_kind": "behavioral",
-    "changed_count": 4,
+    "changed_count": 23,
     "changed_paths": [
-      "hooks/README.md",
-      "hooks/stop-gate-check.sh",
-      "skills/plan-test/scripts/plan_test_gate.py",
-      "skills/plan-test/scripts/test_plan_test_gate.py"
+      "plans/2026-07-27-gate-hardening/audit-history/README.md",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-input.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-report.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-input.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-output.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/ledger.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/manifest.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/manifest.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-1/plan-test-run.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-input.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-report.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-input.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-output.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/ledger.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/manifest.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/manifest.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-2/plan-test-run.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-3/gate-report.archived.md",
+      "plans/2026-07-27-gate-hardening/audit-history/run-3/ledger.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-3/manifest.archived.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-3/manifest.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-3/plan-test-run.json",
+      "plans/2026-07-27-gate-hardening/audit-history/run-3/report.md"
     ],
-    "content_digest": "dad91bb3f40a588d162493bb0f2accef34f9d9e2c41e20e9135c1fb180a1feed",
+    "content_digest": "8bc680902d5e7aebbb7d4906df674d8faf4b4cedbc1ee392a903b659ea71eb85",
     "content_entries": [
       [
         ".claude-plugin/plugin.json",
@@ -1920,19 +2440,19 @@
       ],
       [
         "hooks/README.md",
-        "-:e18f1f7cd6ad0b22f71a61acf9f7f1fd08190c1406f7ae08f4e76207e124c41a"
+        "-:fae7964d5b9a4522d58ae73ac260f3df2ff44b1dc4dd3791212922800dc9ecd3"
       ],
       [
         "hooks/stop-gate-check.sh",
-        "x:b1e07e0a8012cbee23f9d7786bbfc3fe4d030e8cc066035dfcbb319f6b3d529b"
+        "x:d48b7e95180d9ba9909a2317b6d3290d81f143b538ebf78f3de6ba2ff7d1b874"
       ],
       [
         "plans/2026-07-27-gate-hardening/acceptance.md",
-        "-:97483cade7df1a03f01485a36b980d6d50c246031a4ca96895718d468a9c19b5"
+        "-:d5052fe2f2d98a1f2a877bcd3ddeeab9981468f319a820d733c165cf26a7e5f8"
       ],
       [
         "plans/2026-07-27-gate-hardening/audit-history/README.md",
-        "-:5b95169baf71a6414310537edc68700ee2c1a6b5de66f762ede7960212609b79"
+        "-:c72b2ed33bce370534d54161097c5c42018707e77266ae0bfb8881483f7dc8a7"
       ],
       [
         "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac1-applicability.log",
@@ -1963,20 +2483,36 @@
         "-:dd51286aee861eba40384633e31cf350a95f64794268849e93020381febe0d9f"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-input.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-input.archived.json",
         "-:e6175ab8ce6d1ec05e05ef13fa6a918fd3c4b84ef374a9c17f8f5347042bb3ce"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-output.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-report.archived.json",
         "-:ed43b029992f016b0a2ab141e713f03c628e479e3519457f8b1dd69253fd45ef"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-1/manifest.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-input.json",
+        "absent"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/auditor-output.json",
+        "absent"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/ledger.archived.json",
+        "-:9e6f2a4b534f8330f67f2ec0d758592467873a0116bd36b8a655821bbc75d9bd"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/manifest.archived.json",
         "-:4d7678e5678abbea56da7ccf2b34e107a2e9e3ccb60fd734287a628b4775c489"
       ],
       [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/manifest.json",
+        "absent"
+      ],
+      [
         "plans/2026-07-27-gate-hardening/audit-history/run-1/plan-test-run.json",
-        "-:9e6f2a4b534f8330f67f2ec0d758592467873a0116bd36b8a655821bbc75d9bd"
+        "absent"
       ],
       [
         "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac1-applicability.log",
@@ -2015,20 +2551,36 @@
         "-:2b3413bad1f8e1f96d2ad106364d2d542cf4b4ac3b25daf91a542489e796e6e5"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-input.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-input.archived.json",
         "-:9421585b98fadfa58f50031fc23f22b0cb5d774773bb551029dd117ee62342cd"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-output.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-report.archived.json",
         "-:355b0fb9f51f56cb7e1a8fe7c96a1d1ad39e3ba37671582692138bee79b22142"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-2/manifest.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-input.json",
+        "absent"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/auditor-output.json",
+        "absent"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/ledger.archived.json",
+        "-:0fb5523a6cff5dd25aefbc280f8a4fb12dd9957f6ad51430115ff26013dfaa49"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/manifest.archived.json",
         "-:e47aca2fab61c8faa7f225182e98f8115e229a753806a245986e1e05263fb1e0"
       ],
       [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/manifest.json",
+        "absent"
+      ],
+      [
         "plans/2026-07-27-gate-hardening/audit-history/run-2/plan-test-run.json",
-        "-:0fb5523a6cff5dd25aefbc280f8a4fb12dd9957f6ad51430115ff26013dfaa49"
+        "absent"
       ],
       [
         "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac1.log",
@@ -2075,16 +2627,28 @@
         "-:9d4cd631a91dc4c93f6a0ef669d95b60afe3e9f9465f2169745a17798693ea54"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-3/manifest.json",
-        "-:9aa453982290b74c46e871a3160eb8efd85c8b34b7ae5d591b2d34060c6b6eea"
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/gate-report.archived.md",
+        "-:be9543729a4fdc319de6da18e3086aafba41e69a85385caf4392fe2f14e371b6"
       ],
       [
-        "plans/2026-07-27-gate-hardening/audit-history/run-3/plan-test-run.json",
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/ledger.archived.json",
         "-:7b2d94f365d1cea16edcda98b666e085969ea821345ce414ce85da7fb7a6cb96"
       ],
       [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/manifest.archived.json",
+        "-:9aa453982290b74c46e871a3160eb8efd85c8b34b7ae5d591b2d34060c6b6eea"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/manifest.json",
+        "absent"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/plan-test-run.json",
+        "absent"
+      ],
+      [
         "plans/2026-07-27-gate-hardening/audit-history/run-3/report.md",
-        "-:be9543729a4fdc319de6da18e3086aafba41e69a85385caf4392fe2f14e371b6"
+        "absent"
       ],
       [
         "plans/2026-07-27-plan-test-gate-slice-1a/acceptance.md",
@@ -2192,7 +2756,7 @@
       ],
       [
         "skills/plan-test/gate/PROTOCOL.md",
-        "-:f647ec8e4f7078a573d3814f697a9b2f14a422af59d80e728160cd01d7566ba6"
+        "-:19b208751a0b02b037e490b3152bba32697f1ca7469663fd8959d3632b3e42e0"
       ],
       [
         "skills/plan-test/gate/ROADMAP.md",
@@ -2260,14 +2824,14 @@
       ],
       [
         "skills/plan-test/scripts/plan_test_gate.py",
-        "-:176e2f20bf36e4b33e7bbd8a0f9bf17759e9cbf33bc452ad0fef13c2ec3433bc"
+        "-:e9cef3e64a7dd9a1ac2d28fb1249b7b8a76a75779707b813f390d64c9b27e32e"
       ],
       [
         "skills/plan-test/scripts/test_plan_test_gate.py",
-        "-:b899dd3288129306d1f999d3bd0f3accff72e8df9597e1240710a781cb3b6018"
+        "-:8e0609736a1ce5dfed285be0a419131ab4e1089b7b96dc81f9c892fc382ea00b"
       ]
     ],
-    "dirty_patch_sha256": "65cae94b3a7202230a5f0c92a9be3a1b77aa0f0df888f3fd29e26b8168da2865",
+    "dirty_patch_sha256": "b80196758ce6e33b6bbfa778b3c7d8af5e335afc9c36224258b49d5ad741c1f8",
     "exclusion_count": 23,
     "exclusion_scope": [
       "plans/2026-07-27-gate-hardening/verification/slice-a",
@@ -2367,10 +2931,10 @@
         "declared-scope:plans/2026-07-27-gate-hardening/verification/slice-b"
       ]
     ],
-    "head": "ffd9c13c3a1fe4b3fd142681c8b47924c6a8a216",
-    "reason": "第七轮审计：按攻击类修复（删链/跨仓继任/通用文件名误报）",
-    "recorded_at": "2026-07-28T01:40:36+0800",
-    "runs_index": 23
+    "head": "4ed8f9484876b66dd9eef9f3d4f2793ae80dd397",
+    "reason": "归档历史 run 的 gate 产物改名（内容未改）",
+    "recorded_at": "2026-07-28T18:50:35+0800",
+    "runs_index": 35
   },
   "scenarios": [
     {
@@ -2524,6 +3088,36 @@
       "path": "artifacts/full-suite.log",
       "sha256": "544f102fb9409d6419437653a7348c7d6cfa46b601482a1b12b4a78fcdc8d08b",
       "superseded_at": "2026-07-28T01:40:37+0800"
+    },
+    {
+      "path": "artifacts/ac1.log",
+      "sha256": "b0a6ec79aaa704b4b7341c9d32b80a7c2d5bedab0d84c53e93e00ef0a4800a12",
+      "superseded_at": "2026-07-28T18:49:36+0800"
+    },
+    {
+      "path": "artifacts/ac2.log",
+      "sha256": "ead03400b5f26944235d6523199605c6cfbe002d65b800cd54c79668c5da448b",
+      "superseded_at": "2026-07-28T18:49:36+0800"
+    },
+    {
+      "path": "artifacts/ac3.log",
+      "sha256": "6723f44f18be9cd7fb9866264662eb9839226bd823e31849bd1ff1465dd99f57",
+      "superseded_at": "2026-07-28T18:49:36+0800"
+    },
+    {
+      "path": "artifacts/ac4.log",
+      "sha256": "d071c2171a1bfe23b9b95bf2f3969df50fd031c5da53920deaf2fd9759ade6ec",
+      "superseded_at": "2026-07-28T18:49:36+0800"
+    },
+    {
+      "path": "artifacts/ac9.log",
+      "sha256": "4da16c06afa05fe1db1c3c2ddf94e19a863801a99f574157c719b473412e2cec",
+      "superseded_at": "2026-07-28T18:49:36+0800"
+    },
+    {
+      "path": "artifacts/full-suite.log",
+      "sha256": "d00330587f03752f0d55f3cefad2ea6b1c1ad3fcbf9d6ef157a620126c7c85ef",
+      "superseded_at": "2026-07-28T18:49:36+0800"
     }
   ],
   "testcase_lock": {
@@ -2631,6 +3225,26 @@
       "task": "全量自测",
       "test_count": 98,
       "timing_id": "t-0005"
+    },
+    {
+      "abort": false,
+      "activity_class": "automated_test",
+      "command": "python3 skills/plan-test/scripts/test_plan_test_gate.py",
+      "elapsed_ms": 19930,
+      "ended_at": "2026-07-28T10:49:36Z",
+      "evidence_ids": [],
+      "exec_exit_code": 0,
+      "measured": true,
+      "phase": "phase-4",
+      "recorded_at": "2026-07-28T18:49:36+0800",
+      "retry": 0,
+      "runtime_identity": {
+        "head": "4ed8f9484876b66dd9eef9f3d4f2793ae80dd397"
+      },
+      "started_at": "2026-07-28T10:49:16Z",
+      "task": "全量自测",
+      "test_count": 100,
+      "timing_id": "t-0006"
     }
   ]
 }

@@ -40,7 +40,7 @@
 - oracle 由被测者定义（场景矩阵漏写风险场景）——已在 PROTOCOL §6b 如实标注为剩余缺口。
 - 证据伪造（截图/日志由代理生产）——同上，不在本轮解决。
 
-## 追加（第一次独立审计判 FAIL 后新增；审计报告见 verification/run-1/auditor-output.json）
+## 追加（第一次独立审计判 FAIL 后新增；审计报告见 audit-history/run-1/auditor-output.json）
 
 - **AC-8 运行时身份按被测内容判定**：`git add`/`git commit` 不改内容时门必须仍通过；
   改动任一文件内容（含新增未跟踪文件）必须触发 `TESTED_RUNTIME_MISMATCH`；
@@ -52,7 +52,7 @@
   hook 必须拦下 `fixture_only` 账本（`check-only` 对它返回 0，只看退出码可整个绕过）。
   验证：`AuditorVerdictSourceTestCase` + hook 三情形实跑日志。
 
-## 追加（第二次独立审计判 FAIL 后新增；审计报告见 verification/run-2/auditor-output.json）
+## 追加（第二次独立审计判 FAIL 后新增；审计报告见 audit-history/run-2/auditor-output.json）
 
 - **AC-10 收尾期改动有合法出口**：`re-attest` 在变更全为文档时记 `doc-only` 并保留既有测试
   结论；出现任何非文档变更即记 `behavioral`，此后每条 required 场景必须有一次更晚的 root

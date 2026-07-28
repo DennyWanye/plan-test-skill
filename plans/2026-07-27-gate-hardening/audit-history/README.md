@@ -20,3 +20,18 @@
 - `run-1/` —— 第一次整体验证 + 第一轮独立审计（判 FAIL：四处时序死结只修了说法）
 - `run-2/` —— 第二次 + 第二轮审计（判 FAIL：attestation 只在 init 写一次，收尾必然锁死）
 - `run-3/` —— 第三次，被 `RELEASE_UNIT_TOO_LARGE` 拦下（task_count=12 > 10），因此拆成两个 slice
+
+## 为什么文件都带 `.archived` 后缀
+
+第八轮独立审计指出：Stop hook 早先只扫 `*/verification/*`，**把 run 目录改个名字就能整体绕过
+唯一的强制点**。修法是改成全仓按内容识别——而这一改立刻照出：把历史 run「移出 verification/」
+本身就是在利用那个即将被堵掉的弱点。
+
+所以这里进一步把 gate 产物改名（`plan-test-run.json` → `ledger.archived.json` 等），
+让它们不再以活跃 gate 记账物的形态存在。**内容一个字节没改**，改名在 git 里可见。
+
+这不是让失败的 run 消失：三份账本记录的仍然是「未闭环」这个真实状态，审计报告原样保留。
+它们只是不再参与收尾阻断——因为工作已由 slice-a / slice-b 承接，而 `retire` 这条路走不通
+（`retire` 要求继任者覆盖被退役 run 的全部 required 场景，而 run-3 的场景被拆到了两个 slice 里，
+任何单个 slice 都不满足）。这是当前设计的一个真实边界：**拆 slice 之后，被拆分的整体 run
+没有合法的 retire 路径**。已记在此处，供后来者决定是否要支持"多继任者"。

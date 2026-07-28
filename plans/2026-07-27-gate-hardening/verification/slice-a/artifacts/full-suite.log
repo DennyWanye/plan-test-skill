@@ -85,6 +85,8 @@ test_rebuilt_chain_without_init_is_rejected (__main__.IntegrityTestCase)
 即便手工造出一条自洽的链，首条不是 init（或 genesis 不符）也不作数。 ... ok
 test_tamper_detection_survives_further_writes (__main__.IntegrityTestCase)
 篡改检测不是一次性的：改完再敲一条无害命令，不能把痕迹盖过去。 ... ok
+test_truncated_chain_is_rejected (__main__.IntegrityTestCase)
+把链压成一条 init 同样不作数——链长必须对得上账本里的事实条数。 ... ok
 test_behavioral_change_requires_retest (__main__.ReAttestTestCase)
 改代码 → re-attest 判 behavioral → 旧 PASS 不再作数，必须重跑。 ... ok
 test_behavioral_text_is_never_doc_only (__main__.ReAttestTestCase)
@@ -155,6 +157,8 @@ test_retire_requires_a_passing_successor (__main__.RetireTestCase)
 test_retire_with_valid_successor_is_accepted (__main__.RetireTestCase) ... ok
 test_successor_must_be_in_same_repo (__main__.RetireTestCase)
 继任者不能指向别的仓库——那等于"借"一张无关的 receipt 给本次失败背书。 ... ok
+test_successor_must_cover_required_scenarios (__main__.RetireTestCase)
+继任者必须真的承接工作：覆盖被退役 run 的 required 场景，且同一份 acceptance。 ... ok
 test_activity_class_and_wait_reason_enforced (__main__.TimingTestCase) ... ok
 test_checkpoint_recorded (__main__.TimingTestCase) ... ok
 test_declared_mode_forced_unmeasured (__main__.TimingTestCase) ... ok
@@ -167,6 +171,6 @@ test_schema_major_mismatch_rejected (__main__.TimingTestCase) ... ok
 test_timing_gap_advisory_does_not_block (__main__.TimingTestCase) ... ok
 
 ----------------------------------------------------------------------
-Ran 98 tests in 18.725s
+Ran 100 tests in 19.894s
 
 OK

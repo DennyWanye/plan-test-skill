@@ -32,9 +32,12 @@ finalize"，也挡不住一个想尽快收尾的代理直接不跑——这是�
 
 它检查什么（故意保守，避免误伤）：
 
+- **全仓按内容查找，不依赖目录名**：run 目录叫什么是调用者定的，早期版本只扫 `*/verification/*`，
+  把 run-dir 放到 `plans/run-x/` 就能整体绕过唯一的强制点（独立审计实测：finalize exit 1
+  四条诊断，hook 却 exit 0）。现在按账本文件名与 manifest 形状识别。
 - 只对**真正的 gate 记账物**生效：已 init 的账本（`plan-test-run.json`）、含 gate manifest
-  的半截 run 目录（manifest 须有 `scenarios` 列表**且**含 `applicability` / `acceptance_file` /
-  `source_request_*` 之一），或「账本被删但 `auditor-*.json` / `gate-receipt.json` 还在」的残留
+  的半截 run 目录（manifest 的 `scenarios` 须是**带 `scenario_id` 的对象数组**，且含 `applicability` /
+  `source_request_*` / `run_id` 之一——按**形状**而非键名识别，BDD 的字符串数组清单不会误报），或「账本被删但 `auditor-*.json` / `gate-receipt.json` 还在」的残留
   目录（那是让失败 run 悄悄消失的最便宜路径）。业务代码目录即使叫 `verification/`、里面的
   `manifest.json` 即使含 `run_id` 键，也不会触发——**这两种误报都是独立审计实测抓到后才修的**。
   没开账本的会话（S 档、纯问答、探索）不受影响；
@@ -66,7 +69,7 @@ jobs:
         run: |
           set -e
           found=0
-          for led in $(git ls-files '*/verification/*/plan-test-run.json'); do
+          for led in $(git ls-files '*plan-test-run.json' | grep -v '/fixtures/'); do
             found=1
             dir=$(dirname "$led")
             echo "::group::$dir"
@@ -90,7 +93,7 @@ jobs:
 
 两列必须如实标 ✗：
 
-- **压根不建账本**：hook 只在发现 `*/verification/*/plan-test-run.json` 时才生效。代理若判成
+- **压根不建账本**：hook 只在仓库里存在 gate 记账物时才生效（全仓按内容查找，不限目录）。代理若判成
   S 档（或干脆不开账本）直接收尾，hook 无感。要堵这一列，只能在项目侧规定"什么改动必须开账本"
   并由 CI 按改动面反查（例如：diff 命中 `src/routes/**` 却没有新 run 账本即 FAIL）——
   本目录不提供该规则，因为它依赖项目结构。

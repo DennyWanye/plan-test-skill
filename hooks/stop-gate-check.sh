@@ -32,6 +32,7 @@ PY="$(command -v python3 || command -v python)"
 FAILED=0
 FOUND=0
 REPORT=""
+HALF_SEEN=""
 while IFS= read -r led; do
   [ -z "$led" ] && continue
   FOUND=1
@@ -62,48 +63,48 @@ $out
 "
   fi
 done <<EOF
-$(find . -path ./node_modules -prune -o -path '*/fixtures/*' -prune -o \
-       -name plan-test-run.json -path '*/verification/*' -print 2>/dev/null)
+$(find . -path ./node_modules -prune -o -path ./.git -prune -o -path '*/fixtures/*' -prune -o \
+       -name plan-test-run.json -print 2>/dev/null)
 EOF
 
-# 半截 init：有 verification/<run>/ 目录（artifacts/manifest 已就位）却没有账本 —— 
-# 这是"开了个头就去收尾"的典型形态，此前 hook 完全无感（独立审计实测）。
-while IFS= read -r d; do
-  [ -z "$d" ] && continue
-  case "$d" in */fixtures/*) continue ;; esac
+# 半截 init：有 gate manifest（或 gate 专属残留产物）却没有账本。
+# **不按目录名枚举**——run 目录叫什么名字是调用者定的，把 `verification/` 当识别依据，
+# 等于"改个目录名就绕过整个强制点"（独立审计实测：run-dir 放在 plans/run-x/ 下，
+# finalize exit 1 四条诊断，hook 却 exit 0）。gate 记账物是内容可识别的，按内容找。
+while IFS= read -r cand; do
+  [ -z "$cand" ] && continue
+  case "$cand" in */fixtures/*|*/.git/*|*/node_modules/*) continue ;; esac
+  d="$(dirname "$cand")"
   [ -f "$d/plan-test-run.json" ] && continue
-  # 必须存在 gate manifest 才算"开了一半的 run"——只按目录名判定会把业务目录
-  # （如 src/verification/rules/）误报成半截 init，实测过（独立审计 AC-7 打穿点）。
-  # 判据放宽到"确实是 gate manifest"：必须有 scenarios 列表，且至少还有一个 gate 专属键。
-  # 只看 run_id 会误伤业务文件（`{"run_id":"batch-2026","limit":100}` 也会中招，独立审计实测）。
-  # 另一条便宜的逃逸是"删掉账本但留下 auditor-*.json / gate-receipt.json"——一并识别。
+  case " $HALF_SEEN " in *" $d "*) continue ;; esac
+  HALF_SEEN="$HALF_SEEN $d"
+  # 只认真正的 gate manifest（scenarios 列表 + 一个 gate 专属键），或 gate 专属残留产物
   "$PY" -c "import json,os,sys
 d=sys.argv[1]
-# 只认 gate 专属文件名。report.md 是通用名（业务的"来料检验报告"就叫这个），
-# 把它当信号会误伤 docs/verification/**、tests/verification/** 等目录——独立审计实测过。
-leftovers=[f for f in ('auditor-input.json','auditor-output.json','gate-receipt.json')
-           if os.path.isfile(os.path.join(d,f))]
-if leftovers: sys.exit(0)          # 有 gate 产物却没账本：账本被删了
+if any(os.path.isfile(os.path.join(d,f)) for f in
+       ('auditor-input.json','auditor-output.json','gate-receipt.json')): sys.exit(0)
 m=os.path.join(d,'manifest.json')
 if not os.path.isfile(m): sys.exit(1)
 try: o=json.load(open(m,encoding='utf-8'))
 except Exception: sys.exit(1)
-ok=isinstance(o,dict) and isinstance(o.get('scenarios'),list) and any(
-    k in o for k in ('applicability','acceptance_file','acceptance_text','source_request_text','source_request_file'))
-sys.exit(0 if ok else 1)" "$d" 2>/dev/null || continue
+sc=o.get('scenarios') if isinstance(o,dict) else None
+# gate 的 scenarios 是「带 scenario_id 的对象数组」——BDD/测试清单通常是字符串数组，
+# 用形状而非键名区分，减少对业务 manifest 的误报（独立审计实测过 tests/verification/cases/）。
+shaped=isinstance(sc,list) and len(sc)>0 and all(
+    isinstance(x,dict) and 'scenario_id' in x for x in sc)
+sys.exit(0 if shaped and any(k in o for k in ('applicability','source_request_text',
+                                              'source_request_file','run_id')) else 1)" "$d" 2>/dev/null || continue
   FOUND=1
   FAILED=1
   REPORT="$REPORT
 ── $d ──
-该 run 目录没有 plan-test-run.json：init 只开了一半（或被清掉）。
-补跑 init 并把测试事实入账，或删掉这个空目录。
+该目录有 gate manifest / gate 产物却没有 plan-test-run.json：init 只开了一半（或账本被删）。
+补跑 init 并把测试事实入账，或删掉这个目录。
 "
 done <<EOF
-$(for vdir in $(find . -path ./node_modules -prune -o -type d -name verification -print 2>/dev/null); do
-    for sub in "$vdir"/*/; do
-      [ -d "$sub" ] && echo "${sub%/}"
-    done
-  done)
+$(find . -path ./node_modules -prune -o -path ./.git -prune -o \
+       \( -name manifest.json -o -name auditor-input.json -o -name auditor-output.json \
+          -o -name gate-receipt.json \) -print 2>/dev/null)
 EOF
 
 [ "$FOUND" -eq 0 ] && exit 0

@@ -9,8 +9,10 @@ test_rebuilt_chain_without_init_is_rejected (__main__.IntegrityTestCase)
 即便手工造出一条自洽的链，首条不是 init（或 genesis 不符）也不作数。 ... ok
 test_tamper_detection_survives_further_writes (__main__.IntegrityTestCase)
 篡改检测不是一次性的：改完再敲一条无害命令，不能把痕迹盖过去。 ... ok
+test_truncated_chain_is_rejected (__main__.IntegrityTestCase)
+把链压成一条 init 同样不作数——链长必须对得上账本里的事实条数。 ... ok
 
 ----------------------------------------------------------------------
-Ran 6 tests in 0.685s
+Ran 7 tests in 0.850s
 
 OK

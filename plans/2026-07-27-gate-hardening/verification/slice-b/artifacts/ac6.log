@@ -11,6 +11,6 @@ test_new_untracked_file_is_content_change (__main__.ClosingWorkflowTestCase)
 新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
 
 ----------------------------------------------------------------------
-Ran 6 tests in 1.807s
+Ran 6 tests in 1.888s
 
 OK
