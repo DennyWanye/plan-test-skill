@@ -31,8 +31,8 @@ import sys
 import tempfile
 import time
 
-SCHEMA_VERSION = "1.2.0"
-VALIDATOR_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
+VALIDATOR_VERSION = "1.3.0"
 FIXTURE_EXIT = 3  # fixture-only run 通过：与真实交付的 exit 0 分开，堵"设个字段就绿"
 LEDGER_NAME = "plan-test-run.json"
 RECEIPT_NAME = "gate-receipt.json"
@@ -63,7 +63,11 @@ ACTIVITY_CLASSES = {"implementation", "automated_test", "manual_e2e", "provider_
 WAIT_CLASSES = {"provider_wait", "user_wait"}
 WAIT_REASONS = {"provider_latency", "quota_limit", "user_review", "user_input",
                 "environment_provision"}
-TIMING_GAP_MINUTES = 120  # advisory 门槛
+TIMING_GAP_MINUTES = 120  # 相邻记账锚点最大间隔（schema 1.3.0 起为 error，可用申报 timing 补覆盖）
+TIMING_REQUIRED_MINUTES = 30   # 活动跨度超过此值必须有 timing 记录（DeskPet 复盘：12h24m 全程 0 条）
+TIMING_MIN_COVERAGE = 0.2      # timing 总时长须覆盖活动跨度的最低比例（防"记一条 5 分钟糊弄 10 小时"）
+EVIDENCE_MTIME_GRACE_SECONDS = 300  # 证据文件 mtime 允许早于开账的宽限（时钟偏差）
+AUDIT_ENGINE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*$")  # 引擎身份：不接受下划线/空格（方法名）
 CONTENT_DIGEST_FILE_LIMIT = 20000  # 超过此文件数退回 HEAD+dirty 口径并显式标注
 
 # 适用性判定（applicability）：哪几道条件门适用于本次交付，必须显式入账。
@@ -85,14 +89,17 @@ CANONICAL_ORDER = [
     "SCHEMA_INVALID", "LEDGER_TAMPERED", "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
     "DELIVERY_VERDICT_CONTRADICTS_LEDGER", "UI_EVIDENCE_MISSING",
     "RUN_CREATION_UNVERIFIED", "EVIDENCE_MISSING", "EVIDENCE_HASH_MISMATCH",
-    "EVIDENCE_DEPENDENCY_CYCLE", "DERIVED_EVIDENCE_ONLY", "FROZEN_ORACLE_CHANGED",
+    "EVIDENCE_DEPENDENCY_CYCLE", "EVIDENCE_PREDATES_LEDGER",
+    "DERIVED_EVIDENCE_ONLY", "FROZEN_ORACLE_CHANGED",
     "BEHAVIOR_APPROVAL_REQUIRED", "APPLICABILITY_UNDECLARED",
-    "APPLICABILITY_GATE_UNSATISFIED", "RISK_CLOSURE_MISSING",
+    "APPLICABILITY_GATE_UNSATISFIED", "DRIVER_APPROVAL_MISSING",
+    "RISK_CLOSURE_MISSING",
     "STABILITY_SAMPLES_INSUFFICIENT", "RELEASE_UNIT_TOO_LARGE",
     "TESTED_RUNTIME_MISMATCH", "RETEST_REQUIRED_AFTER_CHANGE",
     "AUDITOR_MISSING", "AUDITOR_VERDICT_MISMATCH",
     "AUDITOR_INPUT_STALE", "RECEIPT_STALE",
-    "AUDITOR_INDEPENDENCE_UNVERIFIED", "TIMING_GAP",
+    "TIMING_MISSING", "TIMING_GAP", "PHASE_UNPAIRED",
+    "AUDITOR_INDEPENDENCE_UNVERIFIED",
 ]
 _ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
 
@@ -647,7 +654,7 @@ def expected_chain_length(ledger):
     """
     n = 1  # init
     for key in ("runs", "evidence", "declared_statuses", "timing", "attestations",
-                "superseded_evidence"):
+                "superseded_evidence", "approvals"):
         n += len(ledger.get(key) or [])
     n += len(ledger.get("events") or [])
     if ledger.get("auditor"):
@@ -764,6 +771,57 @@ def validate_applicability(ledger, scenarios, thresholds):
     return diags
 
 
+def impact_affected_scenarios(ledger, changed_paths, changed_count):
+    """behavioral 变更影响哪些 required 场景。返回 (affected_ids, reason)。
+
+    **fail-closed 设计**：映射（scenario.impact_paths）由被测者自写，是新的绕过面——
+    把高危文件不映射到任何场景，就能让改动不触发任何复测。因此凡是无法证明"这个变更
+    与某场景无关"的情况，一律按全量复测处理：
+      - 没有任何场景声明 impact_paths → 全量（与 1.2.0 行为一致）；
+      - 变更清单被截断（changed_count > 已存清单长度）→ 全量；
+      - 任一非文档变更未命中任何场景的 impact_paths → 全量；
+      - 未声明 impact_paths 的场景 → 永远算受影响（保守默认）。
+    映射在 init 时随场景冻结进账本与 receipt digest，事后改映射即 LEDGER_TAMPERED。
+    """
+    scenarios = ledger.get("scenarios") or []
+    required = [s for s in scenarios if s.get("required")]
+    all_ids = {s["scenario_id"] for s in required}
+    declared = [s for s in scenarios if s.get("impact_paths")]
+    if not declared:
+        return all_ids, "无 impact_paths 映射，按全量复测"
+    changed_paths = changed_paths or []
+    if changed_count and changed_count > len(changed_paths):
+        return all_ids, ("变更清单被截断（%d>%d），无法证明范围，按全量复测"
+                         % (changed_count, len(changed_paths)))
+    non_doc = [p for p in changed_paths
+               if not DOC_ONLY_PATTERNS_MATCH(p, ledger.get("doc_only_globs") or None)]
+    affected = {s["scenario_id"] for s in required if not s.get("impact_paths")}
+    uncovered = []
+    for pth in non_doc:
+        low = pth.replace(os.sep, "/").lower()
+        base = low.rsplit("/", 1)[-1]
+        hit = False
+        for s in scenarios:
+            ips = s.get("impact_paths")
+            if ips and _match_globs(low, base, ips):
+                hit = True
+                if s.get("required"):
+                    affected.add(s["scenario_id"])
+        if not hit:
+            uncovered.append(pth)
+    if uncovered:
+        return all_ids, ("变更 %s 未被任何 impact_paths 覆盖——fail-closed 按全量复测"
+                         % ", ".join(uncovered[:3]))
+    return affected, "按 impact_paths 映射缩小复测范围（未受影响场景沿用既有结论）"
+
+
+def _mtime_iso(path):
+    try:
+        return _utc_iso(os.path.getmtime(path))
+    except OSError:
+        return None
+
+
 def read_output_verdict(run_dir, output_path):
     """从 auditor 原始产物里读 verdict（JSON 的 verdict 字段，或文末 VERDICT: X 行）。
 
@@ -852,6 +910,20 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             diags.append(Diag("EVIDENCE_MISSING", "证据文件不存在: %s" % e.get("path"), hint=e.get("path")))
         elif sha256_file(p) != e.get("sha256"):
             diags.append(Diag("EVIDENCE_HASH_MISMATCH", "证据被改动: %s" % e.get("path"), hint=e.get("path")))
+        # 先测后开账侦测（DeskPet 复盘：截图 22:31 生成、账本 00:14/02:10 才建，整本补录）：
+        # attach 时记录的文件 mtime 早于开账时刻 → 该证据产生于账本存在之前。历史证据必须走
+        # import-evidence 显式导入（保留 chain of custody），不许当作当场采集的证据混入。
+        # 这是流程门不是防伪门：mtime 可以被 touch 掉，但那是主动伪造，不是顺手偷懒。
+        if not e.get("imported"):
+            fm = parse_rfc3339(e.get("file_mtime") or "")
+            created_ts = parse_rfc3339(ledger.get("created_at") or "")
+            if fm is not None and created_ts is not None \
+                    and fm < created_ts - EVIDENCE_MTIME_GRACE_SECONDS:
+                diags.append(Diag("EVIDENCE_PREDATES_LEDGER",
+                                  "证据 %s 的文件时间早于开账时刻 %.0f 分钟——先测后补账。"
+                                  "历史证据须用 import-evidence --from-run 显式导入"
+                                  % (e.get("path"), (created_ts - fm) / 60.0),
+                                  hint=e.get("path")))
         for dep in e.get("depends_on") or []:
             if dep not in ev_by_id:
                 diags.append(Diag("EVIDENCE_MISSING",
@@ -975,28 +1047,57 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                                   "场景 %s FLAKY（%d/%d 通过且有未解释失败），不得 SHIP"
                                   % (sid, len(ok_roots), len(all_roots))))
 
-    # 9a. behavioral re-attest 之后，required 场景必须重测（时间戳晚于该次 attestation）
+    # 9a. behavioral re-attest 之后，受影响的 required 场景必须重测（按 impact_paths 缩小范围，
+    #     fail-closed：证明不了无关就算全量——见 impact_affected_scenarios）
     atts = [a for a in (ledger.get("attestations") or [])
             if a.get("change_kind") == "behavioral"]
     if atts:
-        cutoff = max(int(a.get("runs_index") or 0) for a in atts)
-        when = max(str(a.get("recorded_at") or "") for a in atts)
+        cutoffs, reasons = {}, {}
+        for a in atts:
+            aff, why = impact_affected_scenarios(
+                ledger, a.get("changed_paths"), a.get("changed_count"))
+            idx = int(a.get("runs_index") or 0)
+            when = str(a.get("recorded_at") or "")
+            for sid in aff:
+                if idx >= cutoffs.get(sid, -1):
+                    cutoffs[sid] = idx
+                    reasons[sid] = (why, when)
         for s in scenarios:
             if not s.get("required"):
                 continue
             sid = s["scenario_id"]
+            if sid not in cutoffs:
+                continue  # impact_paths 证明本场景与全部 behavioral 变更无关
             fresh = any(r.get("scenario_id") == sid and r.get("kind") == "root"
                         and r.get("result") == "pass"
-                        for r in runs[cutoff:])
+                        for r in runs[cutoffs[sid]:])
             if not fresh:
+                why, when = reasons[sid]
                 diags.append(Diag("RETEST_REQUIRED_AFTER_CHANGE",
-                                  "场景 %s 的通过记录早于最近一次 behavioral 变更（%s）——"
-                                  "代码/配置改过就必须重跑，不能沿用旧结论" % (sid, when),
+                                  "场景 %s 的通过记录早于最近一次 behavioral 变更（%s；%s）——"
+                                  "代码/配置改过就必须重跑，不能沿用旧结论" % (sid, when, why),
                                   hint=sid))
 
     # 9b. 适用性判定入账 + 判"适用"时矩阵必须兑现
     diags.extend(validate_applicability(ledger, scenarios,
                                         dict(ledger.get("thresholds") or {})))
+
+    # 9c. 全 AI 驾驶批准（phase-4 ①b 的机器化）：输入语义敏感功能的 required UI 场景，
+    #     至少 1 次真人驾驶；确需全 AI 驾驶，须有用户批准 artifact（record-approval）。
+    #     DeskPet 复盘：账本 12 条 run 全 driver=ai、叙述却写"真人 E2E"，且无批准记录——
+    #     这条规则此前只写在文档里，validator 完全不知道。
+    app_is = (ledger.get("applicability") or {}).get("input_sensitive") or {}
+    if app_is.get("value") is True:
+        ui_ids = {s["scenario_id"] for s in scenarios if s.get("required") and s.get("ui")}
+        ui_runs = [r for r in runs if r.get("scenario_id") in ui_ids]
+        if ui_runs and not any(r.get("driver") == "human" for r in ui_runs):
+            approved = any(a.get("kind") == "all-ai-driving"
+                           for a in ledger.get("approvals") or [])
+            if not approved:
+                diags.append(Diag("DRIVER_APPROVAL_MISSING",
+                                  "输入语义敏感 + required UI 场景全部由 AI 驾驶，且无用户批准记录——"
+                                  "至少 1 次真人驾驶，或用 record-approval --kind all-ai-driving "
+                                  "登记用户在 chat 中的显式批准（绑定消息 hash）"))
 
     # 10. release-unit 大小
     metrics = ledger.get("release_unit") or {}
@@ -1092,26 +1193,90 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                         diags.append(Diag("EVIDENCE_HASH_MISMATCH",
                                           "auditor 文件被改动: %s" % fname))
 
-    # 13. TIMING_GAP（advisory，不拦截）：相邻 timing/checkpoint 锚点间隔 > 120 分钟
-    anchors = []
-    for t in ledger.get("timing") or []:
-        for k in ("started_at", "ended_at"):
-            ts = parse_rfc3339(t.get(k) or "")
-            if ts is not None:
-                anchors.append(ts)
-    for ev in ledger.get("events") or []:
-        if ev.get("type") == "checkpoint":
-            ts = parse_rfc3339(ev.get("at") or "")
-            if ts is not None:
-                anchors.append(ts)
-    anchors.sort()
-    for a, b in zip(anchors, anchors[1:]):
-        gap_min = (b - a) / 60.0
-        if gap_min > TIMING_GAP_MINUTES:
-            diags.append(Diag("TIMING_GAP",
-                              "相邻记账锚点间隔 %.0f 分钟（>%d）——长时间无 record-timing/checkpoint"
-                              % (gap_min, TIMING_GAP_MINUTES), severity="advisory"))
-            break
+    # 13. 时间记账硬门（schema 1.3.0：advisory → error）。
+    # DeskPet 复盘实锤：12h24m 的真实执行，四本账 timing/checkpoint 全 0，phase-4 写的
+    # "每 90–120 分钟 checkpoint" 只是 advisory——文档说必须、机器不拦，规则权威一起塌。
+    # 现在：活动跨度（含证据文件时间）超过 TIMING_REQUIRED_MINUTES 却没有像样的 timing
+    # 覆盖 → TIMING_MISSING；已有锚点之间超过 TIMING_GAP_MINUTES 的空洞 → TIMING_GAP。
+    # 两者都是 error，且都有合法出路：漏记的时段用 record-timing 申报模式补
+    # （--declared-start/--declared-end，自动标 measured=false，report 单列低信任）。
+    # 这仍是流程门不是防伪门——申报值本就是自陈；它保证的是"有账"，不是"账真"。
+    # fixture_only run 免检时钟门：fixture 回放在任意时刻重放历史 steps，created_at 与
+    # 申报时间戳天然双峰，跨度没有意义；且 fixture receipt 本就不可作交付证据（exit 3）。
+    if not fixture:
+        timing = ledger.get("timing") or []
+        activity_ts = []
+        created_ts = parse_rfc3339(ledger.get("created_at") or "")
+        if created_ts is not None:
+            activity_ts.append(created_ts)
+        for coll, key in ((runs, "recorded_at"), (evidence, "attached_at"),
+                          (evidence, "file_mtime"),
+                          (ledger.get("attestations") or [], "recorded_at")):
+            for item in coll:
+                ts = parse_rfc3339(item.get(key) or "")
+                if ts is not None:
+                    activity_ts.append(ts)
+        intervals = []   # timing 区间 + checkpoint/phase 零宽点：覆盖模型，不是点距模型
+        timed_ms = 0
+        for t in timing:
+            timed_ms += int(t.get("elapsed_ms") or 0)
+            s = parse_rfc3339(t.get("started_at") or "")
+            e = parse_rfc3339(t.get("ended_at") or "")
+            if s is not None and e is not None:
+                intervals.append((s, e))
+                activity_ts += [s, e]
+        for ev in ledger.get("events") or []:
+            if ev.get("type") in ("checkpoint", "phase"):
+                ts = parse_rfc3339(ev.get("at") or "")
+                if ts is not None:
+                    intervals.append((ts, ts))
+                    activity_ts.append(ts)
+        span_min = ((max(activity_ts) - min(activity_ts)) / 60.0) \
+            if len(activity_ts) >= 2 else 0.0
+        if span_min > TIMING_REQUIRED_MINUTES and \
+                timed_ms < span_min * 60000.0 * TIMING_MIN_COVERAGE:
+            diags.append(Diag("TIMING_MISSING",
+                              "活动跨度 %.0f 分钟，timing 记账仅覆盖 %.0f 分钟（<%d%%）——"
+                              "机器命令用 record-timing --exec 包裹，真人/等待时段用申报模式补记"
+                              % (span_min, timed_ms / 60000.0, int(TIMING_MIN_COVERAGE * 100))))
+        elif intervals:
+            # 合并重叠区间后看**未覆盖的空洞**——申报一段 [t1,t2] 是对整段的覆盖，
+            # 不能按端点点距误报（1.2.0 的点距算法在这里是错的，升 error 前必须修）。
+            intervals.sort()
+            merged = [list(intervals[0])]
+            for s, e in intervals[1:]:
+                if s <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], e)
+                else:
+                    merged.append([s, e])
+            for (s1, e1), (s2, e2) in zip(merged, merged[1:]):
+                gap_min = (s2 - e1) / 60.0
+                if gap_min > TIMING_GAP_MINUTES:
+                    diags.append(Diag("TIMING_GAP",
+                                      "记账覆盖之间有 %.0f 分钟空洞（>%d）——空洞时段须用申报 timing "
+                                      "补覆盖（user_wait/provider_wait 等），或如实说明后重开 run"
+                                      % (gap_min, TIMING_GAP_MINUTES)))
+                    break
+
+    # 13b. phase 事件配对（只在 full/render 检查——check-only 时阶段可能尚未收尾）
+    if mode in ("full", "render"):
+        open_count = {}
+        for ev in ledger.get("events") or []:
+            if ev.get("type") != "phase":
+                continue
+            ph = str(ev.get("phase") or "")
+            if ev.get("action") == "start":
+                open_count[ph] = open_count.get(ph, 0) + 1
+            elif ev.get("action") == "end":
+                open_count[ph] = open_count.get(ph, 0) - 1
+        for ph in sorted(open_count):
+            if open_count[ph] > 0:
+                diags.append(Diag("PHASE_UNPAIRED",
+                                  "阶段 %s 有 phase-start 但没有配对的 phase-end——"
+                                  "阶段没收尾就 finalize，耗时归属不完整" % ph, hint=ph))
+            elif open_count[ph] < 0:
+                diags.append(Diag("PHASE_UNPAIRED",
+                                  "阶段 %s 有 phase-end 但没有 phase-start" % ph, hint=ph))
 
     diags = sort_diags(diags)
     computed = {
@@ -1169,6 +1334,21 @@ def build_receipt(run_dir, ledger, computed):
         "auditor_input_sha256": auditor.get("input_sha256"),
         "auditor_output_sha256": auditor.get("output_sha256"),
         "head": att.get("head") or baseline.get("head"),
+        # 身份三分（DeskPet 复盘 P0-2）：receipt 只证明 tested_code_head 时刻的**内容**通过了门；
+        # 之后仅新增 run-dir 记账产物的提交（evidence-only descendant）不改变被测内容指纹，
+        # receipt 依然有效——所以"receipt 的 head ≠ 仓库最终 HEAD"可以是完全合法的状态。
+        "tested_code_head": att.get("head") or baseline.get("head"),
+        "content_basis": ("worktree-content-excluding-declared-scope"
+                          if (att.get("content_digest") or baseline.get("content_digest"))
+                          else "head+dirty (degraded)"),
+        "exclusion_scope": ledger.get("exclusion_scope") or [],
+        "timing_summary": {
+            "entries": len(ledger.get("timing") or []),
+            "measured_ms": sum(int(t.get("elapsed_ms") or 0)
+                               for t in ledger.get("timing") or [] if t.get("measured")),
+            "declared_ms": sum(int(t.get("elapsed_ms") or 0)
+                               for t in ledger.get("timing") or [] if not t.get("measured")),
+        },
         "dirty_patch_sha256": att.get("dirty_patch_sha256") or baseline.get("dirty_patch_sha256"),
         "fixture_only": bool(ledger.get("fixture_only")),
         "retired": bool(ledger.get("retired")),
@@ -1356,6 +1536,7 @@ def cmd_attach_evidence(args):
     p = run_relative_abspath(args.run_dir, rel_path)
     if not os.path.exists(p):
         die("证据文件不存在: %s（路径须相对 run-dir）" % p)
+    imported_from = getattr(args, "from_run", None)
     ev = {
         "evidence_id": args.id or ("ev-" + sha256_file(p)[:12]),
         "path": rel_path,
@@ -1365,6 +1546,11 @@ def cmd_attach_evidence(args):
         "ui_action": args.ui_action,
         "negative_assertion": args.negative_assertion,
         "depends_on": args.depends_on or [],
+        # attach 时刻的文件 mtime 入账：validator 用它侦测"先测后开账"（证据产生早于账本）。
+        # 这是流程门——touch 能洗掉它，但那是主动伪造，不是顺手偷懒。
+        "file_mtime": _mtime_iso(p),
+        "imported": bool(imported_from),
+        "imported_from": imported_from,
         "attached_at": now_iso(),
     }
     ev = {k: v for k, v in ev.items() if v not in (None, False, [])}
@@ -1382,8 +1568,13 @@ def cmd_attach_evidence(args):
             ledger["evidence"] = kept
         ledger["evidence"].append(ev)
 
-    _append(args.run_dir, mutate, op="attach-evidence")
-    print("ATTACHED %s kind=%s sha256=%s" % (rel_path, args.kind, ev["sha256"][:12]))
+    op = "import-evidence" if imported_from else "attach-evidence"
+    _append(args.run_dir, mutate, op=op)
+    if imported_from:
+        print("IMPORTED %s kind=%s sha256=%s from=%s（历史证据，chain of custody 已入账）"
+              % (rel_path, args.kind, ev["sha256"][:12], imported_from))
+    else:
+        print("ATTACHED %s kind=%s sha256=%s" % (rel_path, args.kind, ev["sha256"][:12]))
 
 
 def cmd_declare_status(args):
@@ -1489,6 +1680,44 @@ def cmd_record_timing(args):
         sys.exit(exec_exit)  # 被包裹命令失败：如实透传 exit code
 
 
+def cmd_phase_event(args, action):
+    """阶段级事件：phase-start / phase-end。配对性由 finalize 检查（PHASE_UNPAIRED）。
+
+    DeskPet 复盘：19:04–22:31 的 3.5 小时事后只能靠会话日志考古。阶段事件 + timing
+    让 report 直接给出每阶段耗时，用户在执行期也能从账本看到当前在哪一阶段。
+    """
+    def mutate(ledger):
+        ev = {"type": "phase", "action": action, "phase": args.phase,
+              "at": _utc_iso(time.time())}
+        if action == "end":
+            ev["status"] = args.status
+        if getattr(args, "note", None):
+            ev["note"] = args.note
+        ledger.setdefault("events", []).append(ev)
+
+    _append(args.run_dir, mutate, op="phase-" + action)
+    print("PHASE %s: %s" % (action.upper(), args.phase))
+
+
+def cmd_record_approval(args):
+    """登记用户在 chat 中的显式批准（如"全 AI 驾驶"）。绑定用户消息 hash，事后可对质。"""
+    if not re.match(r"^[0-9a-f]{64}$", args.message_hash or ""):
+        die("--message-hash 须为用户批准消息原文的 SHA-256（64 位十六进制）——"
+            "批准必须能回溯到具体的一句话，不接受一个笼统的\"用户同意了\"")
+
+    def mutate(ledger):
+        ledger.setdefault("approvals", []).append({
+            "kind": args.kind,
+            "approved_by": "user",
+            "message_sha256": args.message_hash,
+            "note": args.note,
+            "recorded_at": now_iso(),
+        })
+
+    _append(args.run_dir, mutate, op="record-approval")
+    print("APPROVAL RECORDED kind=%s（绑定消息 hash %s…）" % (args.kind, args.message_hash[:12]))
+
+
 def cmd_checkpoint(args):
     def mutate(ledger):
         fixture = bool(ledger.get("fixture_only"))
@@ -1548,14 +1777,31 @@ def cmd_re_attest(args):
     _append(args.run_dir, mutate, op="re-attest")
     print("RE-ATTEST OK kind=%s changed=%d" % (kind, len(changed)))
     if kind == "behavioral":
-        print("非文档变更 %d 个（如 %s）——**每条 required 场景都必须重跑并 record-run**，"
-              "否则 finalize 会以 RETEST_REQUIRED_AFTER_CHANGE 拦截。"
-              % (len(non_doc), ", ".join(non_doc[:3])))
+        led_now = load_ledger(args.run_dir)
+        affected, why = impact_affected_scenarios(led_now, changed, len(changed))
+        req_all = {s["scenario_id"] for s in (led_now.get("scenarios") or [])
+                   if s.get("required")}
+        if affected == req_all:
+            print("非文档变更 %d 个（如 %s）——%s：**全部 required 场景必须重跑并 record-run**，"
+                  "否则 finalize 会以 RETEST_REQUIRED_AFTER_CHANGE 拦截。"
+                  % (len(non_doc), ", ".join(non_doc[:3]), why))
+        else:
+            spared = sorted(req_all - affected)
+            print("非文档变更 %d 个——%s：受影响场景 %s 必须重跑；%s 经映射证明无关，"
+                  "沿用既有结论。" % (len(non_doc), why,
+                                     ", ".join(sorted(affected)) or "（无）",
+                                     ", ".join(spared)))
     else:
         print("仅文档变更（路径规则判定）——既有测试结论继续有效。")
 
 
 def cmd_audit(args):
+    # 引擎身份校验（DeskPet 复盘：engine 填了方法名 fault_seam_analysis，独立性核对失去对象）：
+    # --engine 必须是引擎/模型身份（如 opus-4.8、codex-gpt5.5、claude-sonnet-4-6），
+    # 不接受含下划线/空格的方法名。启发式规则，挡的是"填错字段"，不是防伪。
+    if not AUDIT_ENGINE_RE.match(args.engine or ""):
+        die("--engine 须为引擎/模型身份（小写字母数字加 - .，如 opus-4.8），不接受方法名或"
+            "含下划线/空格的值: %r。审计方法写进 auditor-output，引擎身份写在这里。" % args.engine)
     for f in (args.input, args.output):
         if not os.path.exists(os.path.join(args.run_dir, f)):
             die("auditor 文件不存在（须已写入 run-dir）: %s" % f)
@@ -1651,6 +1897,14 @@ def cmd_render(args):
                                   or (ledger.get("baseline") or {}).get("head")),
              "GATE RECEIPT: %s" % (receipt.get("content_digest") if (receipt and shippable) else "无（不得宣布 SHIP）"),
              ""]
+    lines += [
+        "## 身份说明（tested vs delivery，读 receipt 前必看）",
+        "- TESTED HEAD 是**测试时**的代码提交；把本 run-dir 的账本/截图/receipt 提交进仓库",
+        "  的后续提交（evidence-only descendant）**不改变被测内容指纹**，receipt 依然有效。",
+        "- 所以「receipt 的 head 早于仓库最终 HEAD」可以是完全合法的状态——判定依据是",
+        "  内容指纹（排除下方声明范围），不是提交号。若 tested HEAD 之后还改了任何非 run-dir",
+        "  文件，validator 会以 TESTED_RUNTIME_MISMATCH / RETEST_REQUIRED_AFTER_CHANGE 拦截。",
+        ""]
     app = ledger.get("applicability") or {}
     if app:
         lines.append("## 适用性判定（判「不适用」等于放弃对应条件门，理由须可追责）")
@@ -1690,6 +1944,21 @@ def cmd_render(args):
             lines.append("- %s｜%s｜变更 %s 个文件｜理由：%s" % (
                 a.get("recorded_at"), a.get("change_kind"), a.get("changed_count"),
                 a.get("reason")))
+        lines.append("")
+    approvals = ledger.get("approvals") or []
+    if approvals:
+        lines.append("## 用户批准记录")
+        for a in approvals:
+            lines.append("- %s｜%s｜消息 hash %s…｜%s" % (
+                a.get("recorded_at"), a.get("kind"),
+                str(a.get("message_sha256"))[:12], a.get("note") or ""))
+        lines.append("")
+    imported = [e for e in (ledger.get("evidence") or []) if e.get("imported")]
+    if imported:
+        lines.append("## 导入的历史证据（产生于开账之前，chain of custody 见来源）")
+        for e in imported:
+            lines.append("- %s（来源：%s；文件时间 %s）" % (
+                e.get("path"), e.get("imported_from"), e.get("file_mtime")))
         lines.append("")
     auditor = ledger.get("auditor") or {}
     lines.append("## 审计与账本完整性")
@@ -1960,6 +2229,22 @@ def main(argv=None):
     p.add_argument("--replace", action="store_true",
                    help="顶替同路径的旧证据条目（重测后证据文件更新时用；旧条目转入 superseded_evidence）")
     p.add_argument("--depends-on", nargs="*")
+    p.set_defaults(fn=cmd_attach_evidence, from_run=None)
+
+    p = sub.add_parser("import-evidence",
+                       help="显式导入**开账之前**产生的历史证据（保留 chain of custody）；"
+                            "普通 attach 遇到早于开账的文件会被 EVIDENCE_PREDATES_LEDGER 拦截")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--path", required=True, help="相对 run-dir 的证据路径")
+    p.add_argument("--kind", required=True, choices=["primary", "derived"])
+    p.add_argument("--from-run", required=True, dest="from_run",
+                   help="来源说明：原始 run 目录/会话/采集时间——历史证据必须能说明出处")
+    p.add_argument("--scenario")
+    p.add_argument("--id")
+    p.add_argument("--ui-action", action="store_true")
+    p.add_argument("--negative-assertion", action="store_true")
+    p.add_argument("--replace", action="store_true")
+    p.add_argument("--depends-on", nargs="*")
     p.set_defaults(fn=cmd_attach_evidence)
 
     p = sub.add_parser("declare-status")
@@ -1997,6 +2282,28 @@ def main(argv=None):
     p.add_argument("--slice")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_checkpoint)
+
+    p = sub.add_parser("phase-start", help="进入一个阶段（finalize 要求与 phase-end 配对）")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--phase", required=True)
+    p.add_argument("--note")
+    p.set_defaults(fn=lambda a: cmd_phase_event(a, "start"))
+
+    p = sub.add_parser("phase-end", help="结束一个阶段")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--phase", required=True)
+    p.add_argument("--status", default="ok", choices=["ok", "blocked", "abandoned"])
+    p.add_argument("--note")
+    p.set_defaults(fn=lambda a: cmd_phase_event(a, "end"))
+
+    p = sub.add_parser("record-approval",
+                       help="登记用户在 chat 中的显式批准（绑定批准消息的 SHA-256）")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--kind", required=True, choices=["all-ai-driving", "scope-reduction"])
+    p.add_argument("--message-hash", required=True,
+                   help="用户批准消息原文的 SHA-256（64 位十六进制）")
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_record_approval)
 
     p = sub.add_parser("re-attest")
     p.add_argument("--run-dir", required=True)

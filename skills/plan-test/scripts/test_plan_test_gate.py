@@ -518,7 +518,9 @@ class TimingTestCase(GateHarness):
                       "--declared-end", "2026-07-27T09:01:00Z"])
         self.assertEqual(r.returncode, 2)
 
-    def test_timing_gap_advisory_does_not_block(self):
+    def test_fixture_run_skips_clock_gates_but_renders_breakdown(self):
+        """fixture 回放的时钟天然双峰（历史申报时间 vs 回放时刻）——时钟类硬门只对真实 run
+        生效；fixture 仍要能记 timing 并在报告里给出耗时分解。"""
         self.full_pass_run()
         for s, e in (("2026-07-27T09:00:00Z", "2026-07-27T09:05:00Z"),
                      ("2026-07-27T13:00:00Z", "2026-07-27T13:05:00Z")):  # 中隔 >120min
@@ -527,8 +529,9 @@ class TimingTestCase(GateHarness):
                       "--declared-start", s, "--declared-end", e])
         self.audit_pass()  # timing 追加改变了 facts，须重审
         r = self.finalize()
-        self.assertEqual(r.returncode, FIXTURE_EXIT, r.stdout + r.stderr)  # advisory 不拦截
-        self.assertIn("ADVISORY TIMING_GAP", r.stdout)
+        self.assertEqual(r.returncode, FIXTURE_EXIT, r.stdout + r.stderr)
+        self.assertNotIn("TIMING_GAP", r.stdout)      # fixture 免检时钟门
+        self.assertNotIn("TIMING_MISSING", r.stdout)
         rr = run_gate(["render", "--run-dir", self.run_dir])
         self.assertEqual(rr.returncode, FIXTURE_EXIT, rr.stdout)
         with open(os.path.join(self.run_dir, "report.md"), encoding="utf-8") as f:
@@ -1642,6 +1645,257 @@ class AuditorVerdictSourceTestCase(GateHarness):
                       "--output", "auditor-output.json"])
         self.assertEqual(r.returncode, 2)
         self.assertIn("读不到 verdict", r.stderr)
+
+
+class TimingHardGateTestCase(RealRepoAttestationTestCase):
+    """时间记账硬门（schema 1.3.0）：DeskPet 复盘实锤 12h24m 真实执行 timing 全 0、
+    账本在 finalize 前 2.5 分钟整体补写，validator 零提示。现在这些都是 error。"""
+
+    def _iso(self, offset_minutes):
+        import datetime
+        t = datetime.datetime.now(datetime.timezone.utc) + \
+            datetime.timedelta(minutes=offset_minutes)
+        return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def declared(self, start_off, end_off, activity="manual_e2e", wait=None):
+        args = ["record-timing", "--run-dir", self.run_dir, "--phase", "phase-4",
+                "--activity-class", activity,
+                "--declared-start", self._iso(start_off),
+                "--declared-end", self._iso(end_off)]
+        if wait:
+            args += ["--wait-reason", wait]
+        r = run_gate(args, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_long_span_without_timing_blocks(self):
+        """活动跨度超 30 分钟而 timing 覆盖不足 → TIMING_MISSING（error）。
+        跨度由导入的历史证据文件时间撑开——正是 DeskPet 的形态。"""
+        self.init_real_run()
+        p = os.path.join(self.run_dir, "artifacts", "old-shot.png")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("screenshot")
+        old = __import__("time").time() - 40 * 60
+        os.utime(p, (old, old))
+        r = run_gate(["import-evidence", "--run-dir", self.run_dir,
+                      "--path", "artifacts/old-shot.png", "--kind", "primary",
+                      "--from-run", "e2e 会话 22:31 采集"], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = self.check()
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("TIMING_MISSING", out.stdout)
+        self.assertNotIn("EVIDENCE_PREDATES_LEDGER", out.stdout)  # import 是合法通道
+        # 用申报 timing 把历史测试时段补记入账 → 覆盖达标 → 放行
+        self.declared(-40, -2)
+        out = self.check()
+        self.assertEqual(out.returncode, 0, out.stdout)
+
+    def test_gap_between_anchors_blocks_until_covered(self):
+        """锚点之间超过 120 分钟的空洞 → TIMING_GAP（error）；申报补覆盖后放行。"""
+        self.init_real_run()
+        self.declared(0, 30, activity="implementation")
+        self.declared(180, 205, activity="automated_test")   # 与上一段中隔 150min
+        out = self.check()
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("TIMING_GAP", out.stdout)
+        self.declared(30, 180, activity="user_wait", wait="user_review")
+        out = self.check()
+        self.assertEqual(out.returncode, 0, out.stdout)
+
+    def test_predated_evidence_via_plain_attach_blocks(self):
+        """普通 attach 一份开账前生成的证据 → EVIDENCE_PREDATES_LEDGER（先测后补账）。"""
+        self.init_real_run()
+        p = os.path.join(self.run_dir, "artifacts", "backfill.png")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("old screenshot")
+        old = __import__("time").time() - 3600
+        os.utime(p, (old, old))
+        r = run_gate(["attach-evidence", "--run-dir", self.run_dir,
+                      "--path", "artifacts/backfill.png", "--kind", "primary"],
+                     cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = self.check()
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("EVIDENCE_PREDATES_LEDGER", out.stdout)
+        self.assertIn("import-evidence", out.stdout)  # 诊断要指出合法通道
+
+
+class PhasePairingTestCase(GateHarness):
+    """phase-start/phase-end 配对：阶段没收尾就 finalize → PHASE_UNPAIRED。"""
+
+    def test_unpaired_phase_blocks_full_finalize_only(self):
+        self.full_pass_run()
+        r = run_gate(["phase-start", "--run-dir", self.run_dir, "--phase", "phase-4"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # check-only 不查配对（阶段可能尚未收尾）
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.audit_pass()  # phase 事件改变 facts，重审
+        r = self.finalize()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("PHASE_UNPAIRED", r.stdout)
+        r = run_gate(["phase-end", "--run-dir", self.run_dir, "--phase", "phase-4"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.audit_pass()
+        r = self.finalize()
+        self.assertEqual(r.returncode, FIXTURE_EXIT, r.stdout + r.stderr)
+
+    def test_end_without_start_blocks(self):
+        self.full_pass_run()
+        run_gate(["phase-end", "--run-dir", self.run_dir, "--phase", "phase-9"])
+        self.audit_pass()
+        r = self.finalize()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("PHASE_UNPAIRED", r.stdout)
+
+
+class DriverApprovalTestCase(GateHarness):
+    """全 AI 驾驶批准门（phase-4 ①b 机器化）：输入语义敏感 + required UI 场景全 AI 驾驶
+    且无用户批准 → DRIVER_APPROVAL_MISSING。DeskPet 复盘：12 条 run 全 driver=ai、
+    叙述却写"真人 E2E"，规则只在文档里。"""
+
+    def sensitive_ui_run(self):
+        scen = [{"scenario_id": "S-1", "required": True, "ui": True,
+                 "gate_type": "positive-value", "input_class": "自然提问",
+                 "min_root_runs": 2, "cold_start": True},
+                {"scenario_id": "S-2", "required": True, "input_class": "专业术语"},
+                {"scenario_id": "S-3", "required": True, "gate_type": "negative-safety",
+                 "input_class": "对抗输入"}]
+        self.init(scen, applicability={
+            "input_sensitive": {"value": True, "decided_by": "user",
+                                "rationale": "LLM 调研 agent，输出质量随输入语义变化"},
+            "llm_payload_driven": {"value": False, "decided_by": "agent",
+                                   "rationale": "LLM 只做文本展示，不驱动端侧状态机"},
+            "stateful_init": {"value": True, "decided_by": "agent",
+                              "rationale": "依赖登录态与异步注册的检索服务"}})
+        self.artifact("artifacts/s1-ui.png", "shot")
+        self.attach("artifacts/s1-ui.png", scenario="S-1", ui_action=True)
+        self.record("S-1", business_terminal="completed+valid")
+        self.record("S-1", business_terminal="completed+valid")
+        self.record("S-2")
+        self.record("S-3")
+
+    def test_all_ai_driving_without_approval_blocks(self):
+        self.sensitive_ui_run()
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("DRIVER_APPROVAL_MISSING", r.stdout)
+
+    def test_recorded_approval_unblocks(self):
+        self.sensitive_ui_run()
+        msg_hash = hashlib.sha256("同意本次全部场景由 AI 驾驶".encode()).hexdigest()
+        r = run_gate(["record-approval", "--run-dir", self.run_dir,
+                      "--kind", "all-ai-driving", "--message-hash", msg_hash,
+                      "--note", "用户 chat 批准"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        # 批准要在人读报告里可见
+        self.audit_pass()
+        self.finalize()
+        run_gate(["render", "--run-dir", self.run_dir])
+        with open(os.path.join(self.run_dir, "report.md"), encoding="utf-8") as f:
+            self.assertIn("用户批准记录", f.read())
+
+    def test_human_driven_run_needs_no_approval(self):
+        self.sensitive_ui_run()
+        self.record("S-1", business_terminal="completed+valid", driver="human")
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_bogus_message_hash_rejected(self):
+        self.sensitive_ui_run()
+        r = run_gate(["record-approval", "--run-dir", self.run_dir,
+                      "--kind", "all-ai-driving", "--message-hash", "用户同意了"])
+        self.assertEqual(r.returncode, 2)
+
+
+class AuditorEngineIdentityTestCase(GateHarness):
+    """audit --engine 必须是引擎身份，不是方法名（DeskPet 实测填了 fault_seam_analysis）。"""
+
+    def test_method_name_as_engine_rejected(self):
+        self.full_pass_run()
+        r = run_gate(["audit", "--run-dir", self.run_dir, "--verdict", "PASS",
+                      "--engine", "fault_seam_analysis",
+                      "--input", "auditor-input.json",
+                      "--output", "auditor-output.json"])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("引擎", r.stderr)
+
+    def test_real_engine_id_accepted(self):
+        self.full_pass_run()  # full_pass_run 里的 audit 用 opus-auditor，已经证明通过
+
+
+class ImpactScopedRetestTestCase(RealRepoAttestationTestCase):
+    """按影响范围复测：scenario.impact_paths 映射，fail-closed。
+    DeskPet 复盘 P1：改任何文件 → 全场景 stale，是墙钟浪费最大的单点。"""
+
+    def init_mapped_run(self):
+        manifest = {
+            "run_id": "impact-1",
+            "repo_root": self.repo,
+            "source_request_text": "影响范围复测验证",
+            "acceptance_file": self.write("acceptance.md", "AC-A 后端；AC-B 前端\n"),
+            "applicability": self.applicability_block(),
+            "scenarios": [
+                {"scenario_id": "S-A", "required": True,
+                 "impact_paths": ["backend/**"]},
+                {"scenario_id": "S-B", "required": True,
+                 "impact_paths": ["frontend/**"]},
+            ],
+        }
+        mpath = self.write("manifest.json", json.dumps(manifest, ensure_ascii=False))
+        r = run_gate(["init", "--run-dir", self.run_dir, "--manifest", mpath],
+                     cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for sid in ("S-A", "S-B"):
+            r = run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", sid,
+                          "--kind", "root", "--result", "pass"], cwd=self.repo)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def re_attest(self, reason="改动"):
+        return run_gate(["re-attest", "--run-dir", self.run_dir, "--reason", reason],
+                        cwd=self.repo)
+
+    def test_scoped_change_spares_unrelated_scenario(self):
+        """只改 backend → 只有 S-A 需要重测，S-B 沿用既有结论并能解释原因。"""
+        self.init_mapped_run()
+        self.write("backend/api.py", "print('v2')\n")
+        r = self.re_attest("改后端")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("S-A", r.stdout)          # 输出要指明受影响范围
+        out = self.check()
+        self.assertEqual(out.returncode, 1)
+        retests = [l for l in out.stdout.splitlines()
+                   if "RETEST_REQUIRED_AFTER_CHANGE" in l]
+        self.assertEqual(len(retests), 1, out.stdout)
+        self.assertIn("S-A", retests[0])
+        # 只补测受影响场景即可放行
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-A",
+                  "--kind", "root", "--result", "pass"], cwd=self.repo)
+        out = self.check()
+        self.assertEqual(out.returncode, 0, out.stdout)
+
+    def test_uncovered_change_fails_closed(self):
+        """改一个未被任何映射覆盖的文件 → 全量复测（映射是被测者自写的，证明不了无关就全测）。"""
+        self.init_mapped_run()
+        self.write("misc/helper.py", "print('x')\n")
+        self.re_attest("改杂项")
+        out = self.check()
+        self.assertEqual(out.returncode, 1)
+        retests = [l for l in out.stdout.splitlines()
+                   if "RETEST_REQUIRED_AFTER_CHANGE" in l]
+        self.assertEqual(len(retests), 2, out.stdout)
+        self.assertIn("fail-closed", out.stdout)
+
+    def test_no_mapping_keeps_full_retest(self):
+        """没有任何场景声明 impact_paths → 维持 1.2.0 全量复测行为（已有用例锁住，这里锁语义）。"""
+        self.init_real_run()
+        self.write("src.py", "print('v2')\n")
+        run_gate(["re-attest", "--run-dir", self.run_dir, "--reason", "改代码"],
+                 cwd=self.repo)
+        out = self.check()
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("RETEST_REQUIRED_AFTER_CHANGE", out.stdout)
 
 
 FIXTURES_DIR = os.path.join(os.path.dirname(HERE), "fixtures", "gate")

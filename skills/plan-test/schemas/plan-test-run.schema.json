@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "plan-test-run.schema.json",
   "title": "plan-test verification run ledger",
-  "description": "唯一状态账本（schema 1.2.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。1.2.0 新增：re-attest 与内容指纹（attestations）、doc_only_globs（只可收窄）、superseded_evidence，以及 applicability（适用性判定入账，判「不适用」等于放弃对应条件门，须留理由与判定人）与 integrity（写入链，绕过 CLI 手改账本会被 LEDGER_TAMPERED 发现）。版本策略：validator 校验 major 相同（不符即 SCHEMA_INVALID），同 major 旧 minor 兼容（缺段视为空）。",
+  "description": "唯一状态账本（schema 1.3.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。1.2.0 新增：re-attest 与内容指纹（attestations）、doc_only_globs（只可收窄）、superseded_evidence、applicability、integrity。1.3.0 新增（DeskPet 2026-08-03 复盘）：时间记账硬门（TIMING_MISSING/TIMING_GAP 升 error，仅真实 run）、evidence.file_mtime 与 imported/imported_from（先测后开账侦测 + import-evidence 合法通道）、phase 事件（phase-start/phase-end 配对，PHASE_UNPAIRED）、approvals（用户批准记录，全 AI 驾驶须批准）、scenario.impact_paths（按影响范围复测，fail-closed）。版本策略：validator 校验 major 相同（不符即 SCHEMA_INVALID），同 major 旧 minor 兼容（缺段视为空）。",
   "type": "object",
   "required": [
     "schema_version",
@@ -238,6 +238,13 @@
             "type": "string",
             "description": "语义不等价的输入类别标签。input_sensitive=true 时 required 场景须覆盖 ≥min_distinct_input_classes 个不同值（重试/重放/同意图改写不算新类别）"
           },
+          "impact_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "本场景关联的代码路径 glob（如 backend/**）。behavioral 变更只 stale 命中的场景；fail-closed：任一变更未被任何场景的映射覆盖、清单被截断、或场景未声明映射 → 按全量复测。init 冻结，事后改映射即 LEDGER_TAMPERED"
+          },
           "cold_start": {
             "type": "boolean",
             "description": "是否为冷路径场景（全新安装/清数据 → 首次登录 → 直达功能页）。stateful_init=true 时矩阵必须含一条"
@@ -353,6 +360,47 @@
             "items": {
               "type": "string"
             }
+          },
+          "file_mtime": {
+            "type": "string",
+            "description": "attach 时刻的证据文件 mtime（RFC3339 UTC）。早于 created_at 超过宽限且未标 imported → EVIDENCE_PREDATES_LEDGER（先测后开账）"
+          },
+          "imported": {
+            "type": "boolean",
+            "description": "true = 经 import-evidence 显式导入的历史证据（开账之前产生），豁免 EVIDENCE_PREDATES_LEDGER"
+          },
+          "imported_from": {
+            "type": "string",
+            "description": "历史证据的来源说明（原始 run 目录/会话/采集时间）——chain of custody"
+          }
+        }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "description": "用户在 chat 中的显式批准记录（record-approval 写入）。每条绑定批准消息原文的 SHA-256，事后可对质。当前用途：all-ai-driving（输入语义敏感 + required UI 场景全 AI 驾驶时必须有）、scope-reduction",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "message_sha256"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "all-ai-driving",
+              "scope-reduction"
+            ]
+          },
+          "approved_by": {
+            "const": "user"
+          },
+          "message_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "note": {
+            "type": "string"
           }
         }
       }
@@ -574,7 +622,7 @@
     },
     "events": {
       "type": "array",
-      "description": "含 checkpoint（type=checkpoint：slice/note/at/head/dirty_patch_sha256，目标每 90–120 分钟一次；间隔超 120 分钟触发 advisory 级 TIMING_GAP，不拦截）与 receipt_invalidated 等事件"
+      "description": "含 checkpoint（type=checkpoint：slice/note/at/head/dirty_patch_sha256）、phase（type=phase：action=start|end + phase + at，finalize 要求配对否则 PHASE_UNPAIRED）与 receipt_invalidated 等事件。1.3.0 起：真实 run 的活动跨度超 30 分钟而 timing 覆盖 <20% → TIMING_MISSING（error）；记账覆盖区间之间空洞超 120 分钟 → TIMING_GAP（error）——空洞可用申报模式 record-timing 补覆盖"
     },
     "applicability": {
       "type": "object",
