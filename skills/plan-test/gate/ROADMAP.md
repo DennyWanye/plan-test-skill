@@ -46,10 +46,33 @@
   `sys.executable`，不再写死 `python3`；evidence 路径统一规范化为 run-dir 相对 POSIX
   形式并拒绝绝对路径/目录逃逸。Windows 自测全绿（当时口径 57；第三轮去重后为 50）。
 
+## 已完成（第四轮，2026-08-04：schema 1.3.0，DeskPet session-model-run-visibility 复盘）
+
+依据：DeskPet 2026-08-03 实际执行（12h24m）的四源交叉审计——git 历史、文件 mtime、
+workflow.db、会话日志互证。实锤：timing 全 0、账本在 finalize 前 2.5 分钟整体补写、
+证据重复 36.8%、改任意文件全场景 stale、audit engine 填方法名、全 AI 驾驶叙述成真人。
+
+- **时间记账硬门**：`TIMING_MISSING`/`TIMING_GAP` 升 error（真实 run；fixture 免检时钟门）；
+  区间覆盖模型替换点距模型（点距算法会把申报区间的两端误判成空洞）；
+  `phase-start`/`phase-end` + `PHASE_UNPAIRED`。TIMING_GAP 升级决策据此已由真实数据拍板。
+- **先测后补账侦测**：attach 记录证据文件 mtime → `EVIDENCE_PREDATES_LEDGER`；
+  历史证据唯一入口 `import-evidence --from-run`（chain of custody 入账显形）。
+- **影响范围复测**：`scenario.impact_paths`（fail-closed）；receipt 增
+  tested_code_head/content_basis/exclusion_scope/timing_summary；report 增"身份说明"。
+- **驾驶与审计身份**：`DRIVER_APPROVAL_MISSING` + `record-approval`（绑定用户消息 hash）；
+  `audit --engine` 拒绝方法名。
+- **挑战收敛边际制**：challenger 结构化发现（去重键 + NEW_CRITICAL_FINDINGS 行），
+  有新增 P0/P1 才续轮；PLAN_ITERATIONS 3→1。DeskPet 数据否决了"硬顶 3 轮"方案
+  （那次第 4–6 轮仍在抓真 P0）。
+- **baseline runner**：`scripts/baseline_runner.py`（分片清单/心跳/超时精确杀进程树/
+  既有失败签名/新红即停/--resume）。自测 137 用例全绿。
+
 ## 未完成（后续独立 slice，勿打包成超大 plan）
 
-- **TIMING_GAP 升级决策**：仍保持 advisory；待积累首批真实 plan-test run 的 gap
-  分布后交用户拍板，在此之前不得擅自升级为阻塞。
+- **内容寻址证据仓库（CAS）**：证据按 SHA-256 存一次、slice/ledger 只引用 artifact ID、
+  跨 run 引用不复制文件（DeskPet 实测重复 714KB/36.8%）。收益只省磁盘不省墙钟，
+  且要动 EVIDENCE_MISSING/HASH 校验路径与 path traversal 防线——独立 slice 做，
+  不与其他改动打包。
 
 - **2A 行为契约批准 artifact 细化**：目前 `behavior_contract`/`behavior_changes` 已有 schema
   与校验，但批准事件的采集流程（用户消息 event ID/hash 自动采集）仍是手工填 manifest。

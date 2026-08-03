@@ -163,6 +163,22 @@
   - 截图、原始日志、命令回执、DB 记录是 primary；auditor 报告与交付汇总是 derived。
     derived 只辅助审计，不能单独满足 AC/testcase；证据依赖图存在环 →
     `EVIDENCE_DEPENDENCY_CYCLE`（两份互引汇总不构成独立证据）。
+- `TIMING_HARD_GATE`: on（schema 1.3.0）
+  - 真实 run 活动跨度 > 30 分钟而 timing 覆盖 < 20% → `TIMING_MISSING`；记账覆盖区间
+    合并后仍有 > 120 分钟空洞 → `TIMING_GAP`。两者均 error；漏记时段用申报模式
+    `record-timing --declared-start/--declared-end` 补覆盖。阶段进出必须
+    `phase-start`/`phase-end` 配对（`PHASE_UNPAIRED`）。
+- `EVIDENCE_REALTIME`: on（schema 1.3.0）
+  - `attach-evidence` 记录证据文件 mtime，早于开账 → `EVIDENCE_PREDATES_LEDGER`
+    （防"先测三小时、账本两分半补写完"，DeskPet 实锤）；历史证据必须走
+    `import-evidence --from-run`（chain of custody 入账并在 report 显形）。
+- `IMPACT_SCOPED_RETEST`: on（schema 1.3.0）
+  - manifest 场景可声明 `impact_paths` glob；behavioral re-attest 只 stale 命中的场景。
+    **fail-closed**：无映射/清单截断/变更未被覆盖 → 全量复测；未声明映射的场景永远算受影响。
+- `AI_DRIVING_APPROVAL`: required-for-input-sensitive（schema 1.3.0）
+  - 输入语义敏感 + required UI 场景全 AI 驾驶时，须至少 1 次 `--driver human` root run，
+    或 `record-approval --kind all-ai-driving --message-hash <用户批准消息 sha256>`；
+    否则 `DRIVER_APPROVAL_MISSING`。`audit --engine` 必须是引擎身份（拒绝方法名）。
 
 ## 行为开关
 

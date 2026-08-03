@@ -32,7 +32,15 @@ python skills/plan-test/scripts/plan_test_gate.py finalize --run-dir <run-dir>
   `gate-receipt.json`（幂等：同输入复用同 receipt digest 与首次 finalized_at）。
 - `attach-evidence --replace`：重测后证据文件更新时顶替同路径旧条目，旧条目连同旧 sha256 转入 `superseded_evidence`，动作进 integrity 链并在 report 显形——**不是静默覆盖**，也换不绿场景（状态由 append-only 的 `runs[]` 重算）。
 - 记账辅助命令：`record-timing`（时间成本入账，--exec 实测 / declared 申报两模式）、
-  `checkpoint`（工作检查点）与 `re-attest`（收尾期改动后重新采集运行时身份）——见 §5 规则 10 与 8b。
+  `checkpoint`（工作检查点）、`phase-start`/`phase-end`（阶段事件，finalize 要求配对）
+  与 `re-attest`（收尾期改动后重新采集运行时身份）——见 §5 规则 10 与 8b。
+- `import-evidence --from-run <来源说明>`：**开账之前**产生的历史证据的唯一合法入口
+  （chain of custody 入账并在 report 显形）。普通 `attach-evidence` 会记录证据文件 mtime，
+  早于开账即 `EVIDENCE_PREDATES_LEDGER`——DeskPet 复盘实锤"先测三小时、账本两分半补写完"
+  这条路径后新增。
+- `record-approval --kind all-ai-driving --message-hash <sha256>`：登记用户在 chat 中的
+  显式批准，绑定批准消息原文 hash。输入语义敏感 + required UI 场景全 AI 驾驶时必须有
+  （或至少 1 次 `--driver human` 的 root run），否则 `DRIVER_APPROVAL_MISSING`。
 - `render`：重新运行同一 validator、复验 receipt digest，失效时**不渲染 SHIPPABLE**。
 - 没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为
   `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
@@ -80,11 +88,13 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 8 | `EVIDENCE_MISSING` | error | 证据文件不存在 / 依赖不存在 |
 | 9 | `EVIDENCE_HASH_MISMATCH` | error | 证据文件被改动 |
 | 10 | `EVIDENCE_DEPENDENCY_CYCLE` | error | 证据循环引用（互引的两个汇总不能构成独立证据） |
+| 10b | `EVIDENCE_PREDATES_LEDGER` | error | 证据文件 mtime 早于开账时刻且未经 import-evidence 导入——先测后补账 |
 | 11 | `DERIVED_EVIDENCE_ONLY` | error | required 场景只有 derived report，无 primary 证据 |
 | 12 | `FROZEN_ORACLE_CHANGED` | error | 冻结 black-box testcase byte 级变化且无 behavior_change_id |
 | 13 | `BEHAVIOR_APPROVAL_REQUIRED` | error | 行为变更缺少用户批准 artifact（exact old/new + 消息 hash + scope） |
 | 14 | `APPLICABILITY_UNDECLARED` | error | 适用性三维未显式声明，或缺 rationale（≥10 字）/ decided_by |
 | 15 | `APPLICABILITY_GATE_UNSATISFIED` | error | 声明某维「适用」但场景矩阵未兑现对应条件（见 §5.12） |
+| 15b | `DRIVER_APPROVAL_MISSING` | error | 输入语义敏感 + required UI 场景全 AI 驾驶，且无真人 root run、无用户批准记录 |
 | 16 | `RISK_CLOSURE_MISSING` | error | required lane 无通过的 root run |
 | 17 | `STABILITY_SAMPLES_INSUFFICIENT` | error | 非确定性场景采样不足或 FLAKY |
 | 18 | `RELEASE_UNIT_TOO_LARGE` | error | 交付体量超阈值，须拆 program plan + 垂直 slice |
@@ -94,8 +104,10 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 21 | `AUDITOR_VERDICT_MISMATCH` | error | auditor 产物里的 verdict 与入账 verdict 不符（命令行改判） |
 | 22 | `AUDITOR_INPUT_STALE` | error | audit 后账本 fact 又变化——旧 PASS 失效 |
 | 23 | `RECEIPT_STALE` | error | receipt digest 与当前输入不符 / 已 invalidate / 缺失 |
-| 24 | `AUDITOR_INDEPENDENCE_UNVERIFIED` | **advisory** | auditor engine 未标注或与 executor 相同——自审自判，曝光不拦截 |
-| 25 | `TIMING_GAP` | **advisory** | 相邻 timing/checkpoint 锚点间隔 > 120 分钟（长时间无记账） |
+| 24 | `TIMING_MISSING` | error | 真实 run 活动跨度 > 30 分钟而 timing 覆盖 < 20%（1.3.0 起；fixture 免检时钟门） |
+| 25 | `TIMING_GAP` | error | 记账覆盖区间合并后仍有 > 120 分钟空洞（1.3.0 起升 error；申报 timing 可补覆盖） |
+| 26 | `PHASE_UNPAIRED` | error | phase-start 无配对 phase-end（或反之）；check-only 不查，full/render 查 |
+| 27 | `AUDITOR_INDEPENDENCE_UNVERIFIED` | **advisory** | auditor engine 未标注或与 executor 相同——自审自判，曝光不拦截 |
 | - | `REVISION_CONFLICT`（stderr） | - | 并发写 CAS 冲突——重读后重试，不静默覆盖 |
 | - | `LEDGER_LOCKED`（stderr） | - | 文件锁被占用 |
 
@@ -191,21 +203,31 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
      `package.json`、`Dockerfile` 等**永远算行为文本**（改依赖版本、改系统提示都不是「改文档」）。
      manifest 的 `doc_only_globs` **只能收窄不能放宽**（最终判定 = 默认 ∩ 自定义）——
      manifest 由被测者自写，自报即生效的开关等于把门交回被测者；
-   - 只要有一个非文档文件变了 → 记 `behavioral`，validator 要求**每条 required 场景都有一次
-     发生在该次 attestation 之后的 root PASS**，否则 `RETEST_REQUIRED_AFTER_CHANGE`。
+   - 只要有一个非文档文件变了 → 记 `behavioral`，validator 要求**受影响的 required 场景
+     都有一次发生在该次 attestation 之后的 root PASS**，否则 `RETEST_REQUIRED_AFTER_CHANGE`。
+     **影响范围按 `scenario.impact_paths` 映射缩小**（1.3.0 起，DeskPet 复盘 P1：改任意
+     文件即全场景 stale 是墙钟浪费最大单点）：manifest 里每个场景可声明关联代码路径 glob
+     （如 `backend/**`），只有命中变更的场景 stale，其余场景沿用既有结论并在 re-attest
+     输出里解释原因。**fail-closed**：映射由被测者自写，是新的绕过面——没有任何场景声明
+     映射、变更清单被截断、或任一非文档变更未被任何映射覆盖，一律退回全量复测；未声明
+     映射的场景永远算受影响。映射随场景在 init 冻结，事后改映射即 `LEDGER_TAMPERED`。
    - doc-only **由路径规则机器判定，不接受调用者自报**；"我这次只改了文档"不再是一句话的事。
    - 判定用账本的追加序号锚定，不用时钟（`now_iso()` 精度到秒，同秒重跑会被误判成已重测）。
 8. **fixture_only**：跳过 git 校验的 run 永远标 FIXTURE-ONLY，receipt/report 不可作为
    真实交付证据。
 9. **"100%" 只表示某个明确 scope 的 required gates 全绿**，不表示未来绝无缺陷。
-10. **时间是一等证据**（schema 1.1.0 起）：机器活动用 `record-timing --exec -- <cmd>`
-    包裹执行——wall clock 记 RFC 3339 UTC 起止、monotonic clock 实测 `elapsed_ms`，
-    调用者不可覆写实测值；真人 E2E 等外部活动用 `--declared-start/--declared-end`
-    申报，CLI 强制 `measured:false`，report 单列"declared time"、不混入实测聚合。
-    连续工作每 90–120 分钟跑一次 `checkpoint`（记 HEAD/dirty/当前 slice/下一动作）；
-    间隔超 120 分钟触发 advisory 级 `TIMING_GAP` 提示。render 的报告按七类
-    activity_class（implementation / automated_test / manual_e2e / provider_wait /
-    user_wait / interruption_recovery / rework）分解耗时。
+10. **时间是一等证据，且 1.3.0 起是硬门**（DeskPet 复盘：12h24m 真实执行四本账 timing
+    全 0，phase 文档写的"必须"只是 advisory——文档说必须而机器不拦，规则权威一起塌）：
+    机器活动用 `record-timing --exec -- <cmd>` 包裹执行——wall clock 记 RFC 3339 UTC
+    起止、monotonic clock 实测 `elapsed_ms`，调用者不可覆写实测值；真人 E2E 等外部活动
+    用 `--declared-start/--declared-end` 申报，CLI 强制 `measured:false`，report 单列
+    "declared time"、不混入实测聚合。连续工作每 90–120 分钟跑一次 `checkpoint`；
+    阶段进出用 `phase-start`/`phase-end`（finalize 查配对，`PHASE_UNPAIRED`）。
+    **真实 run**（非 fixture）活动跨度超 30 分钟而 timing 覆盖不足 20% →
+    `TIMING_MISSING`（error）；记账覆盖区间合并后仍有超 120 分钟的空洞 →
+    `TIMING_GAP`（error）。漏记时段的合法出路是申报模式补记（user_wait/provider_wait
+    等，低信任单列），不是把门关掉。**这是流程门不是防伪门**：申报值本就是自陈，
+    它保证"有账"，不保证"账真"。render 的报告按七类 activity_class 分解耗时。
 11. **legacy fixture 溯源**：`provenance.json` 的 `source_sha256` 未采集（null）时，
     fixture 只能作为合成 dogfood 运行，输出强制标 `PROVENANCE: UNVERIFIED`；
     不得为让历史变绿而修改历史证据文件。
@@ -287,8 +309,9 @@ validator 能重算的只有"已入账事实之间的自洽性"，事实本身�
 python skills/plan-test/scripts/test_plan_test_gate.py
 ```
 
-94 个用例（曾对外称 57，其中 23 条是被 `TimingTestCase(GateTestCase)` 继承重跑的重复项，
-拆 `GateHarness` 基类后为 50；此后五轮独立审计逐次打穿实现，补齐攻击回归用例至 94）。
+137 个用例（曾对外称 57，其中 23 条是被 `TimingTestCase(GateTestCase)` 继承重跑的重复项，
+拆 `GateHarness` 基类后为 50；五轮独立审计逐次打穿实现补齐攻击回归至 94；schema 1.3.0
+新增时间硬门/先测后补账/phase 配对/驾驶批准/影响范围复测的正反路径至 137）。
 
 覆盖：状态矛盾 FAIL、required NOT_RUN、证据缺失/hash 不符、循环证据、frozen oracle
 变异、audit 后 stale、receipt 幂等、适用性未声明/理由缺失/判「适用」未兑现矩阵、
