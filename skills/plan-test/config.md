@@ -43,8 +43,10 @@
 
 ## 轮次与出口
 
-- `PLAN_ITERATIONS`: 3
-  - plan 挑战迭代的**最少**轮数；未达 phase-2 收敛判据则继续，不设上限（受 `MAX_ROUNDS` 兜底）。
+- `PLAN_ITERATIONS`: 1
+  - plan 挑战迭代的**最少**轮数。收敛按边际收益判定（见 phase-2：有新增 P0/P1 才续轮，
+    无新增即收敛），不设固定上限也不强凑轮数——DeskPet 复盘证明 4–6 轮可能还有真 P0，
+    而第 1 轮就干净 PASS 时凑满 3 轮纯属浪费。受 `MAX_ROUNDS` 兜底。
 - `TESTCASE_ITERATIONS`: 2
   - testcase 迭代最少轮数。
 - `AUDIT_RETRY`: until-100

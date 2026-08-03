@@ -6,10 +6,22 @@
 
 循环（最少 `{PLAN_ITERATIONS}` 轮，受 `{MAX_ROUNDS}` 兜底）：派 `{CHALLENGER_ENGINE}` 子代理，用 `prompts/plan-challenger.md` 挑战 plan → 我据结果优化。
 
+**收敛按边际收益判定，不设固定轮数上限**（DeskPet 2026-08-03 复盘校准：那次 7 轮挑战
+第 1–6 轮**每轮**都抓到新的 P0 级问题（迁移原子性、signal 被吞、双窗口 lost update……），
+第 7 轮才干净 PASS——"默认最多 3 轮"式的硬顶会把真问题挡在门外，错的不是轮数是停止条件）：
+
+- 挑战者每轮输出结构化发现（`[P0|去重键]` 前缀 + 末尾 `NEW_CRITICAL_FINDINGS: <n>` 行，
+  见 prompts/plan-challenger.md）；派发时附上**已闭环问题清单（含去重键）**，重提已闭环项不算新增。
+- **续轮条件**：`NEW_CRITICAL_FINDINGS > 0`（本轮有新 P0/P1）或 VERDICT: FAIL → 修订后继续。
+- **收敛条件**：VERDICT: PASS 且 `NEW_CRITICAL_FINDINGS = 0` → 定稿进入用户 review；
+  连续两轮 `NEW_CRITICAL_FINDINGS = 0` 而 VERDICT 仍 FAIL（只剩措辞级分歧）→ 也收敛，
+  把剩余 P2 项列给用户随 review 一并裁决。
+- 超过 `{MAX_ROUNDS}` 仍有新增关键发现 → BLOCKED 升级（问题域可能大于一份 plan 能承载的范围）。
+
 **每轮派发规矩**（见 SKILL.md"上下文包"）：
 
-- 附上 acceptance.md 相关条款原文、plan 原文、**上一轮已闭环的问题清单**——声明不必重复挑战已闭环项，只挑战新增与未闭环部分。
-- 以挑战者输出末行 `VERDICT` 判定：FAIL → 继续迭代；PASS 且已满最少轮数 → 定稿。缺结论行按 FAIL 处理。
+- 附上 acceptance.md 相关条款原文、plan 原文、**上一轮已闭环的问题清单（含去重键）**——声明不必重复挑战已闭环项，只挑战新增与未闭环部分。
+- 以挑战者输出末行 `VERDICT` + `NEW_CRITICAL_FINDINGS` 行判定（见上）。缺结论行按 FAIL 处理，缺 `NEW_CRITICAL_FINDINGS` 行按"有新增"处理（不许自行脑补为收敛）。
 - 迭代中的补充调研遵循 `methods/research-method.md`：读代码读不出来的不确定项（运行时行为、三方库真实表现），用可丢弃的 spike 跑一下闭环，结论写回 plan——这就是"实践—认识—再实践"，不许用措辞把洞圆过去。
 
 ### 收敛判据（全部满足才定稿）
