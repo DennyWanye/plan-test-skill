@@ -66,6 +66,10 @@ workflow.db、会话日志互证。实锤：timing 全 0、账本在 finalize �
   （那次第 4–6 轮仍在抓真 P0）。
 - **baseline runner**：`scripts/baseline_runner.py`（分片清单/心跳/超时精确杀进程树/
   既有失败签名/新红即停/--resume）。自测 137 用例全绿。
+- **阶段依赖图并行化（P1-6）**：SKILL.md 推进规则从全局串行改为双轨依赖图——实现轨
+  与验证准备轨（phase-3 D：testcase/fixture/冒烟/manifest 草案）并行，汇合闸后才进
+  昂贵层；验证准备轨 black-box 纪律（禁读实现代码，防 oracle 被实现污染）。
+  DeskPet 数据：3h27m 准备段与 2h30m 实现段几乎可完全重叠。
 
 ## 未完成（后续独立 slice，勿打包成超大 plan）
 

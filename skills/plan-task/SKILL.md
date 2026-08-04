@@ -37,6 +37,7 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 ### 3. 并行执行 + 完成度审计
 
 - 按 `../plan-test/phase-3-execute.md` 执行：`{EXECUTOR_ENGINE}` 并行派发、worktree 隔离、与本机 hook 共处、`{AUDITOR_ENGINE}` 可追溯矩阵审计、VERDICT 判定、回归门对照 baseline。
+- **同时启动并行验证准备轨**（phase-3 D + `checklists/parallel-verification-track.md`）：testcase 编写与挑战、fixture/冒烟脚本、gate manifest 草案与实现**并行**做，别等实现结束才开始（black-box 纪律：本轨不读实现代码）。下面步骤 4 的"昂贵层前置"只做核对与冻结。
 
 ### 4. 验收门禁（测试策略路由）
 
@@ -72,7 +73,7 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 - **成本纪律**：记录各阶段耗时；复测按 change-impact 路由——只重跑受本次改动影响的层，未变化的昂贵检查（全量构建/打包/全量回归）不重复执行。
 - **已知失败版本启动警告**：总体 BLOCKED 时用户要求启动测试，必须先告知"这是已知失败版本、目的是复现/补证、非验收版本、已知这些场景会失败"，不许只说"已启动"。
 - **缩小测试范围必须用户显式批准**：批准后回写 acceptance 的范围节（标注"用户批准缩减：原 S-x 移出范围"），交付结论只能表述为**用户批准后的范围**全绿，不得写成原范围全绿。
-- 严格顺序执行，每阶段过"100% 完成度审计 + 对应测试"才进下一阶段。
+- 按 SKILL.md（plan-test）"推进规则"的依赖图执行：实现轨与验证准备轨并行，昂贵真人测试等两轨汇合；每阶段/轨道收尾过"100% 完成度审计 + 对应测试"才算完成，门的强度不因并行而降。
 - 所有"循环直到"受 `{MAX_ROUNDS}` 兜底，超限 → BLOCKED 升级。
 - `EXECUTE_AUTONOMY = high`：执行中的分歧按最佳实践自决（BLOCKED 例外）；`FEATURE_POLICY = only-add`：不少做。
 

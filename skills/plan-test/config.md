@@ -175,6 +175,11 @@
 - `IMPACT_SCOPED_RETEST`: on（schema 1.3.0）
   - manifest 场景可声明 `impact_paths` glob；behavioral re-attest 只 stale 命中的场景。
     **fail-closed**：无映射/清单截断/变更未被覆盖 → 全量复测；未声明映射的场景永远算受影响。
+- `PARALLEL_TRACKS`: on
+  - 用户批准 plan 后，实现轨（phase-3 A）与验证准备轨（phase-3 D：testcase/fixture/
+    冒烟脚本/gate manifest 草案）**并行**；只有昂贵真人测试等代码冻结。验证准备轨
+    禁止读实现代码（black-box 纪律）。见 SKILL.md"推进规则"依赖图与
+    `checklists/parallel-verification-track.md`。
 - `AI_DRIVING_APPROVAL`: required-for-input-sensitive（schema 1.3.0）
   - 输入语义敏感 + required UI 场景全 AI 驾驶时，须至少 1 次 `--driver human` root run，
     或 `record-approval --kind all-ai-driving --message-hash <用户批准消息 sha256>`；

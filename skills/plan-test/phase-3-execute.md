@@ -1,6 +1,8 @@
-# Phase 3 — 并行执行 + 完成度审计
+# Phase 3 — 并行执行 + 完成度审计（+ 并行验证准备轨）
 
-**目的**：按定稿 plan 实现代码，并审计到 100% 完成、无回归。
+**目的**：按定稿 plan 实现代码，并审计到 100% 完成、无回归；同时用独立的验证准备轨
+把 phase-4 昂贵层之前的一切准备工作提前做完（见 D 节）——只有昂贵真人测试必须等代码冻结，
+准备工作不必等。
 
 ## A. 并行执行
 
@@ -52,6 +54,31 @@
 - 对照 phase-2 的 `baseline.md`：现有构建/测试/lint/类型检查必须回到**不低于基线**的状态。
 - 本次新引入的红，必须修复后才算本阶段通过。
 
+## D. 并行验证准备轨（与 A/B 同时进行，别等实现结束才开始）
+
+**病根**（DeskPet 复盘 P1-6）：testcase、fixture、冒烟脚本、gate manifest 那次串行耗了
+3h27m，而它们几乎不依赖实现代码——依赖的是 acceptance 与行为契约，phase-2 定稿时就齐了。
+
+与 A 节实现并行，派独立子代理（或主编排者在实现子代理跑批时自己做）完成
+`checklists/parallel-verification-track.md` 清单：
+
+1. **black-box testcase 编写 + challenger 迭代定稿**（用 `prompts/testcase-iterator.md`，
+   最少 `{TESTCASE_ITERATIONS}` 轮）——冻结动作仍在 phase-4 昂贵层前置执行，这里只把
+   "能冻结的东西"提前做出来；
+2. **fixture / 种子数据 / 测试环境准备脚本**（起服务、造数据、清理脚本）；
+3. **全表面冒烟脚本**（`FULL_SURFACE_SMOKE`）与核心价值 smoke 的输入清单；
+4. **gate manifest 草案**：场景矩阵（required/ui/gate_type/lanes/min_root_runs/
+   input_class/cold_start）、`impact_paths` 映射、`applicability` 三维判定与理由。
+
+**black-box 纪律（本轨铁律）**：本轨只准读 `{ACCEPTANCE_FILE}`、plan、行为契约与既有
+公开接口文档，**禁止读实现代码、diff、执行子代理的中间产物**。oracle 必须在见到实现之前
+定稿——否则"照着实现写测试"会把 bug 测成预期行为，`ORACLE_FREEZE` 防的就是这个方向的
+污染。需要实现细节才能写的用例（说明它不是 black-box 用例），改写成行为断言或移入
+脚本层单测。
+
+**汇合闸**：A/B/C 全部收尾 **且** D 清单全勾 → 进入 phase-4（那里的"昂贵层前置"只做
+冻结与 init，不再从零编写）。哪轨先完成都不许单独越闸。
+
 ## 出口
 
-- 完成度审计 100% + 无新增回归 → 进入 phase-4 阶段门禁。
+- 完成度审计 100% + 无新增回归 + 验证准备轨清单全勾 → 进入 phase-4 阶段门禁。

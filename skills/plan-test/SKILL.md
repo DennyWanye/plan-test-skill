@@ -39,7 +39,26 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 | 5 | testcase 收尾维护（编写与挑战已前移至 phase-4 昂贵层前；**独立 full-audit 在本阶段末尾**） | `phase-5-testcase.md` | `{TESTCASE_DIR}/` + index.md + audit 入账 |
 | █ | 收尾 DoD + 文档回写 | `phase-final-dod.md` | `finalize` exit 0 + gate receipt + DoD 清单全绿 |
 
-**推进规则**：严格顺序执行。**每个阶段收尾必须过"100% 完成度审计 + 该阶段对应测试"才能进入下一阶段**（阶段门禁铁律）。任何阶段卡在"循环直到 100%"超过 `MAX_ROUNDS`，立即停下、标记 BLOCKED、带"卡在哪/试过什么/需要什么解锁"升级给用户。
+**推进规则：依赖图，不是全局串行**（DeskPet 2026-08-03 复盘 P1-6：testcase/fixture/gate
+准备耗时 3h27m，几乎全部本可与 2h30m 的实现段重叠；全局串行是那次 10h20m 里最大的可压缩项）。
+
+阶段间真正的硬依赖只有这几条，**其余允许并行**：
+
+1. **A → 1 → 2 → 用户批准** 必须串行（唯一真相与行为契约没定，后面全是沙上建塔）；
+2. 用户批准后分**双轨并行**：
+   - **代码轨**：phase-3 实现 + 完成度审计（A/A2/B/C 节）；
+   - **验证准备轨**：testcase 编写与 challenger 迭代、fixture/种子数据、冒烟脚本、
+     测试环境准备脚本、gate manifest 草案（场景矩阵/impact_paths/applicability）——
+     见 phase-3 D 节与 `checklists/parallel-verification-track.md`。
+     **black-box 纪律**：本轨只准读 acceptance/plan/行为契约，**禁止读实现代码与 diff**
+     ——oracle 在实现落地前定稿，才防得住"照着实现写测试、bug 被测成预期行为"；
+3. **汇合闸**：两轨都收尾 → testcase 冻结 + gate init（phase-4 昂贵层前置）→ 便宜门序 →
+   **昂贵真人测试**——这是唯一必须等代码冻结的环节；
+4. phase-5 结果回写 → **full-audit（输入定型之后）** → final DoD `finalize` 必须串行收尾。
+
+**每个阶段/轨道收尾必须过"100% 完成度审计 + 该阶段对应测试"才算完成**（阶段门禁铁律不变，
+并行改变的是排布，不是任何一道门的强度）。任何阶段卡在"循环直到 100%"超过 `MAX_ROUNDS`，
+立即停下、标记 BLOCKED、带"卡在哪/试过什么/需要什么解锁"升级给用户。
 
 - **每阶段先读文档（防跳步硬闸）**：进入每个阶段前，**先完整读该阶段的 `phase-X.md`** 并列出其必做项清单，逐项打勾——不许凭"我大概懂了"跳过子步骤（漏测几乎都源于此）。
 - **⚠️ 末尾警戒**：越接近收尾越容易用便宜的代码审计替昂贵的真机测试来"尽快合上"。**`MANUAL_TEST=required` 的 UI 测试不许降级**，测不了就 BLOCKED 升级（见 phase-4 ①b 兑现表）。**"主流程通过"≠"每条 AC 都测了"。**
