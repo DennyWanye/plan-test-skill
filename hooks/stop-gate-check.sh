@@ -85,6 +85,15 @@ EOF
 while IFS= read -r mf; do
   [ -z "$mf" ] && continue
   d="$(dirname "$mf")"
+  # 豁免（2026-08-04，用户确认）：manifest 已提交进 git 且本地零改动 = 从别的机器
+  # 克隆/pull 下来的历史产物（账本通常没进 git），不是本会话开了一半的 run。
+  # 拦它只会造成无限收尾死循环，而本会话对它既没有事实可入账、也不该擅自删仓库内容。
+  # 取舍：若有人"先提交 manifest 再删账本"可借此绕过——但提交本身已留审计痕迹，
+  # 且删之前账本仍会被 LEDGERS 段的 check-only 逮住。
+  if git ls-files --error-unmatch "$mf" >/dev/null 2>&1 \
+     && git diff --quiet HEAD -- "$mf" 2>/dev/null; then
+    continue
+  fi
   FOUND=1
   FAILED=1
   REPORT="$REPORT
