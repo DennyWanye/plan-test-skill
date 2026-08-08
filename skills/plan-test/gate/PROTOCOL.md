@@ -80,6 +80,7 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 |---|---|---|---|
 | 1 | `SCHEMA_INVALID` | error | 账本结构不合 schema，或 schema_version major 与 validator 不符 |
 | 2 | `LEDGER_TAMPERED` | error | integrity 链断裂或末条 facts_digest ≠ 当前 fact——账本在 CLI 之外被改过 |
+| 2b | `RUN_ABANDONED` | error | 用户已用 `acknowledge` 确认放弃这一轮——不再阻断 hook，但永远不产出 receipt（见 §5.8d） |
 | 3 | `REQUIRED_SCENARIO_NOT_RUN` | error | required 场景为 NOT_RUN/PARTIAL/BLOCKED/FAIL |
 | 4 | `STATUS_CONFLICT` | error | 文档口径（declared）与账本重算结果冲突 |
 | 5 | `DELIVERY_VERDICT_CONTRADICTS_LEDGER` | error | 手写 SHIP/COMPLETE 但 required 未全 PASS |
@@ -116,6 +117,16 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 1. **required rows 由 init 自动创建为 NOT_RUN**；命令只记录事实（record-run /
    attach-evidence），状态由 validator 计算，调用者不能把 NOT_RUN 改成 PASS。
 2. **retry / replay / 同意图改写 / continuation 不是 root run**——只有 root 计入场景状态。
+2b. **`blocked` 是非粘性的，`fail` 是粘性的**（2026-08-09 修）。`blocked` 的语义是"此刻做不到"
+   （环境不可达、需要用户本人授权），它被**其后的一条 root pass** 覆盖即解除；解除的唯一方式
+   是真的补一条 root pass，该有的证据/UI/negative-assertion 硬门一条不少，因此不构成绕过。
+   `fail` 仍然粘性：root 一旦红，这一轮就是红的（改完代码 HEAD 会变，本来就该开新 run）。
+   **旧实现是个语义陷阱**：`blocked` 排在 `fail` 之前、扫的还是全部 run 而非 root，于是记一条
+   blocked = 该场景永久钉死、整轮报废；而 Stop hook 当时的文案恰恰是"做不到的项标 BLOCKED"，
+   文案 + 实现的组合等于诱导代理毁掉自己正在跑的轮次（simple_harness r7/r9 实测）。
+   **注意两个 BLOCKED 不是一回事**：流程层的"标记 BLOCKED 升级给用户"是写在报告里给人看的
+   结论；`record-run --result blocked` 是机器事实。临时受阻请保持 NOT_RUN + 在证据里写明原因
+   并升级给用户，不要用机器 blocked 当逃生口。
 3. **证据分级**：截图、原始日志、命令回执、DB 记录是 primary；auditor 报告、delivery
    汇总是 derived。derived 只辅助审计，不能单独满足 AC/testcase。
 4. **engine 终态 ≠ 业务成功**：positive-value 场景的 root run 业务终态为空/insufficient/
@@ -185,8 +196,28 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
      手写 `"retired": true` 也一样，因为当时 hook 把该判断放在 check-only 之前，
      `LEDGER_TAMPERED` 根本没机会打印。这与更早被堵掉的 `fixture_only` 是同一形态：
      **给账本加一个字段就让门消失**。任何新增的「豁免」都要先问一句：它会不会变成下一个这样的字段。
-   - 确实要放弃一次验证而没有继任者 → **直接删除该 run 目录**。删除会出现在 git diff 里，
-     是可见动作；用一个静默字段让它消失不是。
+   - 确实要放弃一次验证而没有继任者 → 删除该 run 目录，或走 8d 的 `acknowledge`。
+
+8d. **`acknowledge`：用户显式放弃一轮验证**（第二条出口，2026-08-09 加）。
+
+   ```bash
+   python skills/plan-test/scripts/plan_test_gate.py acknowledge --run-dir OLD \
+     --reason "<用户为什么放弃>" --approval-hash <用户批准原话的 sha256>
+   ```
+
+   - **为什么需要它**：`retire` 要求继任轮**已经** SHIPPABLE。而"继任轮正在跑"恰恰是最需要
+     安静的阶段——simple_harness 实测：7 个历史 run-dir 每回合被完整刷一遍诊断，它们唯一的
+     出口却要等新轮跑完，新轮跑完的成本又被这些噪音抬高，**历史轮越多，跑完新轮越贵**。
+     这与 hook「保守、不误伤」的初衷相反。
+   - 守卫：必须绑定**用户批准消息原文的 SHA-256**（与 `record-approval` 同口径——放弃一轮
+     验证是用户的决定，不是代理的自决）；写入走 integrity 链（op=acknowledge），手写
+     `"acknowledged": true` 被 `ack-status` 判无效；已有 receipt 的 run 不许用它注销
+     （那是 `invalidate` 的事）；**不可撤销**。
+   - **放弃 ≠ 通过**：该 run 从此报 `RUN_ABANDONED`（error），永远拿不到 receipt，
+     因而也不可能被 `retire --superseded-by` 认成别人的继任 run。`render` 顶部打横幅。
+   - 判定统一走 `ack-status --run-dir D`（exit 0 = 成立）；hook 与 CI 不得自行解读字段。
+   - 局限如实说明：hash 由代理计算，它挡的是"顺手放弃"，不是存心伪造——与
+     `record-approval` 完全同源的局限，真正的锚点仍在 CI。
 
 8b. **`re-attest`：收尾期改动的唯一合法出口**。attestation 原本只在 init 写一次，
    而收尾流程强制要求文档回写与状态同步——于是任何合规执行都会把 run 永久锁死，

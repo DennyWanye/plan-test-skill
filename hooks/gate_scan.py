@@ -34,7 +34,16 @@ manifest 的"半截 init"豁免（HALVES 过滤）：
     run_id 一致性保证"manifest 已指向 r6 但 r6 账本没写出来"仍判半截；被豁免时对应的
     子树账本本身仍在 LEDGERS 里被 check-only 审到——豁免不减少任何审计，只消除重复告警。
 
-输出：两段，`LEDGERS` 与 `HALVES`，各自每行一个相对路径。
+活动轮（ACTIVE 段，2026-08-09 加）：
+  hook 此前对**每一个** run-dir 打印完整诊断——7 个历史轮 = 单次 Stop 300+ 行 / ~10k token，
+  而且这些内容与本回合做了什么无关（改了一个证据文件、甚至没碰账本，照样全刷一遍）。
+  ACTIVE 让 hook 知道"哪一个是本会话正在跑的轮"，只详报它，其余压成一行。
+  判定：run_id 与某个 gate manifest 的 run_id 相同的账本；同时命中多个（每个 run-dir 各带
+  一份 manifest 的布局）或一个都没命中时，退回"最近修改的那个账本"——活动轮每条 CLI 写入
+  都会重写账本，mtime 是最可靠的活动信号。**ACTIVE 只影响输出详略，不影响谁被审计**：
+  LEDGERS 一个不少，每个都照跑退出码判定。
+
+输出：三段，`LEDGERS`、`HALVES`、`ACTIVE`，各自每行一个相对路径。
 """
 
 import json
@@ -104,8 +113,24 @@ def covered_by_ledger(mf_path, mf_run_id, ledgers):
     return False
 
 
+def _mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def pick_active(ledgers, manifest_run_ids):
+    """选出唯一的活动轮账本路径（见模块 docstring）；没有账本时返回 None。"""
+    if not ledgers:
+        return None
+    matched = [p for p, rid in ledgers if rid and rid in manifest_run_ids]
+    pool = matched or [p for p, _ in ledgers]
+    return max(pool, key=lambda p: (_mtime(p), p))
+
+
 def main():
-    ledgers, halves = [], []
+    ledgers, halves, manifest_run_ids = [], [], set()
     for rel, from_ignored in candidate_files():
         norm = rel.replace(os.sep, "/")
         if "/fixtures/" in norm or norm.startswith("fixtures/"):
@@ -117,6 +142,9 @@ def main():
             ledgers.append((norm, obj.get("run_id")))
         elif is_gate_manifest(obj) and not from_ignored:
             halves.append((norm, obj.get("run_id")))
+            if obj.get("run_id"):
+                # 被账本覆盖（不进 HALVES）的 manifest 同样是活动轮的指针，照收
+                manifest_run_ids.add(obj["run_id"])
     print("LEDGERS")
     for x, _ in sorted(ledgers):
         print(x)
@@ -124,6 +152,10 @@ def main():
     for mf, mf_run_id in sorted(halves):
         if not covered_by_ledger(mf, mf_run_id, ledgers):
             print(mf)
+    print("ACTIVE")
+    active = pick_active(ledgers, manifest_run_ids)
+    if active:
+        print(active)
 
 
 if __name__ == "__main__":

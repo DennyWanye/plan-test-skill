@@ -2044,5 +2044,192 @@ class FixtureReplayTestCase(unittest.TestCase):
                                      "DELIVERY_VERDICT_CONTRADICTS_LEDGER"])
 
 
+class BlockedNonStickyTestCase(GateHarness):
+    """blocked 是「此刻做不到」，不是「这一轮报废」。
+
+    背景（simple_harness r9 实跑）：旧实现里 blocked 排在 fail 之前、扫的还是全部 run，
+    于是记一条 blocked = 该场景永久钉死；而 Stop hook 当时的文案恰恰是"做不到的项标
+    BLOCKED"——文案 + 实现的组合等于诱导代理毁掉自己正在跑的轮次。
+    """
+
+    def test_blocked_then_pass_clears_the_scenario(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        self.record("S-1", result="blocked")
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("状态=BLOCKED", r.stdout)
+        # 后来真的跑通了：同一轮里补一条 root pass 就该解除，而不是整轮报废
+        self.record("S-1", result="pass")
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("READY_FOR_AUDIT", r.stdout)
+
+    def test_blocked_after_pass_still_blocks(self):
+        """顺序有意义：pass 之后又出现 blocked（回归/环境掉了）仍然是 BLOCKED。"""
+        self.init([{"scenario_id": "S-1", "required": True}])
+        self.record("S-1", result="pass")
+        self.record("S-1", result="blocked", kind="retry")
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("状态=BLOCKED", r.stdout)
+
+    def test_fail_is_still_sticky(self):
+        """fail 依旧粘性——root 一旦红这一轮就是红的，改完代码本就该开新 run。"""
+        self.init([{"scenario_id": "S-1", "required": True}])
+        self.record("S-1", result="fail")
+        self.record("S-1", result="pass")
+        r = self.finalize(check_only=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("状态=FAIL", r.stdout)
+
+
+class AcknowledgeTestCase(RealRepoAttestationTestCase):
+    """acknowledge：用户显式放弃一轮验证——retire 之外的第二条出口。
+
+    死锁背景：retire 要求继任 run 已 SHIPPABLE，而"继任轮正在跑"恰是最需要安静的阶段，
+    历史轮每回合刷一遍诊断，出口却要等新轮跑完——历史轮越多，跑完新轮越贵。
+    """
+
+    HASH = "a" * 64
+
+    def ack(self, reason="用户决定放弃这一轮", approval=None):
+        return run_gate(["acknowledge", "--run-dir", self.run_dir, "--reason", reason,
+                         "--approval-hash", approval or self.HASH], cwd=self.repo)
+
+    def ack_status(self):
+        return run_gate(["ack-status", "--run-dir", self.run_dir], cwd=self.repo)
+
+    def test_acknowledge_requires_user_approval_hash(self):
+        self.init_real_run()
+        r = self.ack(approval="不是hash")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("SHA-256", r.stderr)
+        self.assertEqual(self.ack_status().returncode, 1)
+
+    def test_acknowledged_run_stops_blocking_but_never_ships(self):
+        self.init_real_run()
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        r = self.ack()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        st = self.ack_status()
+        self.assertEqual(st.returncode, 0, st.stdout + st.stderr)
+        # 放弃 ≠ 通过：账本从此报 RUN_ABANDONED，finalize 永远出不来 receipt
+        out = self.check()
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("RUN_ABANDONED", out.stdout)
+        fin = run_gate(["finalize", "--run-dir", self.run_dir], cwd=self.repo)
+        self.assertEqual(fin.returncode, 1)
+        self.assertFalse(os.path.exists(os.path.join(self.run_dir, "gate-receipt.json")))
+
+    def test_handwritten_acknowledged_flag_is_invalid(self):
+        """手写 `"acknowledged": true`（不经 CLI）不得生效——链对不上。"""
+        self.init_real_run()
+        p = os.path.join(self.run_dir, "plan-test-run.json")
+        with open(p, encoding="utf-8") as f:
+            led = json.load(f)
+        led["acknowledged"] = True
+        led["acknowledged_reason"] = "自己批准自己"
+        led["acknowledged_approval"] = self.HASH
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(led, f, ensure_ascii=False)
+        st = self.ack_status()
+        self.assertEqual(st.returncode, 1)
+        self.assertIn("INVALID", st.stdout)
+
+    def test_acknowledged_run_cannot_be_a_successor(self):
+        """放弃的 run 不能反过来给别人背书——它永远没有 receipt。"""
+        self.init_real_run()
+        self.ack()
+        other = os.path.join(self.repo, "plans", "p", "verification", "run-2")
+        os.makedirs(os.path.join(other, "artifacts"))
+        r = run_gate(["retire", "--run-dir", other, "--reason", "x",
+                      "--superseded-by", os.path.relpath(self.run_dir, self.repo)],
+                     cwd=self.repo)
+        self.assertNotEqual(r.returncode, 0)
+
+
+class HookOutputBudgetTestCase(StopHookTestCase):
+    """输出预算：只详报活动轮，其余压成一行；结论不变时不重复正文；连续无变化会断路放行。
+
+    背景（simple_harness r9 实跑）：旧版单次 Stop 输出 300+ 行 / ~10k token，一个会话触发
+    12+ 次，且内容与本回合做了什么无关。
+    """
+
+    def second_run(self, run_id="real-2", result="fail"):
+        """再造一个未闭环的 run-dir（模拟历史轮）。"""
+        d = os.path.join(self.repo, "plans", "p", "verification", "run-2")
+        os.makedirs(os.path.join(d, "artifacts"), exist_ok=True)
+        manifest = {
+            "run_id": run_id, "repo_root": self.repo, "source_request_text": "历史轮",
+            "acceptance_file": os.path.join(self.repo, "acceptance.md"),
+            "applicability": self.applicability_block(),
+            "scenarios": [{"scenario_id": "S-1", "required": True}],
+        }
+        mp = os.path.join(d, "m.json")
+        with open(mp, "w", encoding="utf-8") as f:
+            f.write(json.dumps(manifest, ensure_ascii=False))
+        run_gate(["init", "--run-dir", d, "--manifest", mp], cwd=self.repo)
+        run_gate(["record-run", "--run-dir", d, "--scenario", "S-1", "--kind", "root",
+                  "--result", result], cwd=self.repo)
+        return d
+
+    def test_only_active_run_gets_full_diagnostics(self):
+        run = self.hook_repo()
+        self.second_run()             # 历史轮（先开，账本 mtime 更旧）
+        self.init_real_run()          # 活动轮：本会话最后写入的账本
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        r = run()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("run-2", r.stderr)                 # 历史轮仍被点名
+        self.assertIn("活动轮", r.stderr)
+        # 历史轮只出一行摘要，不出 DIAG 正文
+        hist = [l for l in r.stderr.splitlines() if "run-2" in l]
+        self.assertEqual(len(hist), 1, r.stderr)
+        self.assertLess(len(r.stderr.splitlines()), 60, "单次输出不该再是几百行")
+
+    def test_identical_report_is_not_repeated(self):
+        run = self.hook_repo()
+        self.init_real_run()
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        first = run()
+        self.assertEqual(first.returncode, 2)
+        self.assertIn("DIAG", first.stderr)
+        second = run()
+        self.assertEqual(second.returncode, 2)
+        self.assertIn("与上次检查结论完全一致", second.stderr)
+        self.assertNotIn("DIAG", second.stderr)
+        self.assertLess(len(second.stderr), len(first.stderr))
+
+    def test_circuit_breaker_releases_after_repeats(self):
+        """连续 N 次结论一字未变 → 放行一次，但大声说明账本仍然是红的。"""
+        run = self.hook_repo()
+        self.init_real_run()
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        seen_release = False
+        for _ in range(5):
+            r = run()
+            if r.returncode == 0:
+                seen_release = True
+                self.assertIn("交付判定没有改变", r.stderr)
+                self.assertIn("acknowledge", r.stderr)
+                break
+        self.assertTrue(seen_release, "断路器没生效——会无限循环")
+
+    def test_acknowledged_run_no_longer_blocks_the_hook(self):
+        run = self.hook_repo()
+        self.init_real_run()
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "fail"], cwd=self.repo)
+        self.assertEqual(run().returncode, 2)
+        r = run_gate(["acknowledge", "--run-dir", self.run_dir, "--reason", "用户放弃这一轮",
+                      "--approval-hash", "b" * 64], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(run().returncode, 0, run().stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

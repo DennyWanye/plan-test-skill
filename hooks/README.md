@@ -47,9 +47,60 @@ finalize"，也挡不住一个想尽快收尾的代理直接不跑——这是�
 - **仍会漏掉的**：把账本整个删掉（git diff 里可见，但 hook 当场无感）；把 run-dir 放到仓库
   之外（`init` 现在要求显式 `--allow-external-run-dir` 并记入账本，但那只约束经 CLI 的路径）；
   `manifest.json` 内容为 `{}` 或目录里只有 `artifacts/`——这些与普通目录无法区分，hook 放行；
-- 对每个 run-dir 跑 `finalize --check-only`；FAIL 则以非零退出并打印诊断，让代理必须回去补；
+- 对每个 run-dir 跑机器判定；FAIL 则以非零退出并打印诊断，让代理必须回去补；
 - 它**不判断代理说了什么**，只判断账本状态。措辞类违规（手写 SHIP）仍由
   `DELIVERY_VERDICT_CONTRADICTS_LEDGER` 在账本侧兜。
+
+### 输出预算（2026-08-09 重写）
+
+旧版对**每一个** run-dir 打印完整诊断。simple_harness 的 workbench-ui 工作区里有 7 个历史
+run-dir，单次 Stop 实测 **185 行 / 22.8 KB**，一个会话触发 12+ 次；而且这些内容**与本回合做了
+什么无关**——只改了一个证据文件、甚至没碰账本，照样把 r3…r8 全刷一遍。成本随「历史轮数 ×
+回合数」线性增长，全部记在"跑完当前这一轮"的账上，与 hook"保守、不误伤"的初衷相反。
+
+现在（同一工作区实测）：
+
+| | 行数 | 字节 |
+|---|---|---|
+| 旧版 | 185 | 22 771 |
+| 新版首次 | 44 | 5 434 |
+| 新版重复（结论未变） | 19 | 2 734 |
+
+三条机制：
+
+1. **只详报活动轮**——`gate_scan.py` 的 `ACTIVE` 段给出"本会话正在跑的那一轮"（run_id 与某个
+   gate manifest 一致的账本；多个或零个命中时退回最近修改的账本）。其余每个只出一行
+   `summary`：`<run_id>: <STATE> | 阻塞 N 条（前 3 类） | 未闭环场景 N 个：…`。
+   **ACTIVE 只影响详略，不影响谁被审计**——账本一个不少，每个都照跑退出码判定。
+2. **结论指纹去重**——与上次完全一致时省略诊断正文，只留一行摘要清单（指纹按会话+仓库分桶，
+   存 `$TMPDIR`）。
+3. **死循环断路器**——连续 `PLAN_TEST_GATE_MAX_REPEATS`（默认 3）次拦截而结论一字未变时放行
+   一次，并在 stderr 大声写明"账本仍未闭环、交付判定没有改变"，附各项清单与 `acknowledge`
+   用法。任何变化（补测、改证据、新问题）都会让计数归零、门重新武装。
+   **如实说明的代价**：这确实让"什么都不做地连按 N 次收尾"能过 hook。hook 从来不是防对手的
+   那道门——账本、git diff 与 CI 才是（见方式 B）。要旧的"永不放行"行为：`PLAN_TEST_GATE_MAX_REPEATS=0`。
+
+可调环境变量：`PLAN_TEST_GATE_MAX_LINES`（活动轮详报最大行数，默认 24）、
+`PLAN_TEST_GATE_MAX_REPEATS`（默认 3）。
+
+### 历史轮的两条出口
+
+`retire` 要求继任轮**已经** SHIPPABLE 且覆盖前轮的 required 场景。这在"继任轮正在跑"时是死锁：
+历史轮每回合刷一遍诊断 → 出口要等新轮跑完 → 新轮跑完的成本又被这些噪音抬高，**历史轮越多，
+跑完新轮越贵**。
+
+因此新增第二条出口 `acknowledge`——用户显式确认放弃某一轮：
+
+```bash
+python .../plan_test_gate.py acknowledge --run-dir <run-dir> \
+  --reason "<用户为什么放弃这一轮>" --approval-hash <用户批准原话的 sha256>
+```
+
+守卫（否则它就是下一个 `fixture_only`）：必须绑定**用户批准消息原文的 SHA-256**（与
+`record-approval` 同口径——放弃一轮验证是用户的决定，不是代理的自决）；写入走 integrity 链，
+手写 `"acknowledged": true` 会被 `ack-status` 判无效；**放弃 ≠ 通过**——该 run 从此报
+`RUN_ABANDONED`，永远拿不到 receipt，也就不可能被当成别人的继任 run；放弃不可撤销。
+局限与 `record-approval` 相同：hash 由代理计算，它挡的是"顺手放弃"，不是存心伪造。
 
 ## 方式 B：CI（团队协作时，更硬）
 

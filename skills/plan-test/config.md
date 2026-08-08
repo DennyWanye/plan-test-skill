@@ -134,6 +134,17 @@
 - `RUN_DIR`: `<plan-folder>/verification/<run-id>/`
   - 每次验证的固定 run 目录；唯一状态账本 `plan-test-run.json` 只存原始 fact，
     所有 status/state 由 validator 重算。目录布局与稳定诊断码见 `gate/PROTOCOL.md`。
+- `BLOCKED_SEMANTICS`（易踩的语义陷阱，见 `gate/PROTOCOL.md` §5.2b）
+  - 流程层"标记 BLOCKED 升级给用户" = 写给人看的结论；`record-run --result blocked` = 机器事实。
+    机器 `blocked` 会让该场景保持 BLOCKED **直到真的补上一条 root pass**，required 场景因此
+    过不了门。**临时受阻（需要用户本人输密码/系统授权等 AI 代不了的步骤）→ 保持 NOT_RUN**，
+    把阻塞原因写进证据、在报告里 BLOCKED 升级；不要拿机器 blocked 当逃生口。
+- `RUN_EXIT_PATHS`（历史 run 的两条正当出口，其余一律不算）
+  - `retire --superseded-by <继任轮>`：继任轮须已 SHIPPABLE、同 acceptance、覆盖前轮全部
+    required 场景——**举证责任转移，不是赦免**。
+  - `acknowledge --reason ... --approval-hash <用户批准原话 sha256>`：继任轮还没跑完、用户
+    决定放弃这一轮时用。**放弃 ≠ 通过**：该 run 从此报 `RUN_ABANDONED`，永远拿不到 receipt，
+    也不能当别人的继任轮；不可撤销，须用户显式拍板。
 - `ORACLE_FREEZE`: required
   - 实现前 init 冻结 black-box testcase 逐文件 hash（`testcase_lock`）。任何 byte 变化
     默认 `FROZEN_ORACLE_CHANGED`；唯一例外是绑定 exact old/new + 用户消息 hash +

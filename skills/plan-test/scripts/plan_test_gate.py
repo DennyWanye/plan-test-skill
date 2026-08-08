@@ -86,7 +86,8 @@ DEFAULT_MIN_DISTINCT_INPUT_CLASSES = 3  # 对齐 config.md 的 MANUAL_MIN_DISTIN
 
 # canonical 诊断排序（plan §3 唯一权威序；同类内按 hint/detail 字典序）
 CANONICAL_ORDER = [
-    "SCHEMA_INVALID", "LEDGER_TAMPERED", "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
+    "SCHEMA_INVALID", "LEDGER_TAMPERED", "RUN_ABANDONED",
+    "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
     "DELIVERY_VERDICT_CONTRADICTS_LEDGER", "UI_EVIDENCE_MISSING",
     "RUN_CREATION_UNVERIFIED", "EVIDENCE_MISSING", "EVIDENCE_HASH_MISMATCH",
     "EVIDENCE_DEPENDENCY_CYCLE", "EVIDENCE_PREDATES_LEDGER",
@@ -582,18 +583,35 @@ def blocking(diags):
 
 
 def compute_scenario_status(scenario, runs):
-    """从原始 run fact 计算场景状态；调用者不能直接写状态。"""
+    """从原始 run fact 计算场景状态；调用者不能直接写状态。
+
+    **blocked 是非粘性的**（2026-08-09 修）：一条 blocked 只要被**其后**的一条 root pass
+    覆盖就算解除。此前的实现是 `any(blocked for r in mine)` 且排在 fail 之前、扫的还是全部
+    run 而非 root——于是"记一条 blocked"= 该场景永久钉死，整轮报废。而 Stop hook 当时的
+    固定文案恰恰是"做不到的项标 BLOCKED"，等于诱导代理毁掉自己正在跑的轮次（simple_harness
+    r7/r9 实测）。语义上 blocked 本就是"此刻做不到"，不是"永远不算数"，粘性没有依据。
+
+    非粘性不引入绕过：解除 blocked 的唯一方式是**真的记一条 root pass**，而 root pass 该有的
+    证据/UI/negative-assertion 等硬门一条不少——与从未 blocked 过的场景要求完全相同。
+    fail 仍然粘性（root 一旦红，这一轮就是红的；改完代码 HEAD 会变，本来就该开新 run）。
+    """
     sid = scenario["scenario_id"]
-    mine = [r for r in runs if r.get("scenario_id") == sid]
-    roots = [r for r in mine if r.get("kind") == "root"]
+    mine = [(i, r) for i, r in enumerate(runs) if r.get("scenario_id") == sid]
+    roots = [r for _, r in mine if r.get("kind") == "root"]
     if not mine:
         return "NOT_RUN"
-    if any(r.get("result") == "blocked" for r in mine):
+    # runs 是 append-only，下标即时间序：取最后一条 root pass 的位置作为"解除线"。
+    last_pass_at = max([i for i, r in mine
+                        if r.get("kind") == "root" and r.get("result") == "pass"] or [-1])
+    if any(r.get("result") == "blocked" and i > last_pass_at for i, r in mine):
         return "BLOCKED"
     if not roots:
         return "PARTIAL"  # 只有 retry/continuation，没有独立 root run
     if any(r.get("result") == "fail" for r in roots):
         return "FAIL"
+    # 能走到这里，说明每一条 blocked 都已被其后的 root pass 覆盖——它们是"当时做不到"的历史
+    # 记录，不再参与 PASS 判定；否则"先 blocked 后跑通"会永远卡在 PARTIAL，等于粘性换个名字。
+    roots = [r for r in roots if r.get("result") != "blocked"] or roots
     if all(r.get("result") == "pass" for r in roots):
         gate_type = scenario.get("gate_type", "")
         if gate_type == "positive-value":
@@ -662,6 +680,8 @@ def expected_chain_length(ledger):
     if ledger.get("delivery"):
         n += 1
     if ledger.get("retired"):
+        n += 1
+    if ledger.get("acknowledged"):
         n += 1
     return n
 
@@ -855,6 +875,12 @@ def validate(run_dir, ledger, mode="full", fixture=False):
     tamper = integrity_check(ledger)
     if tamper:
         diags.append(Diag("LEDGER_TAMPERED", tamper))
+    if ledger.get("acknowledged"):
+        # 用户已确认放弃这一轮：hook 不再拿它阻断收尾，但它**永远不能再产出 receipt**——
+        # 否则 acknowledge 就成了"承认放弃即通过"，还能反过来去 retire 别的 run。
+        diags.append(Diag("RUN_ABANDONED",
+                          "本 run 已由用户确认放弃（%s）：不再阻断收尾，也不得作为交付证据或继任 run"
+                          % (ledger.get("acknowledged_reason") or "未记理由")))
     scenarios = ledger.get("scenarios") or []
     runs = ledger.get("runs") or []
     evidence = ledger.get("evidence") or []
@@ -1886,8 +1912,14 @@ def cmd_render(args):
             diags.append(Diag("RECEIPT_STALE", "receipt digest 与当前输入不符——输入已变化"))
     shippable = (not blocking(diags)) and computed["state"] == "SHIPPABLE" and receipt and not stale
     banner = []
+    if ledger.get("acknowledged"):
+        banner += ["> ⚠ **本 run 已由用户确认放弃**：%s（批准消息 hash %s…，记于 %s）。"
+                   "放弃只影响 hook/CI 是否阻断，**不改变下面任何一条结论**，本 run 也永远不会有 receipt。"
+                   % (ledger.get("acknowledged_reason"),
+                      str(ledger.get("acknowledged_approval"))[:12],
+                      ledger.get("acknowledged_at")), ""]
     if ledger.get("retired"):
-        banner = ["> ⚠ **本 run 已退役**：%s；继任 run = %s。"
+        banner += ["> ⚠ **本 run 已退役**：%s；继任 run = %s。"
                   "退役只影响 hook/CI 是否阻断，**不改变下面任何一条结论**。"
                   % (ledger.get("retired_reason"), ledger.get("superseded_by")), ""]
     lines = ["# plan-test gate report", ""] + banner + [
@@ -2173,6 +2205,103 @@ def cmd_retire_status(args):
     sys.exit(0)
 
 
+def cmd_acknowledge(args):
+    """用户显式确认**放弃**这一轮验证——退役之外的第二条出口，代价是本 run 作废。
+
+    为什么需要它（simple_harness r3–r8 实测的死锁）：`retire` 要求继任 run 已经 SHIPPABLE，
+    可"继任轮正在跑"恰恰是最需要安静的阶段——历史轮每回合都被完整刷一遍诊断，而它们唯一的
+    出口要等新轮跑完；新轮跑完的成本又被这些噪音抬高。于是"历史轮越多，跑完新轮越贵"。
+
+    守卫（否则它就是下一个 `fixture_only`：加个字段就让门消失）：
+      - 必须绑定**用户批准消息原文的 SHA-256**，与 record-approval 同口径——放弃一轮验证是
+        用户的决定，不是代理的自决。局限也与 record-approval 相同：hash 由代理计算，挡的是
+        "顺手放弃"，不是存心伪造；真正的锚点在 CI（见 hooks/README.md）。
+      - 写入走 integrity 链（op=acknowledge），手写 acknowledged:true 会被 ack-status 判无效。
+      - 作废是真的作废：validate 从此对本 run 报 RUN_ABANDONED（error），它永远拿不到
+        receipt，也就不可能被 successor_receipt_status 认成别人的继任 run。
+      - 不可撤销：要继续这一轮请换 run-dir 重新 init 并说明来由。
+    """
+    if not re.match(r"^[0-9a-f]{64}$", args.approval_hash or ""):
+        die("--approval-hash 须为用户批准消息原文的 SHA-256（64 位十六进制）——"
+            "放弃一轮验证必须能回溯到用户说过的具体一句话")
+    ledger_self = load_ledger(args.run_dir)
+    if ledger_self.get("acknowledged"):
+        die("本 run 已确认放弃（%s）；放弃不可撤销，继续验证请换 run-dir 重新 init"
+            % ledger_self.get("acknowledged_reason"))
+    if load_receipt(args.run_dir) and not ledger_self.get("retired"):
+        die("本 run 已有 receipt：它是通过的交付证据，不该用「放弃」注销。"
+            "要作废 receipt 用 invalidate，要交棒给新轮用 retire。")
+
+    def mutate(ledger):
+        ledger["acknowledged"] = True
+        ledger["acknowledged_reason"] = args.reason
+        ledger["acknowledged_approval"] = args.approval_hash
+        ledger["acknowledged_at"] = now_iso()
+
+    _append(args.run_dir, mutate, op="acknowledge")
+    print("ACKNOWLEDGED（本 run 作废，不再阻断收尾）: %s\n  绑定批准消息 hash: %s…"
+          % (args.reason, args.approval_hash[:12]))
+
+
+def cmd_ack_status(args):
+    """放弃是否成立——供 hook / CI 调用，避免它们各自解读账本字段。
+
+    exit 0 = 成立且账本自洽；1 = 不成立（含未放弃、链断裂、字段手写）。
+    """
+    ledger = load_ledger(args.run_dir)
+    if not ledger.get("acknowledged"):
+        print("NOT_ACKNOWLEDGED")
+        sys.exit(1)
+    tamper = integrity_check(ledger)
+    if tamper:
+        print("INVALID: %s" % tamper)
+        sys.exit(1)
+    if not any(e.get("op") == "acknowledge"
+               for e in (ledger.get("integrity", {}).get("log") or [])):
+        print("INVALID: integrity 链里没有 acknowledge 操作——acknowledged 字段是手写的")
+        sys.exit(1)
+    if not re.match(r"^[0-9a-f]{64}$", str(ledger.get("acknowledged_approval") or "")):
+        print("INVALID: 缺少用户批准消息 hash")
+        sys.exit(1)
+    print("VALID acknowledged reason=%s approval=%s…"
+          % (ledger.get("acknowledged_reason"), str(ledger.get("acknowledged_approval"))[:12]))
+    sys.exit(0)
+
+
+def cmd_summary(args):
+    """一行摘要——给 hook / CI 压缩输出用，退出码与 `finalize --check-only` 同口径。
+
+    动机：hook 此前对**每个** run-dir 打印完整诊断，7 个历史轮 = 单次 Stop 300+ 行 / ~10k
+    token，且内容与本回合做了什么完全无关。代理真正需要的只有"哪个 run-dir 还没闭环"。
+    """
+    ledger = load_ledger(args.run_dir)
+    fixture = bool(ledger.get("fixture_only"))
+    diags, computed = validate(args.run_dir, ledger, mode="check-only", fixture=fixture)
+    blockers = blocking(diags)
+    bad = [sid for sid, st in sorted((computed.get("scenario_statuses") or {}).items())
+           if st != "PASS"]
+    codes = []
+    for d in blockers:
+        if d.code not in codes:
+            codes.append(d.code)
+    parts = ["%s: %s" % (ledger.get("run_id") or os.path.basename(args.run_dir.rstrip("/")),
+                         "READY_FOR_AUDIT" if not blockers else computed["state"])]
+    if blockers:
+        parts.append("阻塞 %d 条（%s%s）" % (
+            len(blockers), ", ".join(codes[:3]), "…" if len(codes) > 3 else ""))
+    if bad:
+        parts.append("未闭环场景 %d 个：%s%s" % (
+            len(bad), ",".join(bad[:6]), "…" if len(bad) > 6 else ""))
+    if ledger.get("fixture_only"):
+        parts.append("FIXTURE-ONLY")
+    if ledger.get("retired"):
+        parts.append("已退役→%s" % ledger.get("superseded_by"))
+    if ledger.get("acknowledged"):
+        parts.append("已确认放弃")
+    print(" | ".join(parts))
+    sys.exit(0 if not blockers else 1)
+
+
 def cmd_invalidate(args):
     receipt = load_receipt(args.run_dir)
     if receipt is None:
@@ -2339,6 +2468,25 @@ def main(argv=None):
     p = sub.add_parser("retire-status")
     p.add_argument("--run-dir", required=True)
     p.set_defaults(fn=cmd_retire_status)
+
+    p = sub.add_parser("acknowledge",
+                       help="用户显式确认放弃这一轮验证：本 run 作废（永远不会有 receipt），"
+                            "hook 不再拿它阻断收尾。与 retire 的区别：retire 是把举证责任"
+                            "转移给已通过的继任轮，acknowledge 是用户认账放弃。")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--reason", required=True, help="为什么放弃这一轮（会写进账本与报告横幅）")
+    p.add_argument("--approval-hash", required=True, dest="approval_hash",
+                   help="用户批准消息原文的 SHA-256（64 位十六进制）——放弃是用户的决定")
+    p.set_defaults(fn=cmd_acknowledge)
+
+    p = sub.add_parser("ack-status")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_ack_status)
+
+    p = sub.add_parser("summary",
+                       help="一行摘要（hook/CI 压缩输出用）；退出码同 finalize --check-only")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_summary)
 
     p = sub.add_parser("invalidate")
     p.add_argument("--run-dir", required=True)
