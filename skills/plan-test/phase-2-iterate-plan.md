@@ -4,11 +4,40 @@
 
 ## A. 迭代 plan
 
+**开场硬门（P0-3，2026-08-14 新增）：建立循环账本**
+
+在开始挑战循环前，必须建立循环账本并获取 loop_id：
+
+```bash
+loop_id=$(python3 skills/plan-test/scripts/plan_test_gate.py start-challenge-loop \
+  --run-dir <run-dir> \
+  --loop-type plan-iteration \
+  --target-file <plan.md> \
+  --baseline-hash $(sha256sum <plan.md> | cut -d' ' -f1))
+```
+
+此后每轮挑战前/后都必须调用 `check-loop-limit` / `record-challenge-round`。
+
+---
+
 循环（最少 `{PLAN_ITERATIONS}` 轮，受 `{MAX_ROUNDS}` 兜底）：派 `{CHALLENGER_ENGINE}` 子代理，用 `prompts/plan-challenger.md` 挑战 plan → 我据结果优化。
 
 **收敛按边际收益判定，不设固定轮数上限**（DeskPet 2026-08-03 复盘校准：那次 7 轮挑战
 第 1–6 轮**每轮**都抓到新的 P0 级问题（迁移原子性、signal 被吞、双窗口 lost update……），
 第 7 轮才干净 PASS——"默认最多 3 轮"式的硬顶会把真问题挡在门外，错的不是轮数是停止条件）：
+
+**每轮挑战前（P0-3 强制）：**
+
+```bash
+python3 skills/plan-test/scripts/plan_test_gate.py check-loop-limit \
+  --run-dir <run-dir> \
+  --loop-id $loop_id
+```
+
+- exit 0 → 继续
+- exit 1 → 循环超限（第 15 轮），输出 `LOOP_LIMIT_EXCEEDED`，立即 BLOCKED 升级给用户
+
+**挑战轮次执行：**
 
 - 挑战者每轮输出结构化发现（`[P0|去重键]` 前缀 + 末尾 `NEW_CRITICAL_FINDINGS: <n>` 行，
   见 prompts/plan-challenger.md）；派发时附上**已闭环问题清单（含去重键）**，重提已闭环项不算新增。
@@ -17,6 +46,26 @@
   连续两轮 `NEW_CRITICAL_FINDINGS = 0` 而 VERDICT 仍 FAIL（只剩措辞级分歧）→ 也收敛，
   把剩余 P2 项列给用户随 review 一并裁决。
 - 超过 `{MAX_ROUNDS}` 仍有新增关键发现 → BLOCKED 升级（问题域可能大于一份 plan 能承载的范围）。
+
+**每轮挑战后（P0-3 强制）：**
+
+```bash
+# 保存 findings 到 JSON 文件（格式：{critical: N, major: M, minor: K}）
+echo '{"critical": 2, "major": 5, "minor": 3}' > findings-round-$N.json
+
+python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
+  --run-dir <run-dir> \
+  --loop-id $loop_id \
+  --round $N \
+  --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) \
+  --findings findings-round-$N.json \
+  --verdict <PASS|FAIL>
+```
+
+此命令会自动检测：
+- `LOOP_REGRESSION`: plan hash 回退到历史某轮
+- `LOOP_NO_PROGRESS`: 连续 3 轮 critical findings 未减少
+- 重复 dedupe_key（可能陷入循环）
 
 **每轮派发规矩**（见 SKILL.md"上下文包"）：
 

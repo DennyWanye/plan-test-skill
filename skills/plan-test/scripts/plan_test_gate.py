@@ -45,14 +45,22 @@ STATES = ["DRAFT", "ACCEPTED", "IMPLEMENTED", "TESTED", "VALIDATED", "SHIPPABLE"
 # 交付措辞里视为"宣布完成"的 verdict（与 ledger 冲突时触发硬门）
 SHIP_VERDICTS = {"SHIP", "100% COMPLETE", "COMPLETE", "DONE", "SHIPPABLE"}
 
-# release-unit 默认阈值（handoff P1-8；manifest.thresholds 可覆盖）
+# release-unit 默认阈值（2026-08-14 优化：从文档规则变为硬门禁）
 DEFAULT_THRESHOLDS = {
-    "must_ac_count": 8,
-    "task_count": 10,
-    "plan_lines": 2000,
-    "high_risk_subsystems": 3,
-    "concurrent_layer_kinds": 3,
+    "must_ac_count": 16,           # 单个 slice 的 MUST AC 上限（原 8 → 16，对齐 OPTIMIZATION_RECOMMENDATIONS）
+    "max_plan_lines": 4676,        # implementation-tasks.md 行数上限
+    "high_risk_subsystems": 3,     # 高风险子系统数量上限
+    "max_wip_lines": 5000,         # 未提交 WIP 行数上限
+    "max_wip_files": 20,           # 未提交 WIP 文件数上限
 }
+
+# 循环控制（2026-08-14 优化：防止挑战失控）
+MAX_CHALLENGE_ROUNDS = 15          # 挑战循环硬上限（超限强制 BLOCKED）
+MAX_A2_EVENTS = 3                  # Phase 3 中 A2 plan defect 累计上限
+MIN_PROGRESS_INTERVAL_MINUTES = 90 # Ledger 零增长警告阈值
+
+# Plan 增长警告阈值
+MAX_PLAN_GROWTH_RATIO = 1.5        # Plan 体量增长超过此比例时主动报告
 
 RESULT_VALUES = {"pass", "fail", "partial", "blocked", "not_run"}
 KIND_VALUES = {"root", "retry", "continuation", "replay"}
@@ -96,10 +104,14 @@ CANONICAL_ORDER = [
     "APPLICABILITY_GATE_UNSATISFIED", "DRIVER_APPROVAL_MISSING",
     "RISK_CLOSURE_MISSING",
     "STABILITY_SAMPLES_INSUFFICIENT", "RELEASE_UNIT_TOO_LARGE",
+    "RELEASE_UNIT_UNDECLARED", "WIP_ACCUMULATION_UNSAFE",
+    "LOOP_LIMIT_EXCEEDED", "LOOP_REGRESSION", "LOOP_NO_PROGRESS", "LOOP_RESET_EVASION",
+    "PLAN_UNSTABLE", "LEDGER_STALLED",
     "TESTED_RUNTIME_MISMATCH", "RETEST_REQUIRED_AFTER_CHANGE",
     "AUDITOR_MISSING", "AUDITOR_VERDICT_MISMATCH",
     "AUDITOR_INPUT_STALE", "RECEIPT_STALE",
     "TIMING_MISSING", "TIMING_GAP", "PHASE_UNPAIRED",
+    "PLAN_SCOPE_EXPANSION",  # advisory
     "AUDITOR_INDEPENDENCE_UNVERIFIED",
 ]
 _ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
@@ -2319,6 +2331,883 @@ def cmd_invalidate(args):
     print("RECEIPT INVALIDATED: %s" % args.reason)
 
 
+def cmd_check_release_unit(args):
+    """P0-1: Phase 3 开工前的 Release Unit 硬门。
+
+    检查：
+    1. acceptance.md 的 MUST AC 数量 <= threshold
+    2. implementation-tasks.md 行数 <= threshold
+    3. 高风险子系统标记 <= threshold
+
+    超限 → exit 1，输出 RELEASE_UNIT_TOO_LARGE + 拆分建议。
+    """
+    # 读取 acceptance
+    if not os.path.isfile(args.acceptance):
+        die("acceptance 文件不存在: %s" % args.acceptance)
+
+    with open(args.acceptance, "r", encoding="utf-8") as f:
+        acceptance_content = f.read()
+
+    # 统计 MUST AC（在 markdown 表格中查找 "必须" 或 "MUST"）
+    must_count = 0
+    for line in acceptance_content.split("\n"):
+        if "|" in line and ("必须" in line or "MUST" in line.upper()):
+            must_count += 1
+
+    # 读取 plan/implementation-tasks
+    plan_lines = 0
+    if os.path.isfile(args.plan):
+        with open(args.plan, "r", encoding="utf-8") as f:
+            plan_lines = len(f.readlines())
+
+    # 统计高风险子系统（查找 [HIGH_RISK: ...] 或 [高风险: ...] 标记）
+    high_risk_count = 0
+    high_risk_items = []
+    if os.path.isfile(args.plan):
+        with open(args.plan, "r", encoding="utf-8") as f:
+            content = f.read()
+            # 匹配 [HIGH_RISK: xxx] 或 [高风险: xxx]
+            matches = re.findall(r'\[(HIGH[_\-]RISK|高风险):\s*([^\]]+)\]', content, re.IGNORECASE)
+            high_risk_items = list(set(m[1].strip() for m in matches))
+            high_risk_count = len(high_risk_items)
+
+    # 获取阈值
+    max_ac = args.max_must_ac or DEFAULT_THRESHOLDS["must_ac_count"]
+    max_lines = args.max_plan_lines or DEFAULT_THRESHOLDS["max_plan_lines"]
+    max_risk = args.max_high_risk or DEFAULT_THRESHOLDS["high_risk_subsystems"]
+
+    # 检查
+    violations = []
+    if must_count > max_ac:
+        violations.append("MUST AC 数量: %d (上限 %d)" % (must_count, max_ac))
+    if plan_lines > max_lines:
+        violations.append("Plan 行数: %d (上限 %d)" % (plan_lines, max_lines))
+    if high_risk_count > max_risk:
+        violations.append("高风险子系统: %d (上限 %d) - %s" %
+                         (high_risk_count, max_risk, ", ".join(high_risk_items[:5])))
+
+    if violations:
+        print("RELEASE_UNIT_TOO_LARGE")
+        print("\n超限项目:")
+        for v in violations:
+            print("  - %s" % v)
+        print("\n拆分建议:")
+        print("  1. 按功能模块拆分为独立 slice（每个 slice ≤ %d MUST AC）" % max_ac)
+        print("  2. 将高风险子系统隔离到独立 slice")
+        print("  3. 按层次（contracts → implementation → integration）拆分")
+        print("  4. 每个 slice 应有独立的 acceptance.md 和 verification/")
+        sys.exit(1)
+
+    print("RELEASE_UNIT_CHECK_PASS")
+    print("  - MUST AC: %d / %d" % (must_count, max_ac))
+    print("  - Plan 行数: %d / %d" % (plan_lines, max_lines))
+    print("  - 高风险子系统: %d / %d" % (high_risk_count, max_risk))
+    sys.exit(0)
+
+
+def cmd_validate_release_unit(args):
+    """P0-2: 检查 ledger 的 release_unit 字段是否正确声明。
+
+    必须包含:
+    - slice_id
+    - parent_program
+    - scope_hash
+
+    缺失任一字段 → exit 1, RELEASE_UNIT_UNDECLARED。
+    """
+    ledger = load_ledger(args.run_dir)
+    ru = ledger.get("release_unit")
+
+    if not ru or not isinstance(ru, dict):
+        print("RELEASE_UNIT_UNDECLARED")
+        print("ERROR: ledger 缺少 release_unit 声明")
+        print("\nrelease_unit 必须包含:")
+        print("  - slice_id: 本次 slice 标识符（如 'T4.1-A'）")
+        print("  - parent_program: 所属 program（如 'SDK-extraction'）")
+        print("  - scope_hash: acceptance + plan 的内容 hash")
+        sys.exit(1)
+
+    required = ["slice_id", "parent_program", "scope_hash"]
+    missing = [f for f in required if not ru.get(f)]
+
+    if missing:
+        print("RELEASE_UNIT_UNDECLARED")
+        print("ERROR: release_unit 缺少必填字段: %s" % ", ".join(missing))
+        print("\n当前 release_unit: %s" % json.dumps(ru, indent=2, ensure_ascii=False))
+        sys.exit(1)
+
+    print("RELEASE_UNIT_VALID")
+    print("  - slice_id: %s" % ru["slice_id"])
+    print("  - parent_program: %s" % ru["parent_program"])
+    print("  - scope_hash: %s..." % ru["scope_hash"][:16])
+    sys.exit(0)
+
+
+def cmd_check_wip_limit(args):
+    """P0-5: 检查未提交 WIP 是否超过安全阈值。
+
+    运行 git diff --stat，统计:
+    - tracked modified 行数
+    - tracked modified 文件数
+
+    超限 → exit 1, WIP_ACCUMULATION_UNSAFE。
+    """
+    if not os.path.isdir(args.repo_dir):
+        die("仓库目录不存在: %s" % args.repo_dir)
+
+    # 获取 git diff --stat
+    try:
+        result = subprocess.run(
+            ["git", "-C", args.repo_dir, "diff", "--stat"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            die("git diff 失败: %s" % result.stderr)
+
+        stat_output = result.stdout
+    except Exception as e:
+        die("运行 git diff 失败: %s" % str(e))
+
+    # 解析统计（最后一行通常是 "X files changed, Y insertions(+), Z deletions(-)"）
+    lines = stat_output.strip().split("\n")
+    if not lines or not lines[-1]:
+        # 没有改动
+        print("WIP_CHECK_PASS: 工作树干净")
+        sys.exit(0)
+
+    summary_line = lines[-1]
+    files_changed = 0
+    insertions = 0
+    deletions = 0
+
+    # 解析 "3 files changed, 245 insertions(+), 12 deletions(-)"
+    match = re.search(r'(\d+)\s+files?\s+changed', summary_line)
+    if match:
+        files_changed = int(match.group(1))
+    match = re.search(r'(\d+)\s+insertions?\(\+\)', summary_line)
+    if match:
+        insertions = int(match.group(1))
+    match = re.search(r'(\d+)\s+deletions?\(-\)', summary_line)
+    if match:
+        deletions = int(match.group(1))
+
+    total_lines = insertions + deletions
+
+    # 检查阈值
+    max_lines = args.max_lines or DEFAULT_THRESHOLDS["max_wip_lines"]
+    max_files = args.max_files or DEFAULT_THRESHOLDS["max_wip_files"]
+
+    violations = []
+    if total_lines > max_lines:
+        violations.append("未提交行数: %d (上限 %d)" % (total_lines, max_lines))
+    if files_changed > max_files:
+        violations.append("未提交文件数: %d (上限 %d)" % (files_changed, max_files))
+
+    if violations:
+        print("WIP_ACCUMULATION_UNSAFE")
+        print("\n超限项目:")
+        for v in violations:
+            print("  - %s" % v)
+        print("\n必须先 checkpoint:")
+        print("  1. 提交当前已完成的独立功能（有测试、可 revert）")
+        print("  2. 或拆分当前任务为更小的 slice")
+        print("  3. 禁止在超大 WIP 上继续叠加改动")
+        sys.exit(1)
+
+    print("WIP_CHECK_PASS")
+    print("  - 未提交行数: %d / %d" % (total_lines, max_lines))
+    print("  - 未提交文件数: %d / %d" % (files_changed, max_files))
+    sys.exit(0)
+
+
+def cmd_check_ledger_progress(args):
+    """P1-1: 检查 ledger 是否长时间无进展（零增长警告）。
+
+    读取账本最后一次 runs/evidence/timing 写入时间，
+    若距离当前时间 > MIN_PROGRESS_INTERVAL → 警告 LEDGER_STALLED。
+    """
+    ledger = load_ledger(args.run_dir)
+
+    # 查找最后一次写入时间
+    last_run_time = None
+    last_evidence_time = None
+    last_timing_time = None
+
+    runs = ledger.get("runs") or []
+    if runs:
+        # 假设 runs 按时间顺序，取最后一条
+        last_run = runs[-1]
+        last_run_time = last_run.get("recorded_at")
+
+    evidence = ledger.get("evidence") or []
+    if evidence:
+        last_evidence = evidence[-1]
+        last_evidence_time = last_evidence.get("attached_at")
+
+    timing = ledger.get("timing") or []
+    if timing:
+        last_timing = timing[-1]
+        last_timing_time = last_timing.get("recorded_at")
+
+    # 找最近的时间戳
+    timestamps = [t for t in [last_run_time, last_evidence_time, last_timing_time] if t]
+    if not timestamps:
+        print("LEDGER_STALLED")
+        print("ERROR: 账本完全无进展（runs=0, evidence=0, timing=0）")
+        print("可能正在绕过 gate 或陷入空转，建议暂停检查")
+        sys.exit(1)
+
+    # 解析最近时间戳（ISO 8601 格式）
+    def parse_iso(s):
+        # 简化版解析 YYYY-MM-DDTHH:MM:SS+ZZZZ
+        try:
+            import datetime
+            # 移除时区后缀
+            s_clean = re.sub(r'[+-]\d{4}$', '', s)
+            return datetime.datetime.fromisoformat(s_clean)
+        except:
+            return None
+
+    last_times = [parse_iso(t) for t in timestamps]
+    last_times = [t for t in last_times if t is not None]
+
+    if not last_times:
+        print("WARNING: 无法解析时间戳，跳过进度检查")
+        sys.exit(0)
+
+    import datetime
+    most_recent = max(last_times)
+    now = datetime.datetime.now()
+    elapsed_minutes = (now - most_recent).total_seconds() / 60
+
+    min_interval = args.min_interval_minutes or MIN_PROGRESS_INTERVAL_MINUTES
+
+    if elapsed_minutes > min_interval:
+        print("LEDGER_STALLED")
+        print("WARNING: 账本已 %.1f 分钟无进展（阈值 %d 分钟）" % (elapsed_minutes, min_interval))
+        print("  - runs: %d" % len(runs))
+        print("  - evidence: %d" % len(evidence))
+        print("  - timing: %d" % len(timing))
+        print("\n可能原因:")
+        print("  1. 正在绕过机器门禁")
+        print("  2. 陷入空转或无效循环")
+        print("  3. 执行暂停但未明确标记")
+        sys.exit(1)
+
+    print("LEDGER_PROGRESS_OK")
+    print("  - 最后进展: %.1f 分钟前" % elapsed_minutes)
+    print("  - runs: %d, evidence: %d, timing: %d" % (len(runs), len(evidence), len(timing)))
+    sys.exit(0)
+
+
+def cmd_record_plan_defect(args):
+    """P0-4: 记录 A2 plan defect 事件。
+
+    在 Phase 3 执行期间发现 plan 有缺陷需要回炉时调用。
+    写入 plan_defects[] 数组，生成唯一 event_id，记录到 integrity chain。
+    """
+    ledger = load_ledger(args.run_dir)
+
+    # 生成 event_id
+    existing_defects = ledger.get("plan_defects") or []
+    event_id = "a2-%03d" % (len(existing_defects) + 1)
+
+    # 当前时间戳（ISO 8601）
+    import datetime
+    now = datetime.datetime.now().astimezone()
+    timestamp = now.isoformat()
+
+    # 解析 affected_tasks
+    affected_tasks = [t.strip() for t in args.affected_tasks.split(",") if t.strip()]
+
+    defect_record = {
+        "event_id": event_id,
+        "occurred_at": timestamp,
+        "affected_tasks": affected_tasks,
+        "defect_type": args.defect_type,
+        "description": args.description,
+        "resolution": None,
+        "resolved_at": None
+    }
+
+    def mutate(ledger):
+        if "plan_defects" not in ledger:
+            ledger["plan_defects"] = []
+        ledger["plan_defects"].append(defect_record)
+
+    _append(args.run_dir, mutate, op="record_plan_defect")
+
+    # 重新加载以获取最新状态
+    ledger = load_ledger(args.run_dir)
+
+    print("PLAN_DEFECT_RECORDED")
+    print("  - Event ID: %s" % event_id)
+    print("  - 类型: %s" % args.defect_type)
+    print("  - 影响任务: %s" % ", ".join(affected_tasks))
+    print("  - 描述: %s" % args.description)
+    print("\n累计未解决 A2 事件: %d / %d" % (
+        len([d for d in ledger["plan_defects"] if not d.get("resolved_at")]),
+        MAX_A2_EVENTS
+    ))
+    sys.exit(0)
+
+
+def cmd_check_plan_stability(args):
+    """P0-4: 检查 plan 稳定性（累计 A2 事件数）。
+
+    统计未解决的 A2 事件数量。
+    若 >= MAX_A2_EVENTS (3) → exit 1, PLAN_UNSTABLE。
+    """
+    ledger = load_ledger(args.run_dir)
+    defects = ledger.get("plan_defects") or []
+
+    # 统计未解决的
+    unresolved = [d for d in defects if not d.get("resolved_at")]
+    unresolved_count = len(unresolved)
+
+    if unresolved_count >= MAX_A2_EVENTS:
+        print("PLAN_UNSTABLE")
+        print("\nPhase 2 未真正收敛，已累计 %d 次 plan defect（上限 %d）：\n" % (
+            unresolved_count, MAX_A2_EVENTS
+        ))
+
+        for i, defect in enumerate(unresolved, 1):
+            status = "已解决" if defect.get("resolved_at") else "未解决"
+            print("%d. [%s] %s: %s" % (
+                i, defect["event_id"], defect["defect_type"], defect["description"]
+            ))
+            print("   - 影响任务: %s" % ", ".join(defect["affected_tasks"]))
+            print("   - 发生时间: %s" % defect["occurred_at"])
+            print("   - 状态: %s" % status)
+            if defect.get("resolution"):
+                print("   - 解决方案: %s" % defect["resolution"])
+            print()
+
+        print("建议:")
+        print("  - 禁止继续叠加 WIP")
+        print("  - 提交或 stash 当前改动")
+        print("  - 回退 phase-2 重新迭代 plan")
+        print("  - 使用 reset-plan-defects 清空 A2 计数后才能恢复 phase-3")
+        sys.exit(1)
+
+    # 显示所有 defects（包括已解决的）
+    print("PLAN_STABILITY_OK")
+    print("  - 总计 A2 事件: %d" % len(defects))
+    print("  - 未解决: %d / %d" % (unresolved_count, MAX_A2_EVENTS))
+    if defects:
+        print("\n历史记录:")
+        for defect in defects:
+            status = "✓ 已解决" if defect.get("resolved_at") else "✗ 未解决"
+            print("  [%s] %s (%s)" % (defect["event_id"], defect["defect_type"], status))
+    sys.exit(0)
+
+
+def cmd_resolve_plan_defect(args):
+    """P0-4: 标记某个 A2 事件已解决。"""
+    ledger = load_ledger(args.run_dir)
+    defects = ledger.get("plan_defects") or []
+
+    # 查找目标 event
+    target = None
+    for d in defects:
+        if d["event_id"] == args.event_id:
+            target = d
+            break
+
+    if not target:
+        die("找不到 event_id: %s" % args.event_id)
+
+    if target.get("resolved_at"):
+        die("事件 %s 已经标记为解决" % args.event_id)
+
+    # 标记解决
+    import datetime
+    now = datetime.datetime.now().astimezone()
+
+    def mutate(ledger):
+        for d in ledger.get("plan_defects", []):
+            if d["event_id"] == args.event_id:
+                d["resolved_at"] = now.isoformat()
+                d["resolution"] = args.resolution
+                break
+
+    _append(args.run_dir, mutate, op="resolve_plan_defect")
+
+    print("PLAN_DEFECT_RESOLVED")
+    print("  - Event ID: %s" % args.event_id)
+    print("  - 解决方案: %s" % args.resolution)
+    sys.exit(0)
+
+
+def cmd_reset_plan_defects(args):
+    """P0-4: 清空 A2 计数（需要用户批准）。"""
+    ledger = load_ledger(args.run_dir)
+    defects = ledger.get("plan_defects") or []
+
+    if not defects:
+        print("无需重置，当前没有 A2 事件记录")
+        sys.exit(0)
+
+    # 验证 approval hash 格式
+    if not re.match(r'^[a-f0-9]{64}$', args.approval_hash):
+        die("approval_hash 必须是 64 位十六进制 SHA-256")
+
+    # 归档旧记录
+    import datetime
+    now = datetime.datetime.now().astimezone()
+    archive_entry = {
+        "archived_at": now.isoformat(),
+        "reason": args.reason,
+        "approval_hash": args.approval_hash,
+        "defects": defects
+    }
+
+    def mutate(ledger):
+        if "plan_defects_history" not in ledger:
+            ledger["plan_defects_history"] = []
+        ledger["plan_defects_history"].append(archive_entry)
+        ledger["plan_defects"] = []
+
+    _append(args.run_dir, mutate, op="reset_plan_defects")
+
+    print("PLAN_DEFECTS_RESET")
+    print("  - 已清空 %d 条 A2 事件" % len(defects))
+    print("  - 理由: %s" % args.reason)
+    print("  - 批准 hash: %s..." % args.approval_hash[:16])
+    print("\n已归档到 plan_defects_history，可重新进入 phase-3")
+    sys.exit(0)
+
+
+def cmd_start_challenge_loop(args):
+    """P0-3: 启动一个挑战循环，返回 loop_id。
+
+    在 Phase 2 plan iteration 开始前调用，建立循环账本。
+    """
+    ledger = load_ledger(args.run_dir)
+
+    # 计算 baseline hash
+    if not os.path.isfile(args.target_file):
+        die("目标文件不存在: %s" % args.target_file)
+
+    baseline_hash = args.baseline_hash or sha256_file(args.target_file)
+
+    # 生成 loop_id
+    if "challenge_loops" not in ledger:
+        ledger["challenge_loops"] = []
+
+    loop_count = len(ledger["challenge_loops"]) + 1
+    loop_id = "%s-%03d" % (args.loop_type, loop_count)
+
+    import datetime
+    now = datetime.datetime.now().astimezone()
+
+    loop_record = {
+        "loop_id": loop_id,
+        "loop_type": args.loop_type,
+        "target_file": args.target_file,
+        "baseline_hash": baseline_hash,
+        "started_at": now.isoformat(),
+        "rounds": [],
+        "status": "active"
+    }
+
+    def mutate(ledger):
+        if "challenge_loops" not in ledger:
+            ledger["challenge_loops"] = []
+        ledger["challenge_loops"].append(loop_record)
+
+    _append(args.run_dir, mutate, op="start_challenge_loop")
+
+    # 输出 loop_id（供 shell 脚本捕获）
+    print(loop_id)
+    sys.exit(0)
+
+
+def cmd_check_loop_limit(args):
+    """P0-3: 检查循环是否超过轮次上限。
+
+    当前轮次 >= MAX_CHALLENGE_ROUNDS → exit 1, LOOP_LIMIT_EXCEEDED。
+    """
+    ledger = load_ledger(args.run_dir)
+    loops = ledger.get("challenge_loops") or []
+
+    # 查找目标 loop
+    target_loop = None
+    for loop in loops:
+        if loop["loop_id"] == args.loop_id:
+            target_loop = loop
+            break
+
+    if not target_loop:
+        die("找不到 loop_id: %s" % args.loop_id)
+
+    current_round = len(target_loop["rounds"])
+    remaining = MAX_CHALLENGE_ROUNDS - current_round
+
+    if current_round >= MAX_CHALLENGE_ROUNDS:
+        print("LOOP_LIMIT_EXCEEDED")
+        print("\n挑战循环已达到硬上限:")
+        print("  - Loop ID: %s" % args.loop_id)
+        print("  - 当前轮次: %d" % current_round)
+        print("  - 上限: %d" % MAX_CHALLENGE_ROUNDS)
+        print("  - 开始时间: %s" % target_loop["started_at"])
+        print("\n第 %d 轮后仍未收敛，说明:" % MAX_CHALLENGE_ROUNDS)
+        print("  1. Plan 粒度过粗，无法在迭代中收敛")
+        print("  2. Challenger 要求超出 acceptance 范围")
+        print("  3. 存在根本性的架构冲突")
+        print("\n必须:")
+        print("  - 暂停当前循环")
+        print("  - 升级给用户决策")
+        print("  - 考虑拆分 release unit 或调整 acceptance")
+        sys.exit(1)
+
+    print("LOOP_LIMIT_OK")
+    print("  - 当前轮次: %d / %d" % (current_round, MAX_CHALLENGE_ROUNDS))
+    print("  - 剩余轮次: %d" % remaining)
+    sys.exit(0)
+
+
+def cmd_record_challenge_round(args):
+    """P0-3: 记录一轮挑战结果。
+
+    自动计算 dedupe_key，检测循环回退、无进展、重复等问题。
+    """
+    ledger = load_ledger(args.run_dir)
+    loops = ledger.get("challenge_loops") or []
+
+    # 查找目标 loop
+    target_loop = None
+    for loop in loops:
+        if loop["loop_id"] == args.loop_id:
+            target_loop = loop
+            break
+
+    if not target_loop:
+        die("找不到 loop_id: %s" % args.loop_id)
+
+    # 解析 findings（如果提供了 JSON 文件）
+    findings = {}
+    if args.findings and os.path.isfile(args.findings):
+        try:
+            with open(args.findings, 'r', encoding='utf-8') as f:
+                findings_data = json.load(f)
+                # 提取 critical/major/minor 计数
+                if isinstance(findings_data, dict):
+                    findings = {
+                        "critical": findings_data.get("critical", 0),
+                        "major": findings_data.get("major", 0),
+                        "minor": findings_data.get("minor", 0)
+                    }
+                elif isinstance(findings_data, list):
+                    # 按 severity 分组计数
+                    findings = {"critical": 0, "major": 0, "minor": 0}
+                    for item in findings_data:
+                        severity = item.get("severity", "minor").lower()
+                        if severity in findings:
+                            findings[severity] += 1
+        except Exception as e:
+            die("无法解析 findings 文件: %s" % str(e))
+
+    # 计算 dedupe_key（plan_hash + findings_digest）
+    findings_digest = sha256_text(json.dumps(findings, sort_keys=True))
+    dedupe_key = sha256_text(args.plan_hash + findings_digest)
+
+    import datetime
+    now = datetime.datetime.now().astimezone()
+
+    round_record = {
+        "round": args.round,
+        "plan_hash": args.plan_hash,
+        "dedupe_key": dedupe_key,
+        "findings": findings,
+        "verdict": args.verdict,
+        "timestamp": now.isoformat()
+    }
+
+    # 检测问题
+    warnings = []
+
+    # 1. 检测循环回退（plan hash 回到历史某轮）
+    for past_round in target_loop["rounds"]:
+        if past_round["plan_hash"] == args.plan_hash:
+            warnings.append("LOOP_REGRESSION: plan hash 回退到第 %d 轮" % past_round["round"])
+            break
+
+    # 2. 检测无进展（连续 3 轮 critical findings 不减）
+    if len(target_loop["rounds"]) >= 2:
+        recent = target_loop["rounds"][-2:]
+        if all(r["findings"].get("critical", 0) > 0 for r in recent):
+            if findings.get("critical", 0) >= recent[-1]["findings"].get("critical", 0):
+                warnings.append("LOOP_NO_PROGRESS: 连续 3 轮 critical findings 未减少")
+
+    # 3. 检测重复（dedupe_key 与历史重复）
+    for past_round in target_loop["rounds"]:
+        if past_round["dedupe_key"] == dedupe_key:
+            warnings.append("可能陷入循环: dedupe_key 与第 %d 轮重复" % past_round["round"])
+            break
+
+    # 如果 verdict=PASS，标记循环为 converged
+    if args.verdict.upper() == "PASS":
+        target_loop["status"] = "converged"
+
+    def mutate(ledger):
+        loops = ledger.get("challenge_loops") or []
+        for loop in loops:
+            if loop["loop_id"] == args.loop_id:
+                loop["rounds"].append(round_record)
+                if args.verdict.upper() == "PASS":
+                    loop["status"] = "converged"
+                break
+
+    _append(args.run_dir, mutate, op="record_challenge_round")
+
+    print("CHALLENGE_ROUND_RECORDED")
+    print("  - Loop ID: %s" % args.loop_id)
+    print("  - Round: %d" % args.round)
+    print("  - Verdict: %s" % args.verdict)
+    print("  - Findings: critical=%d, major=%d, minor=%d" % (
+        findings.get("critical", 0),
+        findings.get("major", 0),
+        findings.get("minor", 0)
+    ))
+
+    if warnings:
+        print("\n⚠️  警告:")
+        for w in warnings:
+            print("  - %s" % w)
+
+    sys.exit(0)
+
+
+def _calculate_file_similarity(file1, file2):
+    """计算两个文件的相似度（0-1）。
+
+    使用简单的 difflib.SequenceMatcher。
+    """
+    try:
+        with open(file1, 'r', encoding='utf-8', errors='ignore') as f:
+            content1 = f.read()
+        with open(file2, 'r', encoding='utf-8', errors='ignore') as f:
+            content2 = f.read()
+
+        import difflib
+        matcher = difflib.SequenceMatcher(None, content1, content2)
+        return matcher.ratio()
+    except Exception:
+        return 0.0
+
+
+def cmd_detect_loop_reset(args):
+    """P0-3: 检测循环重置绕过（防重置检测）。
+
+    检查是否存在:
+    - 账本被删除（challenge_loops 消失）
+    - loop_id 改变但 target_file 相似度 > 80%
+    - target_file 改名但内容相似
+    """
+    ledger = load_ledger(args.run_dir)
+    loops = ledger.get("challenge_loops") or []
+
+    if not loops:
+        print("WARNING: 账本中无循环记录，可能已被删除或重置")
+        if args.check_target_file and os.path.isfile(args.check_target_file):
+            print("  - 检测到目标文件: %s" % args.check_target_file)
+            print("  - 建议检查是否存在历史循环记录")
+        sys.exit(0)
+
+    # 如果提供了待检查的文件，计算相似度
+    if args.check_target_file and os.path.isfile(args.check_target_file):
+        for loop in loops:
+            if loop["status"] == "active" and loop["target_file"] != args.check_target_file:
+                # 文件名不同，检查内容相似度
+                if os.path.isfile(loop["target_file"]):
+                    similarity = _calculate_file_similarity(
+                        loop["target_file"],
+                        args.check_target_file
+                    )
+                    if similarity > 0.8:
+                        print("LOOP_RESET_EVASION")
+                        print("\n检测到循环重置绕过:")
+                        print("  - 原文件: %s" % loop["target_file"])
+                        print("  - 新文件: %s" % args.check_target_file)
+                        print("  - 相似度: %.1f%%" % (similarity * 100))
+                        print("  - 原循环: %s（%d 轮）" % (
+                            loop["loop_id"],
+                            len(loop["rounds"])
+                        ))
+                        print("\n疑似通过改名绕过轮次限制")
+                        sys.exit(1)
+
+    print("LOOP_RESET_CHECK_PASS")
+    print("  - 活跃循环: %d" % len([l for l in loops if l["status"] == "active"]))
+    print("  - 已收敛: %d" % len([l for l in loops if l["status"] == "converged"]))
+    sys.exit(0)
+
+
+def cmd_check_plan_growth(args):
+    """P1-2: 检查 plan 体量增长是否超过阈值。
+
+    对比 baseline 和当前 plan，若增长 > MAX_PLAN_GROWTH_RATIO (1.5) → 主动报告。
+    """
+    if not os.path.isfile(args.baseline):
+        die("baseline 文件不存在: %s" % args.baseline)
+
+    if not os.path.isfile(args.current):
+        die("current 文件不存在: %s" % args.current)
+
+    # 计算行数
+    with open(args.baseline, 'r', encoding='utf-8') as f:
+        baseline_lines = len([l for l in f if l.strip()])
+
+    with open(args.current, 'r', encoding='utf-8') as f:
+        current_lines = len([l for l in f if l.strip()])
+
+    growth_ratio = current_lines / baseline_lines if baseline_lines > 0 else float('inf')
+    threshold = args.threshold or MAX_PLAN_GROWTH_RATIO
+
+    if growth_ratio > threshold:
+        print("PLAN_SCOPE_EXPANSION")
+        print("\nPlan 体量显著增长:")
+        print("  - Baseline: %d 行" % baseline_lines)
+        print("  - Current: %d 行" % current_lines)
+        print("  - 增长率: %.1f%% (阈值 %.0f%%)" % (
+            (growth_ratio - 1) * 100,
+            (threshold - 1) * 100
+        ))
+        print("\n可能原因:")
+        print("  1. 需求理解偏差导致 scope 扩张")
+        print("  2. 发现了未预料的复杂度")
+        print("  3. 增加了原需求之外的功能")
+        print("\n建议:")
+        print("  - 与用户确认新增部分是否在原需求范围内")
+        print("  - 考虑拆分成多个 release unit")
+        print("  - 或更新 acceptance.md 反映实际范围")
+
+        # advisory 级别，exit 0 但输出警告
+        sys.exit(0)
+
+    print("PLAN_GROWTH_OK")
+    print("  - Baseline: %d 行" % baseline_lines)
+    print("  - Current: %d 行" % current_lines)
+    print("  - 增长率: %.1f%%" % ((growth_ratio - 1) * 100))
+    sys.exit(0)
+
+
+def cmd_show_loop_history(args):
+    """P2-1: 显示循环历史和趋势。
+
+    可视化展示每轮的 findings、hash、趋势。
+    """
+    ledger = load_ledger(args.run_dir)
+    loops = ledger.get("challenge_loops") or []
+
+    if not loops:
+        print("无循环记录")
+        sys.exit(0)
+
+    # 如果指定了 loop_id，只显示该循环
+    if args.loop_id:
+        target_loop = None
+        for loop in loops:
+            if loop["loop_id"] == args.loop_id:
+                target_loop = loop
+                break
+
+        if not target_loop:
+            die("找不到 loop_id: %s" % args.loop_id)
+
+        loops = [target_loop]
+
+    print("=== 循环历史 ===\n")
+
+    for loop in loops:
+        print("Loop: %s" % loop["loop_id"])
+        print("  类型: %s" % loop["loop_type"])
+        print("  目标文件: %s" % loop["target_file"])
+        print("  状态: %s" % loop["status"])
+        print("  开始时间: %s" % loop["started_at"])
+        print("  总轮次: %d\n" % len(loop["rounds"]))
+
+        if not loop["rounds"]:
+            print("  （无轮次记录）\n")
+            continue
+
+        # 表头
+        print("  Round | Verdict | Critical | Major | Minor | Plan Hash (前8位)")
+        print("  ------|---------|----------|-------|-------|------------------")
+
+        # 每轮数据
+        for r in loop["rounds"]:
+            findings = r.get("findings", {})
+            print("  %-5d | %-7s | %-8d | %-5d | %-5d | %s" % (
+                r["round"],
+                r["verdict"],
+                findings.get("critical", 0),
+                findings.get("major", 0),
+                findings.get("minor", 0),
+                r["plan_hash"][:8]
+            ))
+
+        # 趋势分析
+        if len(loop["rounds"]) >= 2:
+            first = loop["rounds"][0]
+            last = loop["rounds"][-1]
+
+            first_critical = first.get("findings", {}).get("critical", 0)
+            last_critical = last.get("findings", {}).get("critical", 0)
+
+            print("\n  趋势分析:")
+            if last_critical < first_critical:
+                print("    ✓ Critical findings 减少: %d → %d" % (first_critical, last_critical))
+            elif last_critical > first_critical:
+                print("    ✗ Critical findings 增加: %d → %d" % (first_critical, last_critical))
+            else:
+                print("    - Critical findings 持平: %d" % first_critical)
+
+            # 检测回退
+            hashes = [r["plan_hash"] for r in loop["rounds"]]
+            if len(hashes) != len(set(hashes)):
+                print("    ⚠️  检测到 plan hash 重复（可能回退）")
+
+        print()
+
+    sys.exit(0)
+
+
+def cmd_record_phase_transition(args):
+    """P2-2: 记录 phase 转移事件。
+
+    记录从一个 phase 转移到另一个 phase，以及转移时的收敛证据。
+    """
+    ledger = load_ledger(args.run_dir)
+
+    import datetime
+    now = datetime.datetime.now().astimezone()
+
+    transition_record = {
+        "from_phase": args.from_phase,
+        "to_phase": args.to_phase,
+        "timestamp": now.isoformat(),
+        "convergence_evidence": args.evidence or "N/A",
+        "note": args.note
+    }
+
+    def mutate(ledger):
+        if "phase_transitions" not in ledger:
+            ledger["phase_transitions"] = []
+        ledger["phase_transitions"].append(transition_record)
+
+    _append(args.run_dir, mutate, op="record_phase_transition")
+
+    print("PHASE_TRANSITION_RECORDED")
+    print("  - From: %s" % args.from_phase)
+    print("  - To: %s" % args.to_phase)
+    print("  - 收敛证据: %s" % (args.evidence or "N/A"))
+    if args.note:
+        print("  - 备注: %s" % args.note)
+    sys.exit(0)
+
+
 # ---------------------------------------------------------------- main
 
 def main(argv=None):
@@ -2492,6 +3381,124 @@ def main(argv=None):
     p.add_argument("--run-dir", required=True)
     p.add_argument("--reason", required=True)
     p.set_defaults(fn=cmd_invalidate)
+
+    p = sub.add_parser("check-release-unit",
+                       help="P0-1: Phase 3 开工前检查 release unit 是否超限")
+    p.add_argument("--acceptance", required=True, help="acceptance.md 路径")
+    p.add_argument("--plan", required=True, help="plan.md 或 implementation-tasks.md 路径")
+    p.add_argument("--max-must-ac", type=int, help="MUST AC 上限（默认 16）")
+    p.add_argument("--max-plan-lines", type=int, help="Plan 行数上限（默认 4676）")
+    p.add_argument("--max-high-risk", type=int, help="高风险子系统上限（默认 3）")
+    p.set_defaults(fn=cmd_check_release_unit)
+
+    p = sub.add_parser("validate-release-unit",
+                       help="P0-2: 检查 ledger 的 release_unit 字段是否正确声明")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_validate_release_unit)
+
+    p = sub.add_parser("check-wip-limit",
+                       help="P0-5: 检查未提交 WIP 是否超过安全阈值")
+    p.add_argument("--repo-dir", required=True, help="Git 仓库目录")
+    p.add_argument("--max-lines", type=int, help="未提交行数上限（默认 5000）")
+    p.add_argument("--max-files", type=int, help="未提交文件数上限（默认 20）")
+    p.set_defaults(fn=cmd_check_wip_limit)
+
+    p = sub.add_parser("check-ledger-progress",
+                       help="P1-1: 检查 ledger 是否长时间无进展")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--min-interval-minutes", type=int,
+                   help="零增长警告阈值（分钟，默认 90）")
+    p.set_defaults(fn=cmd_check_ledger_progress)
+
+    p = sub.add_parser("record-plan-defect",
+                       help="P0-4: 记录 A2 plan defect 事件")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--affected-tasks", required=True,
+                   help="受影响的任务 ID，逗号分隔（如 'T4.1,T4.2'）")
+    p.add_argument("--defect-type", required=True,
+                   help="缺陷类型（如 contract-conflict, scope-drift, assumption-failure）")
+    p.add_argument("--description", required=True,
+                   help="缺陷描述")
+    p.set_defaults(fn=cmd_record_plan_defect)
+
+    p = sub.add_parser("check-plan-stability",
+                       help="P0-4: 检查 plan 稳定性（累计 A2 事件数）")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_check_plan_stability)
+
+    p = sub.add_parser("resolve-plan-defect",
+                       help="P0-4: 标记某个 A2 事件已解决")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--event-id", required=True, help="事件 ID（如 a2-001）")
+    p.add_argument("--resolution", required=True, help="解决方案描述")
+    p.set_defaults(fn=cmd_resolve_plan_defect)
+
+    p = sub.add_parser("reset-plan-defects",
+                       help="P0-4: 清空 A2 计数（需要用户批准）")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--approval-hash", required=True,
+                   help="用户批准消息的 SHA-256（64 位十六进制）")
+    p.add_argument("--reason", required=True,
+                   help="重置理由（如 '已回退 phase-2 并重新收敛'）")
+    p.set_defaults(fn=cmd_reset_plan_defects)
+
+    p = sub.add_parser("start-challenge-loop",
+                       help="P0-3: 启动一个挑战循环")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-type", required=True,
+                   help="循环类型（如 plan-iteration, code-review）")
+    p.add_argument("--target-file", required=True,
+                   help="目标文件路径（如 plans/xxx/plan.md）")
+    p.add_argument("--baseline-hash",
+                   help="基线 hash（可选，不提供则自动计算）")
+    p.set_defaults(fn=cmd_start_challenge_loop)
+
+    p = sub.add_parser("check-loop-limit",
+                       help="P0-3: 检查循环是否超过轮次上限")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-id", required=True, help="循环 ID（如 plan-iteration-001）")
+    p.set_defaults(fn=cmd_check_loop_limit)
+
+    p = sub.add_parser("record-challenge-round",
+                       help="P0-3: 记录一轮挑战结果")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-id", required=True)
+    p.add_argument("--round", type=int, required=True, help="轮次编号（从 1 开始）")
+    p.add_argument("--plan-hash", required=True, help="当前 plan 文件的 SHA-256")
+    p.add_argument("--findings", help="findings JSON 文件路径（可选）")
+    p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"],
+                   help="本轮判定结果")
+    p.set_defaults(fn=cmd_record_challenge_round)
+
+    p = sub.add_parser("detect-loop-reset",
+                       help="P0-3: 检测循环重置绕过（防重置检测）")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--check-target-file",
+                   help="待检查的目标文件（检测是否与历史循环相似）")
+    p.set_defaults(fn=cmd_detect_loop_reset)
+
+    p = sub.add_parser("check-plan-growth",
+                       help="P1-2: 检查 plan 体量增长是否超过阈值")
+    p.add_argument("--baseline", required=True, help="Baseline plan 文件路径")
+    p.add_argument("--current", required=True, help="当前 plan 文件路径")
+    p.add_argument("--threshold", type=float,
+                   help="增长比例阈值（默认 1.5，即 50%% 增长）")
+    p.set_defaults(fn=cmd_check_plan_growth)
+
+    p = sub.add_parser("show-loop-history",
+                       help="P2-1: 显示循环历史和趋势")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-id", help="指定循环 ID（可选，不指定则显示所有）")
+    p.set_defaults(fn=cmd_show_loop_history)
+
+    p = sub.add_parser("record-phase-transition",
+                       help="P2-2: 记录 phase 转移事件")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--from-phase", required=True, help="源 phase（如 phase-2）")
+    p.add_argument("--to-phase", required=True, help="目标 phase（如 phase-3）")
+    p.add_argument("--evidence", help="收敛证据描述")
+    p.add_argument("--note", help="备注")
+    p.set_defaults(fn=cmd_record_phase_transition)
 
     argv = list(sys.argv[1:] if argv is None else argv)
     exec_cmd = None

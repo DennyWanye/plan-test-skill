@@ -4,6 +4,31 @@
 把 phase-4 昂贵层之前的一切准备工作提前做完（见 D 节）——只有昂贵真人测试必须等代码冻结，
 准备工作不必等。
 
+## 开场硬门（每次 phase 3 必做，不可跳过）
+
+**2026-08-14 新增：把文档规则变成工具强制执行。**
+
+1. **Release Unit 体量检查（P0-1）**：
+   ```bash
+   python skills/plan-test/scripts/plan_test_gate.py check-release-unit \
+     --acceptance <acceptance.md 路径> \
+     --plan <plan.md 或 implementation-tasks.md 路径>
+   ```
+   
+   - exit 0 才能继续；exit 1 → 立即 BLOCKED，升级给用户附带拆分建议。
+   - 检查项：MUST AC ≤ 16、plan 行数 ≤ 4676、高风险子系统 ≤ 3。
+   - **禁止删除 AC、合并任务或降级 MUST 为 SHOULD 来绕过**。
+
+2. **记录 Phase 转移事件**（可追溯性）：
+   ```bash
+   python skills/plan-test/scripts/plan_test_gate.py phase-start \
+     --run-dir <run-dir> \
+     --phase phase-3 \
+     --note "Phase 2 收敛于第 N 轮，plan hash: <hash 前 8 位>"
+   ```
+
+3. **WIP 累积监控初始化**：记录当前基线，用于后续检查点比对。
+
 ## A. 并行执行
 
 1. 用 `{EXECUTOR_ENGINE}` 子代理**并行**完成 plan 中相互独立的任务（默认 codex-gpt5.5；未装则回退 claude）。
@@ -18,7 +43,17 @@
    `FROZEN_ORACLE_CHANGED` 拦截并整体 FAIL。
 4. 频繁提交（每个任务一个 commit），保留可回滚点。
    - **接线与服务层同 commit（防半截提交）**：把服务层能力接到用户入口上的改动——路由文件、index 挂载、入参透传、运行时白名单——必须和服务层实现进**同一个 commit**。合并各 worktree 产出后，`git status --porcelain -- . ':(exclude)<run-dir>'` 必须为空再继续：只 `git add` 服务层、把未跟踪的路由文件留在工作树里，随后 worktree 清理/回退就会把它抹掉——留下能编译、能过类型检查、但用户路径根本没接通的"半截健康"状态。
-5. **与本机 hook 共处**（用户环境常挂 PostToolUse 类型检查 hook，每次编辑后自动跑 tsc/analyze）：
+5. **WIP 累积检查点（P0-5 新增，每个子任务完成后必做）**：
+   ```bash
+   python skills/plan-test/scripts/plan_test_gate.py check-wip-limit \
+     --repo-dir <仓库目录>
+   ```
+   - exit 0 → 继续下一个任务；
+   - exit 1 → BLOCKED，输出 `WIP_ACCUMULATION_UNSAFE`，必须先 checkpoint：
+     - 提交当前已完成的独立功能（有测试、可 revert）；
+     - 或拆分当前 slice 为更小的 unit。
+   - **禁止在超大 WIP 上继续叠加改动**。
+6. **与本机 hook 共处**（用户环境常挂 PostToolUse 类型检查 hook，每次编辑后自动跑 tsc/analyze）：
    - **编辑一次成型**：同一任务对同一文件的改动合并为一次 Edit/Write，别用多次小编辑逐步逼近——每次编辑都会触发一轮类型检查，碎片化编辑等于把最贵的检查跑 N 遍。
    - hook 报的类型错误**当场修**，不许攒到阶段门禁再统一处理（hook 会反复对同一批错误报警，越攒越贵）。
    - hook 拦截了某个操作 → 视为用户意图，改走别的路或标记 BLOCKED，不许绕过。
@@ -34,9 +69,26 @@
    - 发现 plan 漏掉了决定成败的关键问题（主要矛盾没被方案真正解决）；
    - 要靠 hack / 特例分支 / 绕行才能把任务"做完"。
 3. **处理铁律：回炉，不绕行**：
-   - **停止受影响的执行线**（其余独立任务可继续）；
-   - 回 **phase-2** 重新迭代 plan 的该部分：补调研、challenger 重新挑战、新假设补 spike 验证、重过收敛判据（含"真架构问题优先重构"强约束）；
-   - plan 更新回写后再恢复执行。回炉超 `{MAX_ROUNDS}` 或需要推翻用户已拍板的方案方向 → BLOCKED 升级给用户；
+   - **立即停止受影响的执行线**（其余独立任务可继续）；
+   - **记录 A2 事件（P0-4 新增，强制）**：
+     ```bash
+     python skills/plan-test/scripts/plan_test_gate.py record-plan-defect \
+       --run-dir <run-dir> \
+       --affected-tasks <任务 ID 列表，逗号分隔> \
+       --defect-type <owner-missing|contract-conflict|scope-drift|假设失败|方案方向错误> \
+       --description "具体问题描述"
+     ```
+   - **检查 A2 累计数（强制）**：
+     ```bash
+     python skills/plan-test/scripts/plan_test_gate.py check-plan-stability \
+       --run-dir <run-dir>
+     ```
+     - A2 事件 >= 3 → exit 1，输出 `PLAN_UNSTABLE`；
+     - 诊断："phase 2 未真正收敛，禁止继续叠加 WIP，必须回退 phase 2 重新迭代"。
+   - **用户明确批准后才能**：
+     - 提交或 stash 当前 WIP（不得丢失）；
+     - 回到 **phase-2** 重新迭代 plan 的该部分：补调研、challenger 重新挑战、新假设补 spike 验证、重过收敛判据（含"真架构问题优先重构"强约束）；
+     - plan 更新回写后再恢复执行。回炉超 `{MAX_ROUNDS}` 或需要推翻用户已拍板的方案方向 → BLOCKED 升级给用户；
    - **执行子代理无权自行决定"就这样先绕过去"**——它只能上报，回炉由主编排者执行。
 
 ## B. 完成度审计（循环至 100%）

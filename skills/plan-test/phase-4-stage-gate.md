@@ -98,6 +98,24 @@
 python {GATE_SCRIPT} init --run-dir <plan-folder>/verification/<run-id> --manifest manifest.json
 ```
 
+**P0-2 新增（2026-08-14）：强制检查 release_unit 声明**
+
+init 完成后，立即验证账本的 release_unit 字段：
+
+```bash
+python {GATE_SCRIPT} validate-release-unit --run-dir <plan-folder>/verification/<run-id>
+```
+
+- exit 0 → 继续；
+- exit 1 → 立即 BLOCKED，输出 `RELEASE_UNIT_UNDECLARED`。
+
+manifest.json 必须包含：
+- `release_unit.slice_id`：本次 slice 标识符（如 "T4.1-A"）
+- `release_unit.parent_program`：所属 program（如 "SDK-extraction"）
+- `release_unit.scope_hash`：acceptance + plan 的内容 SHA-256
+
+**禁止空 release_unit 执行**——这是本次失败案例的核心问题之一。
+
 manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、场景矩阵（含 required/ui/gate_type/expected_run_created/required_lanes/min_root_runs/**input_class**/**cold_start**）、**适用性判定 `applicability`**、`executor_engine`、release_unit 体量指标、baseline HEAD。init 自动把全部 required 场景建为 `NOT_RUN`——**此后状态只能靠 `record-run` + `attach-evidence` 记录的事实由 validator 重算**，任何手写 PASS 不作数。
 
 **适用性判定必须写进 manifest（`APPLICABILITY_UNDECLARED` 会拦截）**：三维各一条
@@ -132,6 +150,14 @@ manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、�
 
 - 严格按已冻结的 testcase 逐条测：UI 用 MCP 真人点击，逻辑用脚本断言。
 - **每条测试当场入账**：每次执行 `record-run`（scenario / kind=root|retry|continuation / lane / driver / engine 终态 / 业务终态 / Session ID / Run ID），每份截图/日志/命令回执 `attach-evidence --kind primary`（UI 场景加 `--ui-action`，负向断言加 `--negative-assertion`）。**时间同步入账**：机器测试用 `record-timing --exec -- <cmd>` 包裹执行（monotonic 实测），真人测试用 `--declared-start/--declared-end` 申报（自动标 measured=false）；连续工作每 90–120 分钟跑一次 `checkpoint`；进入/离开阶段用 `phase-start`/`phase-end`（finalize 查配对）。**事后凭印象补账 = 无账——1.3.0 起这是机器门**：活动跨度超 30 分钟而 timing 覆盖不足即 `TIMING_MISSING`，证据文件时间早于开账即 `EVIDENCE_PREDATES_LEDGER`（历史证据只能走 `import-evidence --from-run`），补录整本账拿不到 receipt。**全 AI 驾驶须批准**：输入语义敏感功能的 required UI 场景，至少 1 次 `--driver human`，或把用户批准入账（`record-approval --kind all-ai-driving --message-hash <批准消息 sha256>`），否则 `DRIVER_APPROVAL_MISSING`。多阶段场景（如"新话题"）必须断言**状态序列与身份**（Session ID 改变、新 root Run 创建、中间态可见），不只终点回答——`expected_run_created` 会被 validator 正反向核对。
+- **P1-1 新增（2026-08-14）：每 90 分钟检查 ledger 进度**：
+  ```bash
+  python {GATE_SCRIPT} check-ledger-progress --run-dir <run-dir>
+  ```
+  - exit 0 → 正常，继续测试；
+  - exit 1 → 警告 `LEDGER_STALLED`，账本长时间无进展（runs/evidence/timing 都未增长）。
+  - 可能原因：正在绕过 gate、陷入空转、或执行暂停但未明确标记。
+  - **建议主动向用户报告当前进度**（见 P1-3），让用户决定是否继续。
 - 报错 → 修复 → **复测**（含"至少复测 1 个未受影响类别"的广度要求，见 ①c）。修复动过代码 → tested HEAD 已变，相关场景须重跑入账（旧 run 记录保留为历史事实）。
 - **临时测不了的场景：保持 NOT_RUN，不要记 `--result blocked`**。两个 BLOCKED 不是一回事：流程层的"标记 BLOCKED 升级给用户"是写给人看的结论；`record-run --result blocked` 是机器事实，会让该场景一直是 BLOCKED，**直到你真的补上一条 root pass 才解除**（1.3.x 之前它甚至永久钉死、整轮报废）。遇到"需要用户本人输密码/系统授权"这类 AI 代不了的步骤，正确做法是：保持 NOT_RUN、把阻塞原因与已走到哪一步写进证据、在报告里标 BLOCKED 升级给用户。
 - 全部执行完 → 进入 ④ 机器预检。
