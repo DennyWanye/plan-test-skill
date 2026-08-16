@@ -43,16 +43,27 @@
 
 ## 轮次与出口
 
+- `ASSURANCE_PROFILE`: standard
+  - `standard`：信任当前开发者账户、OS/kernel 与系统绝对路径程序；防错误目标、误操作、
+    非预期网络/持久化、敏感信息泄漏和产品状态污染。
+  - `hardened`：额外不信任项目输入、远程目标和运行数据，但仍信任开发者账户与 gate。
+  - `hostile-host`：宿主环境也可能被篡改，必须声明独立信任锚；仅可由用户显式批准启用。
+  - 保障等级或可信边界变化属于 scope/cost 变化，challenger 只能提出 proposal，不能自行升级。
 - `PLAN_ITERATIONS`: 1
-  - plan 挑战迭代的**最少**轮数。收敛按边际收益判定（见 phase-2：有新增 P0/P1 才续轮，
-    无新增即收敛），不设固定上限也不强凑轮数——DeskPet 复盘证明 4–6 轮可能还有真 P0，
-    而第 1 轮就干净 PASS 时凑满 3 轮纯属浪费。受 `MAX_ROUNDS` 兜底。
+  - 第一轮建立 breadth baseline；后续只审 open findings + diff + 有证据证明第一轮不可知的
+    新事实。无 open in-scope P0/P1 即收敛，不凑轮数。
+- `PLAN_CHALLENGE_SOFT_LIMIT`: 3
+  - 第 3 轮仍有新增 in-scope P0/P1 → `SCOPE_AUDIT_REQUIRED`；记录控制事件后才能续轮。
+- `PLAN_CHALLENGE_USER_REVIEW_ROUND`: 5
+  - 第 5 轮仍有新增问题 → `USER_REVIEW_REQUIRED`，不得静默继续。
+- `PLAN_CHALLENGE_HARD_LIMIT`: 8
+  - 第 8 轮仍有 open in-scope P0/P1 → 当前 plan loop `BLOCKED`；architecture reset 不清零历史。
 - `TESTCASE_ITERATIONS`: 2
   - testcase 迭代最少轮数。
 - `AUDIT_RETRY`: until-100
   - 完成度未达 100% 就循环补完（受 `MAX_ROUNDS` 兜底）。
 - `MAX_ROUNDS`: 15
-  - 任一"循环直到"的硬上限。超限 → 标记 BLOCKED，升级给用户，**不再空转烧 token**。
+  - 其他执行/审计循环的全局兜底；不再充当 plan challenge 的日常预算。
 
 ## 测试
 

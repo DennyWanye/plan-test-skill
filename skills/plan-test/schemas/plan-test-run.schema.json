@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "plan-test-run.schema.json",
   "title": "plan-test verification run ledger",
-  "description": "唯一状态账本（schema 1.3.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算，账本内不存任何可手写的结论字段。1.2.0 新增：re-attest 与内容指纹（attestations）、doc_only_globs（只可收窄）、superseded_evidence、applicability、integrity。1.3.0 新增（DeskPet 2026-08-03 复盘）：时间记账硬门（TIMING_MISSING/TIMING_GAP 升 error，仅真实 run）、evidence.file_mtime 与 imported/imported_from（先测后开账侦测 + import-evidence 合法通道）、phase 事件（phase-start/phase-end 配对，PHASE_UNPAIRED）、approvals（用户批准记录，全 AI 驾驶须批准）、scenario.impact_paths（按影响范围复测，fail-closed）。版本策略：validator 校验 major 相同（不符即 SCHEMA_INVALID），同 major 旧 minor 兼容（缺段视为空）。",
+  "description": "唯一状态账本（schema 1.4.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算。1.4.0 新增：challenge loop assurance contract 快照、真实 finding ID、scope/threat hash、breadth/diff review 与控制事件。1.3.0 新增时间记账、evidence provenance、phase、approvals、scenario impact_paths。1.2.0 新增 re-attest、内容指纹、applicability 与 integrity。版本策略：validator 校验 major 相同；旧 minor 可读，但旧 challenge loop 不得由 1.4 CLI 续写。",
   "type": "object",
   "required": [
     "schema_version",
@@ -830,6 +830,208 @@
             "type": "integer"
           }
         }
+      }
+    },
+    "challenge_loops": {
+      "type": "array",
+      "description": "Plan/review 循环原始事实。新循环必须使用 1.4 modern 结构；1.3 legacy 仅只读兼容。",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "not": {"required": ["contract_snapshots"]},
+            "required": ["loop_id", "loop_type", "target_file", "baseline_hash", "rounds"],
+            "properties": {
+              "loop_id": {"type": "string"},
+              "loop_type": {"type": "string"},
+              "target_file": {"type": "string"},
+              "baseline_hash": {"type": "string"},
+              "started_at": {"type": "string"},
+              "rounds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["round", "plan_hash", "findings"],
+                  "properties": {
+                    "round": {"type": "integer", "minimum": 1},
+                    "plan_hash": {"type": "string"},
+                    "dedupe_key": {"type": "string"},
+                    "findings": {
+                      "type": "object",
+                      "properties": {
+                        "critical": {"type": "integer", "minimum": 0},
+                        "major": {"type": "integer", "minimum": 0},
+                        "minor": {"type": "integer", "minimum": 0}
+                      }
+                    },
+                    "verdict": {"enum": ["PASS", "FAIL"]},
+                    "timestamp": {"type": "string"}
+                  }
+                }
+              },
+              "status": {"type": "string"}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "loop_id", "loop_type", "target_file", "baseline_hash", "started_at",
+              "limits", "acceptance_snapshots", "contract_snapshots", "rounds",
+              "control_events", "status"
+            ],
+            "properties": {
+              "loop_id": {"type": "string", "minLength": 1},
+              "loop_type": {"type": "string", "minLength": 1},
+              "target_file": {"type": "string", "minLength": 1},
+              "baseline_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "started_at": {"type": "string"},
+              "limits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["soft", "user_review", "hard"],
+                "properties": {
+                  "soft": {"type": "integer", "minimum": 1},
+                  "user_review": {"type": "integer", "minimum": 1},
+                  "hard": {"type": "integer", "minimum": 1}
+                }
+              },
+              "contract_snapshots": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path", "sha256", "scope_hash", "threat_model_hash", "profile",
+                    "acceptance_sha256",
+                    "acceptance_ids", "assurance_ids", "recorded_at"
+                  ],
+                  "properties": {
+                    "path": {"type": "string"},
+                    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "scope_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "threat_model_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "profile": {"enum": ["standard", "hardened", "hostile-host"]},
+                    "acceptance_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "acceptance_ids": {"type": "array", "items": {"type": "string"}},
+                    "assurance_ids": {"type": "array", "items": {"type": "string"}},
+                    "recorded_at": {"type": "string"}
+                  }
+                }
+              },
+              "acceptance_snapshots": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "sha256", "recorded_at"],
+                  "properties": {
+                    "path": {"type": "string"},
+                    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "recorded_at": {"type": "string"}
+                  }
+                }
+              },
+              "rounds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "round", "review_mode", "coverage", "plan_hash", "based_on_plan_hash",
+                    "scope_hash", "threat_model_hash", "findings", "new_critical_findings",
+                    "reviewer_verdict", "timestamp"
+                  ],
+                  "properties": {
+                    "round": {"type": "integer", "minimum": 1},
+                    "review_mode": {"enum": ["breadth", "diff", "consolidated"]},
+                    "coverage": {
+                      "oneOf": [
+                        {"type": "null"},
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "acceptance_coverage", "entry_and_trust_chain",
+                            "data_flow_and_persistence", "identity_permissions_concurrency_cleanup",
+                            "failure_and_recovery", "tests_and_evidence", "release_and_rollback",
+                            "trusted_boundary_stop"
+                          ],
+                          "properties": {
+                            "acceptance_coverage": {"const": true},
+                            "entry_and_trust_chain": {"const": true},
+                            "data_flow_and_persistence": {"const": true},
+                            "identity_permissions_concurrency_cleanup": {"const": true},
+                            "failure_and_recovery": {"const": true},
+                            "tests_and_evidence": {"const": true},
+                            "release_and_rollback": {"const": true},
+                            "trusted_boundary_stop": {"const": true}
+                          }
+                        }
+                      ]
+                    },
+                    "plan_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "based_on_plan_hash": {"type": ["string", "null"]},
+                    "scope_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "threat_model_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "findings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id", "severity", "scope_relation", "origin",
+                          "violated_acceptance_ids", "assurance_contract_ids", "evidence",
+                          "status", "root_cause"
+                        ],
+                        "properties": {
+                          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$"},
+                          "severity": {"enum": ["P0", "P1", "P2"]},
+                          "scope_relation": {"enum": ["in-scope", "out-of-scope", "scope-change-proposal"]},
+                          "origin": {"enum": ["pre-existing", "patch-induced", "new-external-fact"]},
+                          "violated_acceptance_ids": {"type": "array", "items": {"type": "string"}},
+                          "assurance_contract_ids": {"type": "array", "items": {"type": "string"}},
+                          "evidence": {"type": "string", "minLength": 1},
+                          "status": {"enum": ["open", "resolved", "advisory"]},
+                          "root_cause": {"type": "string", "minLength": 1},
+                          "why_not_found_in_round_one": {"type": "string", "minLength": 1}
+                        }
+                      }
+                    },
+                    "new_critical_findings": {"type": "integer", "minimum": 0},
+                    "reviewer_verdict": {"type": ["string", "null"], "enum": ["PASS", "FAIL", null]},
+                    "timestamp": {"type": "string"}
+                  }
+                }
+              },
+              "control_events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "action", "after_round", "outcome", "evidence", "approval_hash", "recorded_at"
+                  ],
+                  "properties": {
+                    "action": {"enum": ["scope-audit", "architecture-reset", "user-review", "scope-change-approved"]},
+                    "after_round": {"type": "integer", "minimum": 0},
+                    "outcome": {"type": ["string", "null"]},
+                    "evidence": {"type": "string", "minLength": 1},
+                    "approval_hash": {"type": ["string", "null"]},
+                    "plan_hash": {"type": "string"},
+                    "acceptance_sha256": {"type": "string"},
+                    "scope_hash": {"type": "string"},
+                    "threat_model_hash": {"type": "string"},
+                    "recorded_at": {"type": "string"}
+                  }
+                }
+              },
+              "status": {"type": "string"}
+            }
+          }
+        ]
       }
     },
     "related_run_dirs": {

@@ -10,14 +10,18 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 **姊妹 skill**：本插件还提供两个拆分入口，共享本目录的阶段文档与配置——`plan-bs`（头脑风暴共创 plan → 迭代 + spike 验证 → review 定稿，不实现业务代码）和 `plan-task`（执行已定稿 plan + 测试闭环）。plan-test = plan-bs + plan-task 的一条龙自动版。
 
 **核心原则**
-- **唯一真相来源**：一切（plan 收敛、完成度审计、testcase 覆盖）都回溯到 `acceptance.md` 里的验收标准。事实源本身要过**行为契约冻结**（phase-2）——acceptance 写错，100% 只会更稳定地做错。
+- **唯一真相来源**：一切回溯到用户批准的 `acceptance.md` + `assurance-contract.json`。
+  后者冻结保障等级、可信假设、范围内失败/对手和最大影响；challenger 不得自行扩大。
 - **机器门是唯一完成 authority**（见 `gate/PROTOCOL.md` + `config.md`"机器门禁"）：Markdown 是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `scripts/plan_test_gate.py` 重算；**最终交付判定只接受 `finalize` 的 exit code**，没有有效 `gate-receipt.json` 的手写 SHIP/100% 一律无效。qualitative auditor 负责发现未知问题，deterministic validator 负责阻止已知违规，两者不可互替。
 - **条件门的适用性判定是 fact，不是口头判断**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 gate manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），由 init 冻结进账本与 receipt。判"不适用"合法，但**理由留痕、事后可追责**；判"适用"则场景矩阵必须真的兑现，否则 `APPLICABILITY_GATE_UNSATISFIED`。此前判一句"这是确定性 UI"就能让四道门合法消失且无人知晓。
 - **机器门要真的被调用才存在**：`hooks/` 提供 Stop hook 与 CI 片段，把"必须跑 finalize"从纪律变成强制。未启用任一种时，交付说明里要如实写"机器门为自愿调用"。
 - **每个声明可验证**：不说"看起来做完了"，而是逐条核对可追溯矩阵。
-- **每个失败有出口**：所有"循环直到 100%"都有 `MAX_ROUNDS`，超限 → 标记 BLOCKED 升级给用户。
+- **每个失败有出口**：plan challenge 使用 3/5/8 的 scope-audit/user-review/hard-stop；
+  其他循环使用 `MAX_ROUNDS`。任何 reset 都不清零历史。
 - **功能只增不减**：遇分歧按最佳实践自决（**自决仅限实现层**——plan 层缺陷走 phase-3 A2 回炉，不许打补丁绕），但绝不少做。
-- **小 slice 交付**：交付体量超 `RELEASE_UNIT_LIMITS`（16 条复合 MUST AC / 4676 行 plan 式的超大 release unit）→ validator 直接 `RELEASE_UNIT_TOO_LARGE`，拆 program plan + 垂直 slice，每个 slice 独立验收。
+- **小 slice 交付**：交付体量超 `RELEASE_UNIT_LIMITS`（默认 8 条 MUST AC / 10 个 Task /
+  2000 行 plan / 3 个高风险子系统）→ validator 直接 `RELEASE_UNIT_TOO_LARGE`，拆 program plan +
+  垂直 slice，每个 slice 独立验收。
 
 ## 开场（每次必做）
 
@@ -30,7 +34,7 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 
 | # | 阶段 | 文档 | 关键产物 |
 |---|---|---|---|
-| A | 需求澄清 & 验收标准 | `phase-A-acceptance.md` | `acceptance.md`（唯一真相来源） |
+| A | 需求澄清 & 验收标准 | `phase-A-acceptance.md` | `acceptance.md` + `assurance-contract.json` |
 | 0 | 架构基线 | `phase-0-architecture.md` | `{ARCH_DIR}/ARCHITECTURE.md` + index.md |
 | 1 | 写 plan | `phase-1-plan.md` | `{PLANS_DIR}/<feature>/plan.md` |
 | 2 | 迭代 plan（含锁定绿色基线） | `phase-2-iterate-plan.md` | 定稿 plan + 基线快照 |
@@ -76,15 +80,18 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 
 子代理是冷启动的，不共享我的上下文。**每次派发必须随 prompt 附上"上下文包"**，而不是让子代理自己全仓摸索：
 
-1. **直接嵌入**：`acceptance.md` 相关条款原文、plan 相关片段原文、上一轮挑战/审计的结论清单。
+1. **直接嵌入**：`acceptance.md`、`assurance-contract.json` 相关原文、plan 片段、上一轮
+   open/resolved finding ledger；不得只给自然语言摘要。
 2. **圈定读取范围**：明确列出"只需读这些文件/目录"，禁止子代理全仓扫描。
-3. **增量迭代**：多轮挑战/审计时，把"上一轮已确认闭环的问题清单"传给下一轮，声明**不必重复挑战已闭环项**，只挑战新增与未闭环部分。
+3. **增量迭代**：第一轮 breadth；后续传当前 diff + open/resolved ID，只挑战未闭环、diff 和
+   第一轮不可知的新事实。重大 architecture/scope/trust-boundary 变化才做 consolidated review。
 
-### 结论行解析（VERDICT）
+### 输出 authority
 
-- 所有挑战/审计类子代理的输出**最后一行必须是 `VERDICT: PASS` 或 `VERDICT: FAIL`**（提示词里已规定）。
-- 我只按这一行判定循环是否继续，不靠解读正文语气。
-- 最后一行缺失或不合格式 → **一律按 FAIL 处理**，并在下一轮派发时要求补上结论行；不许自行脑补为通过。
+- plan challenger 只输出结构化 findings JSON；`plan_test_gate.py` 按真实 ID、scope、状态和控制
+  事件推导收敛，reviewer 自报 PASS/FAIL 没有 authority。
+- 其他 qualitative auditor 仍按各自 prompt 的 `VERDICT` 契约输出；最终交付 authority 始终是
+  deterministic gate 的 exit code 与 receipt。
 
 ## 何时不要用
 

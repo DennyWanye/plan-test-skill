@@ -8,6 +8,7 @@ dogfood，以及一条完整 PASS 路径。全部经 canonical CLI 路径执行�
 """
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -18,7 +19,9 @@ import unittest
 
 FIXTURE_EXIT = 3  # fixture-only run 通过（合成数据，非交付通过）
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# Installed Codex skills may be reached through a directory symlink. Resolve it so
+# repository-level fixtures (hooks/) are found from the real skill source checkout.
+HERE = os.path.dirname(os.path.realpath(__file__))
 GATE = os.path.join(HERE, "plan_test_gate.py")
 
 
@@ -339,6 +342,19 @@ class GateTestCase(GateHarness):
         r = self.finalize(check_only=True)
         self.assertEqual(r.returncode, 1)
         self.assertIn("RELEASE_UNIT_TOO_LARGE", r.stdout)
+
+    def test_release_unit_counts_only_formal_ac_table_rows(self):
+        rows = ["| AC-%d | MUST | behavior %d |" % (n, n) for n in range(1, 9)]
+        acceptance = self.write(
+            "release-acceptance.md",
+            "| ID | Level | Rule |\n|---|---|---|\n" + "\n".join(rows)
+            + "\n| Summary | 覆盖 8 条 MUST | not another AC |\n",
+        )
+        plan = self.write("small-plan.md", "# plan\n")
+        r = run_gate(["check-release-unit", "--acceptance", acceptance,
+                      "--plan", plan, "--max-must-ac", "8"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("MUST AC: 8 / 8", r.stdout)
 
     def test_required_lane_closure(self):
         """fresh lane PASS、history lane 未执行 → FAIL。"""
@@ -2229,6 +2245,330 @@ class HookOutputBudgetTestCase(StopHookTestCase):
                       "--approval-hash", "b" * 64], cwd=self.repo)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(run().returncode, 0, run().stderr)
+
+
+class ChallengeLoopAssuranceTestCase(GateHarness):
+    """Review-loop 1.4：范围冻结、真实 finding ID 与机器推导收敛状态。"""
+
+    COVERAGE = {
+        "acceptance_coverage": True,
+        "entry_and_trust_chain": True,
+        "data_flow_and_persistence": True,
+        "identity_permissions_concurrency_cleanup": True,
+        "failure_and_recovery": True,
+        "tests_and_evidence": True,
+        "release_and_rollback": True,
+        "trusted_boundary_stop": True,
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.init([{"scenario_id": "S-1", "required": True}])
+        self.plan = self.write("plan.md", "# plan\n\ninitial\n")
+        self.contract = self.write("assurance-contract.json", json.dumps({
+            "profile": "standard",
+            "acceptance_ids": ["AC-01"],
+            "protected_assets": [{"id": "ASSET-DEVICE", "description": "target device"}],
+            "trusted_assumptions": [{"id": "TRUST-DEV-ACCOUNT", "description": "developer account"}],
+            "in_scope_failures": [{"id": "FAIL-WRONG-HOST", "description": "wrong target"}],
+            "in_scope_adversaries": [],
+            "out_of_scope_conditions": [{"id": "OOS-HOST-OWNER", "description": "host owner compromised"}],
+            "maximum_acceptable_impact": "read-only plan review; no target mutation"
+        }, ensure_ascii=False))
+        r = run_gate(["start-challenge-loop", "--run-dir", self.run_dir,
+                      "--loop-type", "plan-iteration", "--target-file", self.plan,
+                      "--assurance-contract", self.contract])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.loop_id = r.stdout.strip().splitlines()[-1]
+        self.last_hash = sha256_file(self.plan)
+
+    def finding(self, fid, severity="P0", scope="in-scope", origin="pre-existing",
+                status="open", evidence="source pointer", ac=None, assurance=None, **extra):
+        item = {
+            "id": fid,
+            "severity": severity,
+            "scope_relation": scope,
+            "origin": origin,
+            "violated_acceptance_ids": ["AC-01"] if ac is None else ac,
+            "assurance_contract_ids": ["FAIL-WRONG-HOST"] if assurance is None else assurance,
+            "evidence": evidence,
+            "status": status,
+            "root_cause": extra.pop("root_cause", "missing invariant"),
+        }
+        item.update(extra)
+        return item
+
+    def record(self, round_no, findings, review_mode=None, coverage=None,
+               reviewer_verdict=None, based_on=None):
+        review_mode = review_mode or ("breadth" if round_no == 1 else "diff")
+        payload = {"review_mode": review_mode, "findings": findings}
+        if round_no == 1:
+            payload["coverage"] = self.COVERAGE if coverage is None else coverage
+        fp = self.write("findings-%d.json" % round_no,
+                        json.dumps(payload, ensure_ascii=False))
+        current_hash = sha256_file(self.plan)
+        args = ["record-challenge-round", "--run-dir", self.run_dir,
+                "--loop-id", self.loop_id, "--round", str(round_no),
+                "--plan-hash", current_hash, "--findings", fp]
+        if round_no > 1:
+            args += ["--based-on-plan-hash", based_on or self.last_hash]
+        if reviewer_verdict:
+            args += ["--verdict", reviewer_verdict]
+        r = run_gate(args)
+        if r.returncode in (0, 1):
+            self.last_hash = current_hash
+        return r
+
+    def revise_plan(self, marker):
+        with open(self.plan, "a", encoding="utf-8") as f:
+            f.write(marker + "\n")
+
+    def control(self, action, outcome=None, approval_hash=None, acceptance=None,
+                assurance_contract=None):
+        args = ["record-challenge-control", "--run-dir", self.run_dir,
+                "--loop-id", self.loop_id, "--action", action,
+                "--evidence", "reviewed control action"]
+        if outcome:
+            args += ["--outcome", outcome]
+        if approval_hash:
+            args += ["--approval-hash", approval_hash]
+        if acceptance:
+            args += ["--acceptance", acceptance]
+        if assurance_contract:
+            args += ["--assurance-contract", assurance_contract]
+        return run_gate(args)
+
+    def test_same_finding_id_reworded_is_not_new(self):
+        r1 = self.record(1, [self.finding("wrong-host")])
+        self.assertIn("NEW_CRITICAL_FINDINGS: 1", r1.stdout)
+        self.revise_plan("fix attempt")
+        repeated = self.finding("wrong-host", evidence="same issue, different wording")
+        r2 = self.record(2, [repeated])
+        self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+        self.assertIn("NEW_CRITICAL_FINDINGS: 0", r2.stdout)
+
+    def test_same_count_different_ids_is_new(self):
+        self.record(1, [self.finding("wrong-host")])
+        self.revise_plan("first fix")
+        r2 = self.record(2, [self.finding("secret-persistence", origin="new-external-fact",
+                                                assurance=["ASSET-DEVICE"])])
+        self.assertIn("NEW_CRITICAL_FINDINGS: 1", r2.stdout)
+
+    def test_out_of_scope_hostile_host_is_advisory(self):
+        hostile = self.finding(
+            "python-sitecustomize", scope="out-of-scope", status="advisory",
+            ac=[], assurance=["OOS-HOST-OWNER"])
+        r = self.record(1, [hostile], reviewer_verdict="FAIL")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("LOOP_STATE: CONVERGED", r.stdout)
+        self.assertIn("REVIEWER_VERDICT_IGNORED", r.stdout)
+
+    def test_in_scope_p0_without_acceptance_binding_fails_closed(self):
+        bad = self.finding("unbound", ac=[])
+        r = self.record(1, [bad])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("SCHEMA_INVALID", r.stderr)
+
+    def test_round_three_new_critical_requires_scope_audit(self):
+        self.record(1, [self.finding("f-1")])
+        self.revise_plan("r2")
+        self.record(2, [self.finding("f-2", origin="new-external-fact")])
+        self.revise_plan("r3")
+        r3 = self.record(3, [self.finding("f-3", origin="new-external-fact")])
+        self.assertEqual(r3.returncode, 1)
+        self.assertIn("LOOP_STATE: SCOPE_AUDIT_REQUIRED", r3.stdout)
+        check = run_gate(["check-loop-limit", "--run-dir", self.run_dir,
+                          "--loop-id", self.loop_id])
+        self.assertEqual(check.returncode, 1)
+        self.assertIn("SCOPE_AUDIT_REQUIRED", check.stdout)
+        self.assertEqual(self.control("scope-audit", outcome="continue").returncode, 0)
+        self.assertEqual(run_gate(["check-loop-limit", "--run-dir", self.run_dir,
+                                  "--loop-id", self.loop_id]).returncode, 0)
+
+    def test_two_consecutive_patch_induced_p0_require_architecture_reset(self):
+        self.record(1, [self.finding("base", status="resolved")])
+        self.revise_plan("patch one")
+        self.record(2, [self.finding("patch-1", origin="patch-induced")])
+        self.revise_plan("patch two")
+        r3 = self.record(3, [self.finding("patch-2", origin="patch-induced")])
+        self.assertEqual(r3.returncode, 1)
+        self.assertIn("ARCHITECTURE_RESET_REQUIRED", r3.stdout)
+
+    def test_breadth_coverage_is_required_in_round_one(self):
+        r = self.record(1, [], coverage={"acceptance_coverage": True})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BREADTH_REVIEW_INCOMPLETE", r.stderr)
+
+    def test_contract_hash_change_requires_user_approval(self):
+        with open(self.contract, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["profile"] = "hostile-host"
+        with open(self.contract, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        r = self.record(1, [])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ASSURANCE_CONTRACT_CHANGED", r.stderr)
+
+    def test_acceptance_hash_change_requires_user_approval(self):
+        with open(os.path.join(self.tmp, "acceptance.md"), "a", encoding="utf-8") as f:
+            f.write("AC-02 MUST: silently expanded scope\n")
+        r = self.record(1, [])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ACCEPTANCE_CHANGED", r.stderr)
+
+    def test_approved_scope_change_can_replace_acceptance_snapshot(self):
+        proposal = self.finding("add-approved-scope", scope="scope-change-proposal",
+                                assurance=["FAIL-WRONG-HOST"])
+        self.assertIn("USER_SCOPE_APPROVAL_REQUIRED", self.record(1, [proposal]).stdout)
+        acceptance = os.path.join(self.tmp, "acceptance.md")
+        with open(acceptance, "a", encoding="utf-8") as f:
+            f.write("AC-02 MUST: user-approved scope extension\n")
+        approved = self.control("scope-change-approved", outcome="continue",
+                                approval_hash="b" * 64, acceptance=acceptance)
+        self.assertEqual(approved.returncode, 0, approved.stdout + approved.stderr)
+        self.revise_plan("approved scope reflected")
+        resolved = self.finding("add-approved-scope", scope="scope-change-proposal",
+                                status="resolved", assurance=["FAIL-WRONG-HOST"])
+        r2 = self.record(2, [resolved])
+        self.assertEqual(r2.returncode, 2)
+        self.assertIn("CONSOLIDATED_REVIEW_REQUIRED", r2.stderr)
+
+    def test_reviewer_pass_cannot_override_open_blocker(self):
+        r = self.record(1, [self.finding("still-open")], reviewer_verdict="PASS")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("LOOP_STATE: CONTINUE", r.stdout)
+        self.assertIn("REVIEWER_VERDICT_IGNORED", r.stdout)
+
+    def test_round_sequence_and_base_hash_are_fail_closed(self):
+        self.record(1, [])
+        self.revise_plan("r2")
+        r = self.record(3, [], based_on="0" * 64)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ROUND_SEQUENCE_INVALID", r.stderr)
+
+    def test_preexisting_finding_after_round_one_explains_late_discovery(self):
+        self.record(1, [])
+        self.revise_plan("r2")
+        r = self.record(2, [self.finding("late-preexisting")])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("LATE_FINDING_UNEXPLAINED", r.stderr)
+        explained = self.finding("late-preexisting",
+                                 why_not_found_in_round_one="new source file was supplied")
+        r = self.record(2, [explained])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_standard_profile_keeps_aiphone_host_owner_risks_advisory(self):
+        findings = [
+            self.finding("wrong-phone"),
+            self.finding("secret-on-disk", assurance=["ASSET-DEVICE"]),
+            self.finding("sitecustomize-prehook", scope="out-of-scope", status="advisory",
+                         ac=[], assurance=["OOS-HOST-OWNER"]),
+            self.finding("shell-prehook", scope="out-of-scope", status="advisory",
+                         ac=[], assurance=["OOS-HOST-OWNER"]),
+        ]
+        r = self.record(1, findings)
+        self.assertIn("NEW_CRITICAL_FINDINGS: 2", r.stdout)
+        self.assertIn("ADVISORY_FINDINGS: 2", r.stdout)
+
+    def test_hard_limit_blocks_without_resetting_history(self):
+        # Test-specific policy proves hard-stop semantics without spending eight rounds.
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
+            ledger = json.load(f)
+        self.assertEqual(ledger["challenge_loops"][0]["limits"]["hard"], 8)
+        for n in range(1, 9):
+            if n > 1:
+                self.revise_plan("round-%d" % n)
+            finding = self.finding("f-%d" % n, origin="new-external-fact" if n > 1 else "pre-existing")
+            r = self.record(n, [finding])
+            if n == 3:
+                self.assertIn("SCOPE_AUDIT_REQUIRED", r.stdout)
+                self.control("scope-audit", outcome="continue")
+            if n == 5:
+                self.assertIn("USER_REVIEW_REQUIRED", r.stdout)
+                self.control("user-review", outcome="continue")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("LOOP_STATE: BLOCKED", r.stdout)
+
+    def test_scope_change_can_only_resume_with_user_approval(self):
+        proposal = self.finding("need-hostile-host", scope="scope-change-proposal",
+                                assurance=["OOS-HOST-OWNER"])
+        r = self.record(1, [proposal])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("USER_SCOPE_APPROVAL_REQUIRED", r.stdout)
+        bad = self.control("scope-change-approved", outcome="continue")
+        self.assertEqual(bad.returncode, 2)
+        good = self.control("scope-change-approved", outcome="continue",
+                            approval_hash="a" * 64)
+        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+
+    def test_malformed_findings_fail_closed_stably(self):
+        for index, payload in enumerate((None, [], "bad", {"review_mode": "breadth", "findings": None})):
+            with self.subTest(payload=payload):
+                fp = self.write("malformed-%d.json" % index, json.dumps(payload))
+                r = run_gate(["record-challenge-round", "--run-dir", self.run_dir,
+                              "--loop-id", self.loop_id, "--round", "1",
+                              "--plan-hash", sha256_file(self.plan), "--findings", fp])
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("SCHEMA_INVALID", r.stderr)
+        r = run_gate(["record-challenge-round", "--run-dir", self.run_dir,
+                      "--loop-id", self.loop_id, "--round", "-1",
+                      "--plan-hash", sha256_file(self.plan), "--findings", fp])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ROUND_SEQUENCE_INVALID", r.stderr)
+        bad_id = self.finding("valid-id")
+        bad_id["id"] = []
+        r = self.record(1, [bad_id])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("SCHEMA_INVALID", r.stderr)
+
+    def test_control_events_cannot_be_pre_authorized(self):
+        r = self.control("scope-audit", outcome="continue")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("CONTROL_NOT_REQUIRED", r.stderr)
+
+    def test_architecture_reset_requires_changed_plan_and_consolidated_review(self):
+        self.record(1, [self.finding("base", status="resolved")])
+        self.revise_plan("patch one")
+        self.record(2, [self.finding("patch-1", origin="patch-induced")])
+        self.revise_plan("patch two")
+        self.record(3, [self.finding("patch-2", origin="patch-induced")])
+        unchanged = self.control("architecture-reset")
+        self.assertEqual(unchanged.returncode, 2)
+        self.assertIn("ARCHITECTURE_RESET_INCOMPLETE", unchanged.stderr)
+        self.revise_plan("architecture rewritten")
+        reset = self.control("architecture-reset")
+        self.assertEqual(reset.returncode, 0, reset.stdout + reset.stderr)
+        bad = self.record(4, [], review_mode="diff")
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn("CONSOLIDATED_REVIEW_REQUIRED", bad.stderr)
+        payload = {"review_mode": "consolidated", "coverage": self.COVERAGE,
+                   "findings": [self.finding("patch-1", origin="patch-induced", status="resolved"),
+                                self.finding("patch-2", origin="patch-induced", status="resolved")]}
+        fp = self.write("findings-4-consolidated.json", json.dumps(payload, ensure_ascii=False))
+        r = run_gate(["record-challenge-round", "--run-dir", self.run_dir,
+                      "--loop-id", self.loop_id, "--round", "4",
+                      "--plan-hash", sha256_file(self.plan),
+                      "--based-on-plan-hash", self.last_hash, "--findings", fp])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("LOOP_STATE: CONVERGED", r.stdout)
+
+    def test_schema_13_legacy_loop_remains_readable(self):
+        spec = importlib.util.spec_from_file_location("plan_test_gate_compat", GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        legacy = {
+            "schema_version": "1.3.0", "run_id": "legacy", "source_request": {},
+            "scenarios": [], "runs": [], "evidence": [],
+            "challenge_loops": [{
+                "loop_id": "plan-iteration-001", "loop_type": "plan-iteration",
+                "target_file": "plan.md", "baseline_hash": "a" * 64,
+                "rounds": [{"round": 1, "plan_hash": "a" * 64,
+                            "findings": {"critical": 1, "major": 0, "minor": 0}}],
+                "status": "active"
+            }]
+        }
+        errors = gate.structural_check(legacy)
+        self.assertFalse([e for e in errors if "challenge_loops" in e], errors)
 
 
 if __name__ == "__main__":

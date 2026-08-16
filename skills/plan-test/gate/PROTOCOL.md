@@ -44,6 +44,10 @@ python skills/plan-test/scripts/plan_test_gate.py finalize --run-dir <run-dir>
 - `render`：重新运行同一 validator、复验 receipt digest，失效时**不渲染 SHIPPABLE**。
 - 没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为
   `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
+- plan challenge：`start-challenge-loop` 冻结 `assurance-contract.json`；
+  `record-challenge-round` 只接收结构化 finding envelope 并按真实 ID 推导状态；
+  `record-challenge-control` 记录 scope audit、architecture reset、user review/scope approval。
+  Reviewer 自报 verdict 不参与收敛。
 
 ### exit code（交付判定只看这个）
 

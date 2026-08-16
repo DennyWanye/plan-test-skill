@@ -14,6 +14,14 @@
    - 反例："登录要好用"。
    - 正例："用 OAuth 登录成功后跳转到 /dashboard，且旧短信验证码入口仍可用"。
 3. **标注边界与非功能要求**：错误态、空态、并发、幂等、性能阈值、兼容性。
+3b. **冻结 assurance contract**：在 acceptance 同目录生成 `assurance-contract.json`，作为
+   challenge gate 的结构化输入。所有任务都声明 failure/assumption/impact；只有安全敏感任务才需要
+   adversary/asset/trust-boundary 细化。
+   - 默认 `profile=standard`；不得因为 challenger 想到更强攻击者而自行升级。
+   - 每条 asset、assumption、failure、adversary、out-of-scope condition 使用稳定 ID。
+   - `hardened` / `hostile-host`、可信边界变化或扩大最大影响必须由用户明确确认。
+   - assurance contract 的 scope/threat hash 在 challenge loop 启动时冻结；变化走
+     `scope-change-proposal → user approval`，不能静默覆盖。
 4. **测试场景矩阵**（输入语义敏感功能必做，判定见 config"真人测试广度门禁"）：
    - 为真人测试预先定义**语义不等价的输入类别**，至少 `{MANUAL_MIN_DISTINCT_CLASSES}` 个代表类别；适用时额外含 1 个错误态/低证据/对抗场景（`{MANUAL_REQUIRE_NEGATIVE_CLASS}`）。
    - **门分两类，缺一不可**：每个场景标注 `gate_type`——
@@ -52,6 +60,14 @@
 - 性能：……
 - 兼容：……
 
+## Assurance contract 摘要
+- Profile：standard（默认）/ hardened / hostile-host
+- 受保护资产：……
+- 可信假设：……
+- 范围内失败/对手：……
+- 明确范围外条件：……
+- 最大可接受影响：……
+
 ## 测试场景矩阵（输入语义敏感功能必填；确定性 UI 删除本节）
 | scenario_id | input_class（语义类别） | exact_input（自然用户语言） | primary_risk（验证什么） | gate_type | required | manual_required | terminal_expectation | quality_bar（正向门必填） |
 |-------------|------------------------|------------------------------|--------------------------|-----------|----------|-----------------|----------------------|---------------------------|
@@ -66,7 +82,22 @@
 - 文档已同步
 ```
 
+同目录 `assurance-contract.json` 使用机器可读结构：
+
+```json
+{
+  "profile": "standard",
+  "acceptance_ids": ["AC-1"],
+  "protected_assets": [{"id": "ASSET-1", "description": "..."}],
+  "trusted_assumptions": [{"id": "TRUST-1", "description": "..."}],
+  "in_scope_failures": [{"id": "FAIL-1", "description": "..."}],
+  "in_scope_adversaries": [],
+  "out_of_scope_conditions": [{"id": "OOS-1", "description": "..."}],
+  "maximum_acceptable_impact": "..."
+}
+```
+
 ## 出口
 
-- `{ACCEPTANCE_FILE}` 已生成且用户确认 → 进入 phase-0。
+- `{ACCEPTANCE_FILE}` 与 `assurance-contract.json` 已生成且用户确认 → 进入 phase-0。
 - 用户无法澄清关键条款 → 标记 BLOCKED，说明缺哪条信息。

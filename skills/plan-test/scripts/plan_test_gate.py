@@ -31,8 +31,8 @@ import sys
 import tempfile
 import time
 
-SCHEMA_VERSION = "1.3.0"
-VALIDATOR_VERSION = "1.3.0"
+SCHEMA_VERSION = "1.4.0"
+VALIDATOR_VERSION = "1.4.0"
 FIXTURE_EXIT = 3  # fixture-only run 通过：与真实交付的 exit 0 分开，堵"设个字段就绿"
 LEDGER_NAME = "plan-test-run.json"
 RECEIPT_NAME = "gate-receipt.json"
@@ -45,19 +45,44 @@ STATES = ["DRAFT", "ACCEPTED", "IMPLEMENTED", "TESTED", "VALIDATED", "SHIPPABLE"
 # 交付措辞里视为"宣布完成"的 verdict（与 ledger 冲突时触发硬门）
 SHIP_VERDICTS = {"SHIP", "100% COMPLETE", "COMPLETE", "DONE", "SHIPPABLE"}
 
-# release-unit 默认阈值（2026-08-14 优化：从文档规则变为硬门禁）
+# release-unit 默认阈值（与 config.md RELEASE_UNIT_LIMITS 保持单一口径）
 DEFAULT_THRESHOLDS = {
-    "must_ac_count": 16,           # 单个 slice 的 MUST AC 上限（原 8 → 16，对齐 OPTIMIZATION_RECOMMENDATIONS）
-    "max_plan_lines": 4676,        # implementation-tasks.md 行数上限
-    "high_risk_subsystems": 3,     # 高风险子系统数量上限
-    "max_wip_lines": 5000,         # 未提交 WIP 行数上限
-    "max_wip_files": 20,           # 未提交 WIP 文件数上限
+    "must_ac_count": 8,
+    "task_count": 10,
+    "plan_lines": 2000,
+    "high_risk_subsystems": 3,
+    "concurrent_layer_kinds": 3,
+    "max_wip_lines": 5000,
+    "max_wip_files": 20,
 }
 
-# 循环控制（2026-08-14 优化：防止挑战失控）
-MAX_CHALLENGE_ROUNDS = 15          # 挑战循环硬上限（超限强制 BLOCKED）
+# 循环控制：plan challenge 使用独立的 soft/review/hard limit；15 只保留给其他循环。
+PLAN_CHALLENGE_SOFT_LIMIT = 3
+PLAN_CHALLENGE_USER_REVIEW_ROUND = 5
+PLAN_CHALLENGE_HARD_LIMIT = 8
+MAX_CHALLENGE_ROUNDS = 15
 MAX_A2_EVENTS = 3                  # Phase 3 中 A2 plan defect 累计上限
 MIN_PROGRESS_INTERVAL_MINUTES = 90 # Ledger 零增长警告阈值
+
+ASSURANCE_PROFILES = {"standard", "hardened", "hostile-host"}
+FINDING_SEVERITIES = {"P0", "P1", "P2"}
+FINDING_SCOPE_RELATIONS = {"in-scope", "out-of-scope", "scope-change-proposal"}
+FINDING_ORIGINS = {"pre-existing", "patch-induced", "new-external-fact"}
+FINDING_STATUSES = {"open", "resolved", "advisory"}
+CHALLENGE_REVIEW_MODES = {"breadth", "diff", "consolidated"}
+BREADTH_COVERAGE_KEYS = {
+    "acceptance_coverage",
+    "entry_and_trust_chain",
+    "data_flow_and_persistence",
+    "identity_permissions_concurrency_cleanup",
+    "failure_and_recovery",
+    "tests_and_evidence",
+    "release_and_rollback",
+    "trusted_boundary_stop",
+}
+CHALLENGE_CONTROL_ACTIONS = {
+    "scope-audit", "architecture-reset", "user-review", "scope-change-approved"
+}
 
 # Plan 增长警告阈值
 MAX_PLAN_GROWTH_RATIO = 1.5        # Plan 体量增长超过此比例时主动报告
@@ -106,6 +131,8 @@ CANONICAL_ORDER = [
     "STABILITY_SAMPLES_INSUFFICIENT", "RELEASE_UNIT_TOO_LARGE",
     "RELEASE_UNIT_UNDECLARED", "WIP_ACCUMULATION_UNSAFE",
     "LOOP_LIMIT_EXCEEDED", "LOOP_REGRESSION", "LOOP_NO_PROGRESS", "LOOP_RESET_EVASION",
+    "SCOPE_AUDIT_REQUIRED", "ARCHITECTURE_RESET_REQUIRED",
+    "USER_REVIEW_REQUIRED", "USER_SCOPE_APPROVAL_REQUIRED",
     "PLAN_UNSTABLE", "LEDGER_STALLED",
     "TESTED_RUNTIME_MISMATCH", "RETEST_REQUIRED_AFTER_CHANGE",
     "AUDITOR_MISSING", "AUDITOR_VERDICT_MISMATCH",
@@ -566,6 +593,43 @@ def structural_check(ledger):
         kind = _req(e, "kind", str, "evidence[%d]" % i, errors)
         if kind is not None and kind not in ("primary", "derived"):
             errors.append("SCHEMA_INVALID: evidence[%d].kind=%r 非法" % (i, kind))
+    loops = ledger.get("challenge_loops", [])
+    if not isinstance(loops, list):
+        errors.append("SCHEMA_INVALID: challenge_loops 须为数组")
+        loops = []
+    for li, loop in enumerate(loops):
+        where = "challenge_loops[%d]" % li
+        if not isinstance(loop, dict):
+            errors.append("SCHEMA_INVALID: %s 须为 object" % where)
+            continue
+        for key, typ in (("loop_id", str), ("loop_type", str), ("target_file", str),
+                         ("baseline_hash", str), ("rounds", list)):
+            _req(loop, key, typ, where, errors)
+        snapshots = loop.get("contract_snapshots") or []
+        if not isinstance(snapshots, list):
+            errors.append("SCHEMA_INVALID: %s.contract_snapshots 须为数组" % where)
+        modern_loop = bool(snapshots)
+        for ri, round_record in enumerate(loop.get("rounds") or []):
+            rw = "%s.rounds[%d]" % (where, ri)
+            if not isinstance(round_record, dict):
+                errors.append("SCHEMA_INVALID: %s 须为 object" % rw)
+                continue
+            _req(round_record, "round", int, rw, errors)
+            _req(round_record, "plan_hash", str, rw, errors)
+            if not modern_loop:
+                # schema 1.3 legacy loop：findings 是数量 object；只读兼容，不允许再由新 CLI 续写。
+                continue
+            findings = _req(round_record, "findings", list, rw, errors) or []
+            for fi, finding in enumerate(findings):
+                fw = "%s.findings[%d]" % (rw, fi)
+                if not isinstance(finding, dict):
+                    errors.append("SCHEMA_INVALID: %s 须为 object" % fw)
+                    continue
+                _req(finding, "id", str, fw, errors)
+                _req(finding, "severity", str, fw, errors)
+                _req(finding, "scope_relation", str, fw, errors)
+                _req(finding, "origin", str, fw, errors)
+                _req(finding, "status", str, fw, errors)
     return errors
 
 
@@ -687,6 +751,10 @@ def expected_chain_length(ledger):
                 "superseded_evidence", "approvals"):
         n += len(ledger.get(key) or [])
     n += len(ledger.get("events") or [])
+    for loop in ledger.get("challenge_loops") or []:
+        n += 1
+        n += len(loop.get("rounds") or [])
+        n += len(loop.get("control_events") or [])
     if ledger.get("auditor"):
         n += 1
     if ledger.get("delivery"):
@@ -1465,6 +1533,7 @@ def cmd_init(args):
         "baseline": {},
         "runtime_attestation": manifest.get("runtime_attestation") or {},
         "events": [],
+        "challenge_loops": [],
         "revision": 0,
     }
     # 冻结原始需求
@@ -2348,10 +2417,16 @@ def cmd_check_release_unit(args):
     with open(args.acceptance, "r", encoding="utf-8") as f:
         acceptance_content = f.read()
 
-    # 统计 MUST AC（在 markdown 表格中查找 "必须" 或 "MUST"）
+    # 只统计 markdown 表格中首列为正式 AC-ID 的 MUST 行。叙述/汇总行即使同时含
+    # `|` 和 `MUST` 也不是 acceptance case，不能把 release unit 误判超限。
     must_count = 0
     for line in acceptance_content.split("\n"):
-        if "|" in line and ("必须" in line or "MUST" in line.upper()):
+        ac_row = re.match(
+            r"^\s*\|\s*(?:\*\*)?AC[-_][A-Za-z0-9][A-Za-z0-9._-]*(?:\*\*)?\s*\|",
+            line,
+            re.IGNORECASE,
+        )
+        if ac_row and ("必须" in line or "MUST" in line.upper()):
             must_count += 1
 
     # 读取 plan/implementation-tasks
@@ -2373,7 +2448,7 @@ def cmd_check_release_unit(args):
 
     # 获取阈值
     max_ac = args.max_must_ac or DEFAULT_THRESHOLDS["must_ac_count"]
-    max_lines = args.max_plan_lines or DEFAULT_THRESHOLDS["max_plan_lines"]
+    max_lines = args.max_plan_lines or DEFAULT_THRESHOLDS["plan_lines"]
     max_risk = args.max_high_risk or DEFAULT_THRESHOLDS["high_risk_subsystems"]
 
     # 检查
@@ -2778,204 +2853,519 @@ def cmd_reset_plan_defects(args):
     sys.exit(0)
 
 
+def _challenge_loop(ledger, loop_id):
+    for loop in ledger.get("challenge_loops") or []:
+        if loop.get("loop_id") == loop_id:
+            return loop
+    return None
+
+
+def _read_json_file(path, label):
+    if not path or not os.path.isfile(path):
+        die("%s 文件不存在: %s" % (label, path))
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError) as exc:
+        die("无法解析 %s: %s" % (label, exc))
+
+
+def _validate_assurance_contract(contract):
+    errors = []
+    if not isinstance(contract, dict):
+        return ["contract 须为 object"]
+    allowed = {
+        "profile", "acceptance_ids", "protected_assets", "trusted_assumptions",
+        "in_scope_failures", "in_scope_adversaries", "out_of_scope_conditions",
+        "maximum_acceptable_impact",
+    }
+    extra = sorted(set(contract) - allowed)
+    if extra:
+        errors.append("未知字段: %s" % ", ".join(extra))
+    profile = contract.get("profile")
+    if profile not in ASSURANCE_PROFILES:
+        errors.append("profile=%r 非法" % profile)
+    acceptance_ids = contract.get("acceptance_ids")
+    if (not isinstance(acceptance_ids, list) or not acceptance_ids
+            or any(not isinstance(v, str) or not v.strip() for v in acceptance_ids)):
+        errors.append("acceptance_ids 须为非空字符串数组")
+    impact = contract.get("maximum_acceptable_impact")
+    if not isinstance(impact, str) or not impact.strip():
+        errors.append("maximum_acceptable_impact 须为非空字符串")
+    seen = set()
+    for key in ("protected_assets", "trusted_assumptions", "in_scope_failures",
+                "in_scope_adversaries", "out_of_scope_conditions"):
+        values = contract.get(key)
+        if not isinstance(values, list):
+            errors.append("%s 须为数组" % key)
+            continue
+        for i, item in enumerate(values):
+            if not isinstance(item, dict) or set(item) != {"id", "description"}:
+                errors.append("%s[%d] 须只含 id/description" % (key, i))
+                continue
+            iid = item.get("id")
+            if not isinstance(iid, str) or not iid.strip():
+                errors.append("%s[%d].id 须为非空字符串" % (key, i))
+            elif iid in seen:
+                errors.append("assurance id 重复: %s" % iid)
+            else:
+                seen.add(iid)
+            if not isinstance(item.get("description"), str) or not item["description"].strip():
+                errors.append("%s[%d].description 须为非空字符串" % (key, i))
+    return errors
+
+
+def _assurance_snapshot(path, contract, acceptance_sha256):
+    scope_view = {
+        "acceptance_ids": contract["acceptance_ids"],
+        "protected_assets": contract["protected_assets"],
+        "maximum_acceptable_impact": contract["maximum_acceptable_impact"],
+    }
+    risk_view = {
+        "profile": contract["profile"],
+        "trusted_assumptions": contract["trusted_assumptions"],
+        "in_scope_failures": contract["in_scope_failures"],
+        "in_scope_adversaries": contract["in_scope_adversaries"],
+        "out_of_scope_conditions": contract["out_of_scope_conditions"],
+    }
+    return {
+        "path": os.path.abspath(path),
+        "sha256": sha256_file(path),
+        "scope_hash": canonical_digest({
+            "acceptance_sha256": acceptance_sha256,
+            "contract_scope": scope_view,
+        }),
+        "threat_model_hash": canonical_digest(risk_view),
+        "profile": contract["profile"],
+        "acceptance_sha256": acceptance_sha256,
+        "acceptance_ids": list(contract["acceptance_ids"]),
+        "assurance_ids": sorted(
+            item["id"] for key in ("protected_assets", "trusted_assumptions",
+                                    "in_scope_failures", "in_scope_adversaries",
+                                    "out_of_scope_conditions")
+            for item in contract[key]),
+        "recorded_at": now_iso(),
+    }
+
+
+def _active_contract_snapshot(loop):
+    snapshots = loop.get("contract_snapshots") or []
+    return snapshots[-1] if snapshots else None
+
+
+def _active_acceptance_snapshot(loop):
+    snapshots = loop.get("acceptance_snapshots") or []
+    return snapshots[-1] if snapshots else None
+
+
+def _validate_finding_payload(payload, round_no, loop):
+    errors = []
+    if not isinstance(payload, dict):
+        return None, ["findings 根节点须为 object"]
+    allowed_root = {"review_mode", "coverage", "findings"}
+    extra = sorted(set(payload) - allowed_root)
+    if extra:
+        errors.append("findings 根节点未知字段: %s" % ", ".join(extra))
+    mode = payload.get("review_mode")
+    if mode not in CHALLENGE_REVIEW_MODES:
+        errors.append("review_mode=%r 非法" % mode)
+    if round_no == 1:
+        if mode != "breadth":
+            errors.append("BREADTH_REVIEW_INCOMPLETE: 第一轮 review_mode 必须为 breadth")
+        coverage = payload.get("coverage")
+        if (not isinstance(coverage, dict) or set(coverage) != BREADTH_COVERAGE_KEYS
+                or not all(v is True for v in coverage.values())):
+            errors.append("BREADTH_REVIEW_INCOMPLETE: coverage matrix 必须完整且全部 reviewed")
+    elif mode == "breadth":
+        errors.append("第二轮起不得重复 breadth；使用 diff，重大 reset 后使用 consolidated")
+    elif round_no > 1:
+        previous_round = round_no - 1
+        major_change = any(
+            e.get("action") in {"architecture-reset", "scope-change-approved"}
+            and int(e.get("after_round") or 0) >= previous_round
+            for e in loop.get("control_events") or [])
+        if major_change and mode != "consolidated":
+            errors.append("CONSOLIDATED_REVIEW_REQUIRED: architecture/scope change 后须完整复核")
+        elif mode == "consolidated" and not major_change:
+            errors.append("CONSOLIDATED_REVIEW_UNAUTHORIZED: 无 architecture/scope change 事件")
+    if mode == "consolidated":
+        coverage = payload.get("coverage")
+        if (not isinstance(coverage, dict) or set(coverage) != BREADTH_COVERAGE_KEYS
+                or not all(v is True for v in coverage.values())):
+            errors.append("BREADTH_REVIEW_INCOMPLETE: consolidated review 必须重做 coverage matrix")
+    findings = payload.get("findings")
+    if not isinstance(findings, list):
+        errors.append("findings 须为数组")
+        return None, errors
+    snap = _active_contract_snapshot(loop) or {}
+    acceptance_ids = set(snap.get("acceptance_ids") or [])
+    assurance_ids = set(snap.get("assurance_ids") or [])
+    ids = set()
+    normalized = []
+    allowed_item = {
+        "id", "severity", "scope_relation", "origin", "violated_acceptance_ids",
+        "assurance_contract_ids", "evidence", "status", "root_cause",
+        "why_not_found_in_round_one",
+    }
+    for i, item in enumerate(findings):
+        where = "findings[%d]" % i
+        if not isinstance(item, dict):
+            errors.append("%s 须为 object" % where)
+            continue
+        unknown = sorted(set(item) - allowed_item)
+        if unknown:
+            errors.append("%s 未知字段: %s" % (where, ", ".join(unknown)))
+        required = allowed_item - {"why_not_found_in_round_one"}
+        missing = sorted(required - set(item))
+        if missing:
+            errors.append("%s 缺少字段: %s" % (where, ", ".join(missing)))
+            continue
+        fid = item.get("id")
+        valid_fid = isinstance(fid, str) and bool(re.match(r"^[a-z][a-z0-9-]{2,63}$", fid))
+        if not valid_fid:
+            errors.append("%s.id 须匹配 ^[a-z][a-z0-9-]{2,63}$" % where)
+        elif fid in ids:
+            errors.append("%s.id 在本轮重复: %s" % (where, fid))
+        if valid_fid:
+            ids.add(fid)
+        severity = item.get("severity")
+        scope = item.get("scope_relation")
+        origin = item.get("origin")
+        status = item.get("status")
+        if severity not in FINDING_SEVERITIES:
+            errors.append("%s.severity=%r 非法" % (where, severity))
+        if scope not in FINDING_SCOPE_RELATIONS:
+            errors.append("%s.scope_relation=%r 非法" % (where, scope))
+        if origin not in FINDING_ORIGINS:
+            errors.append("%s.origin=%r 非法" % (where, origin))
+        if status not in FINDING_STATUSES:
+            errors.append("%s.status=%r 非法" % (where, status))
+        if scope == "out-of-scope" and status != "advisory":
+            errors.append("%s out-of-scope finding 必须是 advisory" % where)
+        if scope != "out-of-scope" and status == "advisory":
+            errors.append("%s in-scope/proposal finding 不能标 advisory" % where)
+        acs = item.get("violated_acceptance_ids")
+        aids = item.get("assurance_contract_ids")
+        if not isinstance(acs, list) or any(not isinstance(v, str) for v in acs):
+            errors.append("%s.violated_acceptance_ids 须为字符串数组" % where)
+            acs = []
+        if not isinstance(aids, list) or any(not isinstance(v, str) for v in aids):
+            errors.append("%s.assurance_contract_ids 须为字符串数组" % where)
+            aids = []
+        if severity in ("P0", "P1") and scope in ("in-scope", "scope-change-proposal"):
+            if not acs or not aids:
+                errors.append("%s P0/P1 缺少 AC 或 assurance binding" % where)
+        unknown_ac = sorted(set(acs) - acceptance_ids)
+        unknown_assurance = sorted(set(aids) - assurance_ids)
+        if unknown_ac:
+            errors.append("%s 引用了未知 acceptance ID: %s" % (where, ", ".join(unknown_ac)))
+        if unknown_assurance:
+            errors.append("%s 引用了未知 assurance ID: %s" % (
+                where, ", ".join(unknown_assurance)))
+        for key in ("evidence", "root_cause"):
+            if not isinstance(item.get(key), str) or not item[key].strip():
+                errors.append("%s.%s 须为非空字符串" % (where, key))
+        if (valid_fid and round_no > 1 and origin == "pre-existing" and fid not in {
+                f.get("id") for r in loop.get("rounds") or [] for f in r.get("findings") or []}):
+            why = item.get("why_not_found_in_round_one")
+            if not isinstance(why, str) or not why.strip():
+                errors.append("LATE_FINDING_UNEXPLAINED: %s 是第二轮后的 pre-existing 新 finding" % fid)
+        normalized.append(item)
+    return {"review_mode": mode, "coverage": payload.get("coverage"),
+            "findings": normalized}, errors
+
+
+def _latest_finding_states(loop):
+    latest = {}
+    for round_record in loop.get("rounds") or []:
+        for finding in round_record.get("findings") or []:
+            latest[finding["id"]] = (round_record["round"], finding)
+    return latest
+
+
+def _has_control(loop, action, minimum_round=0):
+    return any(e.get("action") == action and int(e.get("after_round") or 0) >= minimum_round
+               for e in loop.get("control_events") or [])
+
+
+def _challenge_state(loop):
+    rounds = loop.get("rounds") or []
+    if not rounds:
+        return "ACTIVE"
+    controls = loop.get("control_events") or []
+    for event in reversed(controls):
+        if event.get("action") in {"scope-audit", "user-review"}:
+            if event.get("outcome") == "scope-change" and not _has_control(
+                    loop, "scope-change-approved", int(event.get("after_round") or 0)):
+                return "USER_SCOPE_APPROVAL_REQUIRED"
+            if event.get("outcome") == "architecture-reset" and not _has_control(
+                    loop, "architecture-reset", int(event.get("after_round") or 0)):
+                return "ARCHITECTURE_RESET_REQUIRED"
+            break
+    latest = _latest_finding_states(loop)
+    open_blockers = [
+        (round_no, f) for round_no, f in latest.values()
+        if f.get("status") == "open" and f.get("scope_relation") == "in-scope"
+        and f.get("severity") in ("P0", "P1")
+    ]
+    proposals = [
+        (round_no, f) for round_no, f in latest.values()
+        if f.get("status") == "open" and f.get("scope_relation") == "scope-change-proposal"
+    ]
+    if proposals:
+        newest = max(r for r, _f in proposals)
+        if not _has_control(loop, "scope-change-approved", newest):
+            return "USER_SCOPE_APPROVAL_REQUIRED"
+    if len(rounds) >= 2:
+        last_two = rounds[-2:]
+        if all(any(f.get("severity") == "P0" and f.get("origin") == "patch-induced"
+                       and f.get("scope_relation") == "in-scope" and f.get("status") == "open"
+                       for f in r.get("findings") or []) for r in last_two):
+            if not _has_control(loop, "architecture-reset", rounds[-1]["round"]):
+                return "ARCHITECTURE_RESET_REQUIRED"
+    limits = loop.get("limits") or {}
+    current = rounds[-1]
+    if open_blockers and len(rounds) >= int(limits.get("hard", PLAN_CHALLENGE_HARD_LIMIT)):
+        return "BLOCKED"
+    if (current.get("new_critical_findings", 0) > 0
+            and current["round"] >= int(limits.get("user_review", PLAN_CHALLENGE_USER_REVIEW_ROUND))
+            and not _has_control(loop, "user-review")):
+        return "USER_REVIEW_REQUIRED"
+    if (current.get("new_critical_findings", 0) > 0
+            and current["round"] >= int(limits.get("soft", PLAN_CHALLENGE_SOFT_LIMIT))
+            and not (_has_control(loop, "scope-audit")
+                     or _has_control(loop, "architecture-reset"))):
+        return "SCOPE_AUDIT_REQUIRED"
+    if open_blockers:
+        return "CONTINUE"
+    return "CONVERGED"
+
+
 def cmd_start_challenge_loop(args):
-    """P0-3: 启动一个挑战循环，返回 loop_id。
-
-    在 Phase 2 plan iteration 开始前调用，建立循环账本。
-    """
+    """冻结 assurance contract 并启动可审计的挑战循环。"""
     ledger = load_ledger(args.run_dir)
-
-    # 计算 baseline hash
     if not os.path.isfile(args.target_file):
         die("目标文件不存在: %s" % args.target_file)
-
+    acceptance = ledger.get("acceptance") or {}
+    acceptance_path = acceptance.get("path")
+    acceptance_hash = acceptance.get("sha256")
+    if (not acceptance_path or not acceptance_hash
+            or not os.path.isfile(acceptance_path)):
+        die("ACCEPTANCE_REQUIRED: init manifest 必须冻结可读取的 acceptance_file")
+    if sha256_file(acceptance_path) != acceptance_hash:
+        die("ACCEPTANCE_CHANGED: acceptance hash 与 init 快照不一致")
+    contract = _read_json_file(args.assurance_contract, "assurance contract")
+    contract_errors = _validate_assurance_contract(contract)
+    if contract_errors:
+        die("SCHEMA_INVALID: assurance contract: %s" % "; ".join(contract_errors))
     baseline_hash = args.baseline_hash or sha256_file(args.target_file)
-
-    # 生成 loop_id
-    if "challenge_loops" not in ledger:
-        ledger["challenge_loops"] = []
-
-    loop_count = len(ledger["challenge_loops"]) + 1
+    if baseline_hash != sha256_file(args.target_file):
+        die("BASELINE_HASH_MISMATCH: --baseline-hash 与目标文件不一致")
+    loop_count = len(ledger.get("challenge_loops") or []) + 1
     loop_id = "%s-%03d" % (args.loop_type, loop_count)
-
-    import datetime
-    now = datetime.datetime.now().astimezone()
-
     loop_record = {
         "loop_id": loop_id,
         "loop_type": args.loop_type,
-        "target_file": args.target_file,
+        "target_file": os.path.abspath(args.target_file),
         "baseline_hash": baseline_hash,
-        "started_at": now.isoformat(),
+        "started_at": now_iso(),
+        "limits": {
+            "soft": PLAN_CHALLENGE_SOFT_LIMIT,
+            "user_review": PLAN_CHALLENGE_USER_REVIEW_ROUND,
+            "hard": PLAN_CHALLENGE_HARD_LIMIT,
+        },
+        "acceptance_snapshots": [{
+            "path": os.path.abspath(acceptance_path),
+            "sha256": acceptance_hash,
+            "recorded_at": now_iso(),
+        }],
+        "contract_snapshots": [
+            _assurance_snapshot(args.assurance_contract, contract, acceptance_hash)
+        ],
         "rounds": [],
-        "status": "active"
+        "control_events": [],
+        "status": "ACTIVE",
     }
 
-    def mutate(ledger):
-        if "challenge_loops" not in ledger:
-            ledger["challenge_loops"] = []
-        ledger["challenge_loops"].append(loop_record)
+    def mutate(current):
+        current.setdefault("challenge_loops", []).append(loop_record)
 
     _append(args.run_dir, mutate, op="start_challenge_loop")
-
-    # 输出 loop_id（供 shell 脚本捕获）
     print(loop_id)
     sys.exit(0)
 
 
 def cmd_check_loop_limit(args):
-    """P0-3: 检查循环是否超过轮次上限。
-
-    当前轮次 >= MAX_CHALLENGE_ROUNDS → exit 1, LOOP_LIMIT_EXCEEDED。
-    """
     ledger = load_ledger(args.run_dir)
-    loops = ledger.get("challenge_loops") or []
-
-    # 查找目标 loop
-    target_loop = None
-    for loop in loops:
-        if loop["loop_id"] == args.loop_id:
-            target_loop = loop
-            break
-
-    if not target_loop:
+    loop = _challenge_loop(ledger, args.loop_id)
+    if not loop:
         die("找不到 loop_id: %s" % args.loop_id)
-
-    current_round = len(target_loop["rounds"])
-    remaining = MAX_CHALLENGE_ROUNDS - current_round
-
-    if current_round >= MAX_CHALLENGE_ROUNDS:
-        print("LOOP_LIMIT_EXCEEDED")
-        print("\n挑战循环已达到硬上限:")
-        print("  - Loop ID: %s" % args.loop_id)
-        print("  - 当前轮次: %d" % current_round)
-        print("  - 上限: %d" % MAX_CHALLENGE_ROUNDS)
-        print("  - 开始时间: %s" % target_loop["started_at"])
-        print("\n第 %d 轮后仍未收敛，说明:" % MAX_CHALLENGE_ROUNDS)
-        print("  1. Plan 粒度过粗，无法在迭代中收敛")
-        print("  2. Challenger 要求超出 acceptance 范围")
-        print("  3. 存在根本性的架构冲突")
-        print("\n必须:")
-        print("  - 暂停当前循环")
-        print("  - 升级给用户决策")
-        print("  - 考虑拆分 release unit 或调整 acceptance")
+    state = _challenge_state(loop)
+    rounds = len(loop.get("rounds") or [])
+    hard = int((loop.get("limits") or {}).get("hard", PLAN_CHALLENGE_HARD_LIMIT))
+    print("LOOP_STATE: %s" % state)
+    print("  - 当前轮次: %d / %d" % (rounds, hard))
+    if state in {"SCOPE_AUDIT_REQUIRED", "ARCHITECTURE_RESET_REQUIRED",
+                 "USER_REVIEW_REQUIRED", "USER_SCOPE_APPROVAL_REQUIRED", "BLOCKED"}:
         sys.exit(1)
-
     print("LOOP_LIMIT_OK")
-    print("  - 当前轮次: %d / %d" % (current_round, MAX_CHALLENGE_ROUNDS))
-    print("  - 剩余轮次: %d" % remaining)
     sys.exit(0)
 
 
 def cmd_record_challenge_round(args):
-    """P0-3: 记录一轮挑战结果。
-
-    自动计算 dedupe_key，检测循环回退、无进展、重复等问题。
-    """
     ledger = load_ledger(args.run_dir)
-    loops = ledger.get("challenge_loops") or []
-
-    # 查找目标 loop
-    target_loop = None
-    for loop in loops:
-        if loop["loop_id"] == args.loop_id:
-            target_loop = loop
-            break
-
-    if not target_loop:
+    loop = _challenge_loop(ledger, args.loop_id)
+    if not loop:
         die("找不到 loop_id: %s" % args.loop_id)
-
-    # 解析 findings（如果提供了 JSON 文件）
-    findings = {}
-    if args.findings and os.path.isfile(args.findings):
-        try:
-            with open(args.findings, 'r', encoding='utf-8') as f:
-                findings_data = json.load(f)
-                # 提取 critical/major/minor 计数
-                if isinstance(findings_data, dict):
-                    findings = {
-                        "critical": findings_data.get("critical", 0),
-                        "major": findings_data.get("major", 0),
-                        "minor": findings_data.get("minor", 0)
-                    }
-                elif isinstance(findings_data, list):
-                    # 按 severity 分组计数
-                    findings = {"critical": 0, "major": 0, "minor": 0}
-                    for item in findings_data:
-                        severity = item.get("severity", "minor").lower()
-                        if severity in findings:
-                            findings[severity] += 1
-        except Exception as e:
-            die("无法解析 findings 文件: %s" % str(e))
-
-    # 计算 dedupe_key（plan_hash + findings_digest）
-    findings_digest = sha256_text(json.dumps(findings, sort_keys=True))
-    dedupe_key = sha256_text(args.plan_hash + findings_digest)
-
-    import datetime
-    now = datetime.datetime.now().astimezone()
-
+    expected_round = len(loop.get("rounds") or []) + 1
+    if args.round != expected_round:
+        die("ROUND_SEQUENCE_INVALID: 期望 round=%d，收到 %d" % (expected_round, args.round))
+    if not os.path.isfile(loop.get("target_file") or ""):
+        die("目标文件不存在: %s" % loop.get("target_file"))
+    actual_hash = sha256_file(loop["target_file"])
+    if args.plan_hash != actual_hash:
+        die("PLAN_HASH_MISMATCH: --plan-hash 与 target-file 当前内容不一致")
+    if args.round > 1:
+        prior_hash = loop["rounds"][-1]["plan_hash"]
+        if args.based_on_plan_hash != prior_hash:
+            die("PLAN_BASE_HASH_INVALID: based-on=%s 期望=%s" % (
+                args.based_on_plan_hash, prior_hash))
+    active_contract = _active_contract_snapshot(loop)
+    active_acceptance = _active_acceptance_snapshot(loop)
+    if (not active_acceptance or not os.path.isfile(active_acceptance.get("path") or "")
+            or sha256_file(active_acceptance["path"]) != active_acceptance["sha256"]):
+        die("ACCEPTANCE_CHANGED: acceptance hash 变化且没有用户批准事件")
+    if (not active_contract or not os.path.isfile(active_contract.get("path") or "")
+            or sha256_file(active_contract["path"]) != active_contract["sha256"]):
+        die("ASSURANCE_CONTRACT_CHANGED: contract hash 变化且没有用户批准事件")
+    payload = _read_json_file(args.findings, "findings")
+    normalized, errors = _validate_finding_payload(payload, args.round, loop)
+    if errors:
+        die("SCHEMA_INVALID: %s" % "; ".join(errors))
+    historical_ids = {
+        f.get("id") for r in loop.get("rounds") or [] for f in r.get("findings") or []
+    }
+    new_critical = sum(
+        1 for f in normalized["findings"]
+        if f["id"] not in historical_ids and f["severity"] in ("P0", "P1")
+        and f["scope_relation"] == "in-scope" and f["status"] == "open")
+    advisory = sum(1 for f in normalized["findings"]
+                   if f["scope_relation"] == "out-of-scope")
     round_record = {
         "round": args.round,
+        "review_mode": normalized["review_mode"],
+        "coverage": normalized.get("coverage"),
         "plan_hash": args.plan_hash,
-        "dedupe_key": dedupe_key,
-        "findings": findings,
-        "verdict": args.verdict,
-        "timestamp": now.isoformat()
+        "based_on_plan_hash": args.based_on_plan_hash,
+        "scope_hash": active_contract["scope_hash"],
+        "threat_model_hash": active_contract["threat_model_hash"],
+        "findings": normalized["findings"],
+        "new_critical_findings": new_critical,
+        "reviewer_verdict": args.verdict,
+        "timestamp": now_iso(),
     }
+    prospective = json.loads(json.dumps(loop))
+    prospective["rounds"].append(round_record)
+    state = _challenge_state(prospective)
 
-    # 检测问题
-    warnings = []
-
-    # 1. 检测循环回退（plan hash 回到历史某轮）
-    for past_round in target_loop["rounds"]:
-        if past_round["plan_hash"] == args.plan_hash:
-            warnings.append("LOOP_REGRESSION: plan hash 回退到第 %d 轮" % past_round["round"])
-            break
-
-    # 2. 检测无进展（连续 3 轮 critical findings 不减）
-    if len(target_loop["rounds"]) >= 2:
-        recent = target_loop["rounds"][-2:]
-        if all(r["findings"].get("critical", 0) > 0 for r in recent):
-            if findings.get("critical", 0) >= recent[-1]["findings"].get("critical", 0):
-                warnings.append("LOOP_NO_PROGRESS: 连续 3 轮 critical findings 未减少")
-
-    # 3. 检测重复（dedupe_key 与历史重复）
-    for past_round in target_loop["rounds"]:
-        if past_round["dedupe_key"] == dedupe_key:
-            warnings.append("可能陷入循环: dedupe_key 与第 %d 轮重复" % past_round["round"])
-            break
-
-    # 如果 verdict=PASS，标记循环为 converged
-    if args.verdict.upper() == "PASS":
-        target_loop["status"] = "converged"
-
-    def mutate(ledger):
-        loops = ledger.get("challenge_loops") or []
-        for loop in loops:
-            if loop["loop_id"] == args.loop_id:
-                loop["rounds"].append(round_record)
-                if args.verdict.upper() == "PASS":
-                    loop["status"] = "converged"
-                break
+    def mutate(current):
+        target = _challenge_loop(current, args.loop_id)
+        if not target or len(target.get("rounds") or []) + 1 != args.round:
+            die("ROUND_SEQUENCE_INVALID: 并发写入导致轮次已变化")
+        target.setdefault("rounds", []).append(round_record)
+        target["status"] = state
 
     _append(args.run_dir, mutate, op="record_challenge_round")
-
     print("CHALLENGE_ROUND_RECORDED")
-    print("  - Loop ID: %s" % args.loop_id)
-    print("  - Round: %d" % args.round)
-    print("  - Verdict: %s" % args.verdict)
-    print("  - Findings: critical=%d, major=%d, minor=%d" % (
-        findings.get("critical", 0),
-        findings.get("major", 0),
-        findings.get("minor", 0)
-    ))
+    print("NEW_CRITICAL_FINDINGS: %d" % new_critical)
+    print("ADVISORY_FINDINGS: %d" % advisory)
+    print("LOOP_STATE: %s" % state)
+    if args.verdict:
+        print("REVIEWER_VERDICT_IGNORED: reviewer=%s; gate derives state from findings" % args.verdict)
+    if state in {"SCOPE_AUDIT_REQUIRED", "ARCHITECTURE_RESET_REQUIRED",
+                 "USER_REVIEW_REQUIRED", "USER_SCOPE_APPROVAL_REQUIRED", "BLOCKED"}:
+        sys.exit(1)
+    sys.exit(0)
 
-    if warnings:
-        print("\n⚠️  警告:")
-        for w in warnings:
-            print("  - %s" % w)
 
+def cmd_record_challenge_control(args):
+    ledger = load_ledger(args.run_dir)
+    loop = _challenge_loop(ledger, args.loop_id)
+    if not loop:
+        die("找不到 loop_id: %s" % args.loop_id)
+    current_state = _challenge_state(loop)
+    required_state = {
+        "scope-audit": "SCOPE_AUDIT_REQUIRED",
+        "architecture-reset": "ARCHITECTURE_RESET_REQUIRED",
+        "user-review": "USER_REVIEW_REQUIRED",
+        "scope-change-approved": "USER_SCOPE_APPROVAL_REQUIRED",
+    }[args.action]
+    if current_state != required_state:
+        die("CONTROL_NOT_REQUIRED: action=%s 仅在 %s 可记录；当前=%s" % (
+            args.action, required_state, current_state))
+    if args.action not in CHALLENGE_CONTROL_ACTIONS:
+        die("CONTROL_ACTION_INVALID: %s" % args.action)
+    if not isinstance(args.evidence, str) or not args.evidence.strip():
+        die("CONTROL_EVIDENCE_REQUIRED")
+    if args.action in {"scope-audit", "user-review"} and args.outcome not in {
+            "continue", "architecture-reset", "scope-change"}:
+        die("CONTROL_OUTCOME_INVALID: %s 需要 continue|architecture-reset|scope-change" % args.action)
+    if args.action == "scope-change-approved" and not re.match(
+            r"^[0-9a-f]{64}$", str(args.approval_hash or "")):
+        die("USER_APPROVAL_REQUIRED: scope change 需要 64 位消息 hash")
+    after_round = len(loop.get("rounds") or [])
+    event = {
+        "action": args.action,
+        "after_round": after_round,
+        "outcome": args.outcome,
+        "evidence": args.evidence,
+        "approval_hash": args.approval_hash,
+        "recorded_at": now_iso(),
+    }
+    if args.action == "architecture-reset":
+        latest_plan_hash = (loop.get("rounds") or [{}])[-1].get("plan_hash")
+        reset_plan_hash = sha256_file(loop["target_file"])
+        if reset_plan_hash == latest_plan_hash:
+            die("ARCHITECTURE_RESET_INCOMPLETE: plan 内容未变化")
+        event["plan_hash"] = reset_plan_hash
+    new_snapshot = None
+    new_acceptance_snapshot = None
+    if args.assurance_contract or args.acceptance:
+        if args.action != "scope-change-approved":
+            die("只有 scope-change-approved 可替换 acceptance/assurance contract")
+        active_acceptance = _active_acceptance_snapshot(loop)
+        acceptance_path = args.acceptance or (active_acceptance or {}).get("path")
+        if not acceptance_path or not os.path.isfile(acceptance_path):
+            die("ACCEPTANCE_REQUIRED: scope change 后须有可读取的 acceptance")
+        acceptance_hash = sha256_file(acceptance_path)
+        contract_path = args.assurance_contract or (_active_contract_snapshot(loop) or {}).get("path")
+        contract = _read_json_file(contract_path, "assurance contract")
+        errors = _validate_assurance_contract(contract)
+        if errors:
+            die("SCHEMA_INVALID: assurance contract: %s" % "; ".join(errors))
+        new_acceptance_snapshot = {
+            "path": os.path.abspath(acceptance_path),
+            "sha256": acceptance_hash,
+            "recorded_at": now_iso(),
+        }
+        new_snapshot = _assurance_snapshot(contract_path, contract, acceptance_hash)
+        event["acceptance_sha256"] = acceptance_hash
+        event["scope_hash"] = new_snapshot["scope_hash"]
+        event["threat_model_hash"] = new_snapshot["threat_model_hash"]
+
+    def mutate(current):
+        target = _challenge_loop(current, args.loop_id)
+        target.setdefault("control_events", []).append(event)
+        if new_acceptance_snapshot:
+            target.setdefault("acceptance_snapshots", []).append(new_acceptance_snapshot)
+        if new_snapshot:
+            target.setdefault("contract_snapshots", []).append(new_snapshot)
+        target["status"] = _challenge_state(target)
+
+    updated = _append(args.run_dir, mutate, op="record_challenge_control")
+    state = _challenge_state(_challenge_loop(updated, args.loop_id))
+    print("CHALLENGE_CONTROL_RECORDED: %s" % args.action)
+    print("LOOP_STATE: %s" % state)
     sys.exit(0)
 
 
@@ -3018,7 +3408,7 @@ def cmd_detect_loop_reset(args):
     # 如果提供了待检查的文件，计算相似度
     if args.check_target_file and os.path.isfile(args.check_target_file):
         for loop in loops:
-            if loop["status"] == "active" and loop["target_file"] != args.check_target_file:
+            if str(loop.get("status") or "").lower() == "active" and loop["target_file"] != args.check_target_file:
                 # 文件名不同，检查内容相似度
                 if os.path.isfile(loop["target_file"]):
                     similarity = _calculate_file_similarity(
@@ -3039,8 +3429,10 @@ def cmd_detect_loop_reset(args):
                         sys.exit(1)
 
     print("LOOP_RESET_CHECK_PASS")
-    print("  - 活跃循环: %d" % len([l for l in loops if l["status"] == "active"]))
-    print("  - 已收敛: %d" % len([l for l in loops if l["status"] == "converged"]))
+    print("  - 活跃循环: %d" % len([l for l in loops
+                                     if str(l.get("status") or "").lower() == "active"]))
+    print("  - 已收敛: %d" % len([l for l in loops
+                                     if str(l.get("status") or "").lower() == "converged"]))
     sys.exit(0)
 
 
@@ -3133,28 +3525,45 @@ def cmd_show_loop_history(args):
             continue
 
         # 表头
-        print("  Round | Verdict | Critical | Major | Minor | Plan Hash (前8位)")
-        print("  ------|---------|----------|-------|-------|------------------")
+        print("  Round | Mode         | New P0/P1 | Open P0/P1 | Advisory | Plan Hash")
+        print("  ------|--------------|-----------|------------|----------|----------")
 
         # 每轮数据
         for r in loop["rounds"]:
-            findings = r.get("findings", {})
-            print("  %-5d | %-7s | %-8d | %-5d | %-5d | %s" % (
-                r["round"],
-                r["verdict"],
-                findings.get("critical", 0),
-                findings.get("major", 0),
-                findings.get("minor", 0),
-                r["plan_hash"][:8]
-            ))
+            findings = r.get("findings", [])
+            if isinstance(findings, dict):
+                # 1.3 legacy history
+                new_count = findings.get("critical", 0) + findings.get("major", 0)
+                open_count = new_count
+                advisory_count = findings.get("minor", 0)
+                mode = "legacy"
+            else:
+                new_count = int(r.get("new_critical_findings") or 0)
+                open_count = sum(1 for f in findings if f.get("severity") in ("P0", "P1")
+                                 and f.get("scope_relation") == "in-scope"
+                                 and f.get("status") == "open")
+                advisory_count = sum(1 for f in findings
+                                     if f.get("scope_relation") == "out-of-scope")
+                mode = r.get("review_mode") or "?"
+            print("  %-5d | %-12s | %-9d | %-10d | %-8d | %s" % (
+                r["round"], mode, new_count, open_count, advisory_count,
+                r["plan_hash"][:8]))
 
         # 趋势分析
         if len(loop["rounds"]) >= 2:
             first = loop["rounds"][0]
             last = loop["rounds"][-1]
 
-            first_critical = first.get("findings", {}).get("critical", 0)
-            last_critical = last.get("findings", {}).get("critical", 0)
+            def blocker_count(record):
+                fs = record.get("findings", [])
+                if isinstance(fs, dict):
+                    return fs.get("critical", 0) + fs.get("major", 0)
+                return sum(1 for f in fs if f.get("severity") in ("P0", "P1")
+                           and f.get("scope_relation") == "in-scope"
+                           and f.get("status") == "open")
+
+            first_critical = blocker_count(first)
+            last_critical = blocker_count(last)
 
             print("\n  趋势分析:")
             if last_critical < first_critical:
@@ -3387,7 +3796,7 @@ def main(argv=None):
     p.add_argument("--acceptance", required=True, help="acceptance.md 路径")
     p.add_argument("--plan", required=True, help="plan.md 或 implementation-tasks.md 路径")
     p.add_argument("--max-must-ac", type=int, help="MUST AC 上限（默认 16）")
-    p.add_argument("--max-plan-lines", type=int, help="Plan 行数上限（默认 4676）")
+    p.add_argument("--max-plan-lines", type=int, help="Plan 行数上限（默认 2000）")
     p.add_argument("--max-high-risk", type=int, help="高风险子系统上限（默认 3）")
     p.set_defaults(fn=cmd_check_release_unit)
 
@@ -3451,6 +3860,8 @@ def main(argv=None):
                    help="目标文件路径（如 plans/xxx/plan.md）")
     p.add_argument("--baseline-hash",
                    help="基线 hash（可选，不提供则自动计算）")
+    p.add_argument("--assurance-contract", required=True,
+                   help="结构化 assurance-contract.json；启动时冻结 scope/threat hashes")
     p.set_defaults(fn=cmd_start_challenge_loop)
 
     p = sub.add_parser("check-loop-limit",
@@ -3465,10 +3876,27 @@ def main(argv=None):
     p.add_argument("--loop-id", required=True)
     p.add_argument("--round", type=int, required=True, help="轮次编号（从 1 开始）")
     p.add_argument("--plan-hash", required=True, help="当前 plan 文件的 SHA-256")
-    p.add_argument("--findings", help="findings JSON 文件路径（可选）")
-    p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"],
-                   help="本轮判定结果")
+    p.add_argument("--based-on-plan-hash",
+                   help="第二轮起必填：本轮修改所基于的上一轮 plan hash")
+    p.add_argument("--findings", required=True,
+                   help="结构化 review envelope JSON 文件")
+    p.add_argument("--verdict", choices=["PASS", "FAIL"],
+                   help="兼容旧 challenger 输出；只记为事实，不参与 gate 状态推导")
     p.set_defaults(fn=cmd_record_challenge_round)
+
+    p = sub.add_parser("record-challenge-control",
+                       help="记录 scope audit、architecture reset、用户 review/scope 批准事件")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-id", required=True)
+    p.add_argument("--action", required=True, choices=sorted(CHALLENGE_CONTROL_ACTIONS))
+    p.add_argument("--outcome", choices=["continue", "architecture-reset", "scope-change"])
+    p.add_argument("--evidence", required=True)
+    p.add_argument("--approval-hash")
+    p.add_argument("--assurance-contract",
+                   help="scope-change-approved 时可提供经用户批准的新 contract")
+    p.add_argument("--acceptance",
+                   help="scope-change-approved 时可提供经用户批准的新 acceptance")
+    p.set_defaults(fn=cmd_record_challenge_control)
 
     p = sub.add_parser("detect-loop-reset",
                        help="P0-3: 检测循环重置绕过（防重置检测）")

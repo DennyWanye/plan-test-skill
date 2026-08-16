@@ -4,29 +4,19 @@
 
 ## A. 迭代 plan
 
-**开场硬门（P0-3，2026-08-14 新增）：建立循环账本**
-
-在开始挑战循环前，必须建立循环账本并获取 loop_id：
+开始前必须已有用户确认的 `acceptance.md` 与同目录 `assurance-contract.json`。启动循环时冻结
+contract、scope hash、threat-model hash 和 plan baseline：
 
 ```bash
 loop_id=$(python3 skills/plan-test/scripts/plan_test_gate.py start-challenge-loop \
   --run-dir <run-dir> \
   --loop-type plan-iteration \
   --target-file <plan.md> \
+  --assurance-contract <assurance-contract.json> \
   --baseline-hash $(sha256sum <plan.md> | cut -d' ' -f1))
 ```
 
-此后每轮挑战前/后都必须调用 `check-loop-limit` / `record-challenge-round`。
-
----
-
-循环（最少 `{PLAN_ITERATIONS}` 轮，受 `{MAX_ROUNDS}` 兜底）：派 `{CHALLENGER_ENGINE}` 子代理，用 `prompts/plan-challenger.md` 挑战 plan → 我据结果优化。
-
-**收敛按边际收益判定，不设固定轮数上限**（DeskPet 2026-08-03 复盘校准：那次 7 轮挑战
-第 1–6 轮**每轮**都抓到新的 P0 级问题（迁移原子性、signal 被吞、双窗口 lost update……），
-第 7 轮才干净 PASS——"默认最多 3 轮"式的硬顶会把真问题挡在门外，错的不是轮数是停止条件）：
-
-**每轮挑战前（P0-3 强制）：**
+每轮挑战前调用：
 
 ```bash
 python3 skills/plan-test/scripts/plan_test_gate.py check-loop-limit \
@@ -34,48 +24,60 @@ python3 skills/plan-test/scripts/plan_test_gate.py check-loop-limit \
   --loop-id $loop_id
 ```
 
-- exit 0 → 继续
-- exit 1 → 循环超限（第 15 轮），输出 `LOOP_LIMIT_EXCEEDED`，立即 BLOCKED 升级给用户
+- exit 0：允许进入下一轮；
+- exit 1：按输出状态执行控制动作，不得继续派 challenger。
 
-**挑战轮次执行：**
+### Review 模式
 
-- 挑战者每轮输出结构化发现（`[P0|去重键]` 前缀 + 末尾 `NEW_CRITICAL_FINDINGS: <n>` 行，
-  见 prompts/plan-challenger.md）；派发时附上**已闭环问题清单（含去重键）**，重提已闭环项不算新增。
-- **续轮条件**：`NEW_CRITICAL_FINDINGS > 0`（本轮有新 P0/P1）或 VERDICT: FAIL → 修订后继续。
-- **收敛条件**：VERDICT: PASS 且 `NEW_CRITICAL_FINDINGS = 0` → 定稿进入用户 review；
-  连续两轮 `NEW_CRITICAL_FINDINGS = 0` 而 VERDICT 仍 FAIL（只剩措辞级分歧）→ 也收敛，
-  把剩余 P2 项列给用户随 review 一并裁决。
-- 超过 `{MAX_ROUNDS}` 仍有新增关键发现 → BLOCKED 升级（问题域可能大于一份 plan 能承载的范围）。
+1. 第一轮 `breadth`：完成固定 coverage matrix，并批量报告当前输入可推导的全部 P0/P1；
+2. 第二轮起 `diff`：只复核 open findings、本轮 diff 和第一轮不可知的新外部事实；
+3. architecture/scope/trust-boundary/high-risk-entry 变化后使用 `consolidated`，但不清零历史 ID/轮次。
 
-**每轮挑战后（P0-3 强制）：**
+同一根因合并为一个 stable ID；第二轮后新增 `pre-existing` finding 必须解释第一轮为何不可发现。
+Challenger 只输出 `prompts/plan-challenger.md` 定义的 JSON；不再自报可信 verdict 或新增数量。
+
+### 每轮记录
 
 ```bash
-# 保存 findings 到 JSON 文件（格式：{critical: N, major: M, minor: K}）
-echo '{"critical": 2, "major": 5, "minor": 3}' > findings-round-$N.json
-
 python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
   --run-dir <run-dir> \
   --loop-id $loop_id \
   --round $N \
   --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) \
-  --findings findings-round-$N.json \
-  --verdict <PASS|FAIL>
+  --based-on-plan-hash <上一轮-plan-hash> \
+  --findings findings-round-$N.json
 ```
 
-此命令会自动检测：
-- `LOOP_REGRESSION`: plan hash 回退到历史某轮
-- `LOOP_NO_PROGRESS`: 连续 3 轮 critical findings 未减少
-- 重复 dedupe_key（可能陷入循环）
+第一轮没有上一轮 hash，省略 `--based-on-plan-hash`。Gate 校验真实 finding ID、AC/assurance binding、
+round 连续性、plan base hash 和 contract hash，并自行输出 `NEW_CRITICAL_FINDINGS` 与 `LOOP_STATE`。
 
-**每轮派发规矩**（见 SKILL.md"上下文包"）：
+### 控制状态
 
-- 附上 acceptance.md 相关条款原文、plan 原文、**上一轮已闭环的问题清单（含去重键）**——声明不必重复挑战已闭环项，只挑战新增与未闭环部分。
-- 以挑战者输出末行 `VERDICT` + `NEW_CRITICAL_FINDINGS` 行判定（见上）。缺结论行按 FAIL 处理，缺 `NEW_CRITICAL_FINDINGS` 行按"有新增"处理（不许自行脑补为收敛）。
-- 迭代中的补充调研遵循 `methods/research-method.md`：读代码读不出来的不确定项（运行时行为、三方库真实表现），用可丢弃的 spike 跑一下闭环，结论写回 plan——这就是"实践—认识—再实践"，不许用措辞把洞圆过去。
+- `CONTINUE`：修订 plan 后进入下一轮；
+- `CONVERGED`：无 open in-scope P0/P1，进入用户 review；
+- `SCOPE_AUDIT_REQUIRED`：第 3 轮仍有新增关键问题，先审计范围/根因；
+- `ARCHITECTURE_RESET_REQUIRED`：连续两轮 patch-induced P0 或 scope audit 判定结构重置；
+- `USER_REVIEW_REQUIRED`：第 5 轮仍有新增问题，向用户报告原因；
+- `USER_SCOPE_APPROVAL_REQUIRED`：需要改变 profile/scope/trusted boundary；
+- `BLOCKED`：第 8 轮仍有 open in-scope P0/P1。
+
+控制动作必须入账，例如：
+
+```bash
+python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-control \
+  --run-dir <run-dir> --loop-id $loop_id \
+  --action scope-audit --outcome <continue|architecture-reset|scope-change> \
+  --evidence "<审计证据>"
+```
+
+用户批准 scope change 时使用 `--action scope-change-approved --approval-hash <消息 SHA-256>`；
+如 acceptance/contract 变化，同时提供 `--acceptance <新文件>` / `--assurance-contract <新文件>`。
+Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Architecture reset 留在同一 loop，
+随后做 consolidated review，不得重开 loop 规避轮次。
 
 ### 收敛判据（全部满足才定稿）
 
-1. **100% 代码可执行** —— 即：
+1. **相对于已批准范围的 100% 代码可执行** —— 即：
    - 已**认真调研过当前代码层**：相关文件、函数、调用链、依赖、现有实现方式都已读过并写进 plan；
    - 已**确认代码级别的修改方式**：每个改动点明确到"改哪个文件/哪段/怎么改/改成什么样"，不是假设；
    - 若调研中发现问题/不确定项（接口不清、改动牵连别处、最佳实践存疑），**不允许带着模糊收尾**——必须**继续调研该如何解决**，把结论补回 plan，直到该问题闭环。
@@ -84,8 +86,8 @@ python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
 4. **无"绕过真架构问题的补丁式收尾"**（见下方强约束）。
 5. **关键技术假设已用真代码验证**：凡"决定方案成败、静态阅读无法确认"的假设（三方库/API 真实能力、LLM 输出契约、性能可达性、关键链路运行时行为），必须有**可运行 spike 真跑过的证据**（命令 + 实际输出）回写在 plan 里。"读过源码应该支持 / 理论上可行"不算闭环——这类假设留到执行期才发现不成立，返工代价最大。spike 代码即弃，不滚成实现。
 
-> 收敛不是"迭代满 N 轮就停"，而是"代码层已吃透、所有不确定项都已闭环"。只要还有一处"到时候再看 / 可能要改别处但没查"，就**不算 100% 可执行**，继续迭代+调研。
-> 超过 `{MAX_ROUNDS}` 仍无法收敛 → 标记 BLOCKED，列出无法闭环的具体不确定项，升级给用户。
+> 收敛不是 reviewer 写 PASS，也不是迭代满 N 轮；它是 gate 从 finding ledger 推导出的
+> `CONVERGED`。第 8 轮仍有范围内阻断项则当前 plan loop `BLOCKED`。
 
 ### 强约束：真架构问题优先重构，不许小修小补
 

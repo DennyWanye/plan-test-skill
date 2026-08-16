@@ -61,9 +61,9 @@ workflow.db、会话日志互证。实锤：timing 全 0、账本在 finalize �
   tested_code_head/content_basis/exclusion_scope/timing_summary；report 增"身份说明"。
 - **驾驶与审计身份**：`DRIVER_APPROVAL_MISSING` + `record-approval`（绑定用户消息 hash）；
   `audit --engine` 拒绝方法名。
-- **挑战收敛边际制**：challenger 结构化发现（去重键 + NEW_CRITICAL_FINDINGS 行），
-  有新增 P0/P1 才续轮；PLAN_ITERATIONS 3→1。DeskPet 数据否决了"硬顶 3 轮"方案
-  （那次第 4–6 轮仍在抓真 P0）。
+- **挑战收敛状态机（1.4）**：acceptance + assurance contract 冻结范围；第一轮 breadth、
+  后续 open+diff；真实 finding ID 去重，gate 推导新增/收敛；3/5/8 分别触发 scope audit、
+  user review、hard stop，architecture reset 不清零历史。
 - **baseline runner**：`scripts/baseline_runner.py`（分片清单/心跳/超时精确杀进程树/
   既有失败签名/新红即停/--resume）。自测 137 用例全绿。
 - **阶段依赖图并行化（P1-6）**：SKILL.md 推进规则从全局串行改为双轨依赖图——实现轨
