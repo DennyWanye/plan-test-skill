@@ -59,7 +59,17 @@
 - `PLAN_CHALLENGE_HARD_LIMIT`: 8
   - 第 8 轮仍有 open in-scope P0/P1 → 当前 plan loop `BLOCKED`；architecture reset 不清零历史。
 - `TESTCASE_ITERATIONS`: 2
-  - testcase 迭代最少轮数。
+  - testcase 迭代策略：
+    - **第一轮**：检查 MUST AC 覆盖完整性 + 关键风险覆盖 + 目标绑定审查
+    - **第二轮**：只审新增 diff 和未闭环的 AC/risk obligation
+    - **收敛条件**：
+      * 所有 MUST AC 都有 required testcase 覆盖
+      * 所有 required testcase 都有明确的 AC 或 risk 绑定
+      * 没有新增 required obligation
+    - **继续条件**：只能新增 exploratory testcase 时，不阻断 plan 定稿
+    - **最大轮次**：受 MAX_ROUNDS 兜底，但优先按收敛条件判断
+    
+    注意：不再固定"至少两轮必须继续加内容"，而是按边际收益收敛。
 - `AUDIT_RETRY`: until-100
   - 完成度未达 100% 就循环补完（受 `MAX_ROUNDS` 兜底）。
 - `MAX_ROUNDS`: 15
@@ -122,6 +132,17 @@
     各打最小一枪（一条 curl 或一次 MCP 点击），断言非 404 / 非 500 / 非"未接通"降级码。
     脚本存盘、可复跑、纳入回归套件（见 phase-4 ②）。
     会话续接/压缩恢复/换 agent 接手时，推进前先跑一遍（见 SKILL.md 推进规则）。
+    
+    **分级触发策略**（防止对所有改动都全量打历史端点）：
+    - **critical-surface-smoke**（必做）：少量核心历史入口（登录、主页、关键功能入口），所有交付都跑
+    - **affected-surface-smoke**（条件触发）：根据入口依赖和 impact_paths 运行受影响的端点
+    - **full-surface-smoke**（高风险触发）：全量历史端点，仅在以下情况强制：
+      * 路由层、公共基础设施、启动装配有改动
+      * 共享 provider、中间件、权限系统有改动
+      * 正式 release 前的完整验证
+      * 无 impact_paths 映射或映射覆盖不完整时（fail-closed）
+    
+    单文件/单函数改动且有明确 impact_paths 时，只跑 critical + affected。
 - `WIRING_CHECK`: required
   - 服务层-路由接线断言：services / prompts 等处新 `export` 的函数/枚举/新增入参，
     routes / 入口层必须有真实引用；运行时白名单数组必须与对应类型全集同步

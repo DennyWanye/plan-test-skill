@@ -37,7 +37,27 @@
    - 在 acceptance 中列出五类 LLM 行为变异，每类至少一条**端侧容错断言**（容错/自救/降级出口，可验证）：
      ① 乱序响应（出题/推进顺序 ≠ 注入顺序）；② 重复输出同一项；③ schema 违约（必填字段缺失、内容写错位置、字段值与枚举不符）；④ 超长文本/极端载荷（整句选项、超长题干的 UI 边界）；⑤ 拒不调用工具/跳过注入指令。
    - 缺失此清单 → plan-task 开工即 BLOCKED（同场景矩阵门禁待遇）。
-5. **和用户确认**：把 `{ACCEPTANCE_FILE}` 草稿（**含场景矩阵**）给用户过一遍，确认后才进 phase-0。用户确认 acceptance 即同时确认了场景矩阵的范围。
+4c. **测试义务矩阵（Test Obligation Matrix）**（所有任务必做）：
+   - 在 acceptance 中定义测试义务矩阵，明确每个 required testcase 的必要性。
+   - 每个 test obligation 必须说明：
+     * `obligation_id`：唯一标识（TO-xxx）
+     * `type`：delivery（证明 AC）/ change-risk（防范受影响范围内风险）/ exploratory（探索性，不 required）
+     * `ac_id`：绑定的 AC ID（delivery 类型必填）
+     * `risk`：防范的具体风险（change-risk 类型必填）
+     * `min_decisive_test`：最小决定性测试描述
+     * `required_reason`：为什么这个测试是 required 的
+   - **目标导向原则**：
+     * delivery 测试：直接证明 MUST AC 的正常路径、错误处理、边界行为
+     * change-risk 测试：只针对本次改动的受影响范围（入口层、共享基础设施、关键不变量）
+     * exploratory 测试：与当前目标或受影响范围无直接关系的测试（并发、性能、恢复、迁移等），不应标记为 required
+   - **适用性判断**（见 `checklists/test-obligation-matrix.md`）：
+     * 并发测试：仅当存在共享可变状态时为 required
+     * 幂等测试：仅当有副作用且未实现幂等机制时为 required
+     * 边界值测试：仅当在 AC 声明的边界内时为 required
+     * LLM 对抗测试：仅当 `llm_payload_driven=true` 时为 required
+     * 冷启动测试：仅当 `stateful_init=true` 时为 required
+   - 缺失此矩阵或 required testcase 无法说明必要性 → gate 返回 `ORPHAN_REQUIRED_SCENARIO` 或 `UNJUSTIFIED_TEST_SCOPE`。
+5. **和用户确认**：把 `{ACCEPTANCE_FILE}` 草稿（**含场景矩阵和测试义务矩阵**）给用户过一遍，确认后才进 phase-0。用户确认 acceptance 即同时确认了场景矩阵的范围和测试义务的必要性。
 
 ## `acceptance.md` 模板
 
@@ -76,8 +96,31 @@
 | S-3 | 例：跨域比较决策类（口语表达） | 例："这几个哪个最强？优缺点呢" | 多源综合 + 自然表达路由 | positive-value | 是 | 是 | completed + 非空有效报告 | …… |
 | S-N | 例：冷门低证据类 | …… | 诚实降级不编造 | negative-safety | 是 | 是 | insufficient_evidence 是预期 | 不适用 |
 
+## 测试义务矩阵（Test Obligation Matrix）（所有任务必填）
+| obligation_id | type | ac_id | risk | min_decisive_test | required_reason |
+|---------------|------|-------|------|-------------------|-----------------|
+| TO-A1 | delivery | AC-1 | — | 正常路径执行一次 | 直接证明 AC-1 的主要功能 |
+| TO-A2 | delivery | AC-1 | — | 错误输入返回预期错误 | 证明 AC-1 的错误处理 |
+| TO-R1 | change-risk | AC-1 | FAIL-ROUTE | 新增路由可达性 | 本次改动涉及入口层 |
+| TO-R2 | change-risk | — | FAIL-REGRESSION | 受影响的既有功能 smoke | 修改共享序列化层 |
+| TO-E1 | exploratory | — | 潜在性能问题 | 高并发压测 | 未来风险探索（不阻断交付） |
+
+**类型说明**：
+- `delivery`：直接证明 MUST AC，required
+- `change-risk`：防范本次改动的受影响范围内风险，有明确风险时 required
+- `exploratory`：探索性测试，不 required
+
+**风险适用性判断**：
+- 并发/幂等：仅当有共享可变状态/副作用时
+- 边界值：仅当在 AC 声明的边界内时
+- LLM 对抗：仅当 `llm_payload_driven=true` 时
+- 冷启动：仅当 `stateful_init=true` 时
+- 性能/恢复/迁移：仅当 AC 明确要求时
+
 ## 完成的定义（DoD 摘要）
 - 全部"必须"条款通过测试
+- 所有 delivery 类型的 test obligation 都有对应的 PASS testcase
+- 所有 change-risk 类型的 test obligation 都有对应的 PASS testcase
 - 无回归
 - 文档已同步
 ```

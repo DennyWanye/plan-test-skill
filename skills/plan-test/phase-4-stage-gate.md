@@ -92,6 +92,18 @@
 
 **昂贵层前置：testcase 冻结**。进入昂贵层（末层 MCP 真人完整矩阵）前，本阶段要执行的 testcase 必须已**编写完成并通过 challenger 挑战**——这些编写与迭代动作应当已在 phase-3 D 节的**并行验证准备轨**里与实现同步完成（black-box 纪律：不读实现代码），此刻只做核对与**冻结**；若准备轨没做完，在这里补完再冻结，但要如实记为串行返工。不许拿临时、未经挑战的 testcase 跑昂贵验收，测完再补定义。phase-5 收尾时只做实际结果回写与回归登记。
 
+**昂贵层前置 1b：Test Obligation Matrix 验证**。testcase 冻结后，验证测试义务矩阵：
+- `acceptance.md` 必须包含 Test Obligation Matrix（除非是 S 档且单文件改动）
+- 每个 MUST AC 必须至少有一个 delivery 类型的 obligation
+- 每个 required testcase 必须绑定至少一个 obligation（TO-xxx）
+- 不存在无法说明必要性的 required testcase
+- 验证命令（见下方 gate init 后的检查步骤）会返回：
+  * `AC_COVERAGE_MISSING`: MUST AC 没有 delivery testcase
+  * `ORPHAN_REQUIRED_SCENARIO`: required 场景既不绑定 AC，也不绑定 in-scope risk
+  * `UNJUSTIFIED_TEST_SCOPE`: 测试超出 acceptance/assurance 范围却被标为 required
+  * `OBLIGATION_NOT_SATISFIED`: 定义的 obligation 没有对应的 testcase
+- 任何错误 → 立即 BLOCKED，返回修正 testcase 或 obligation 定义
+
 **昂贵层前置 2：gate run-dir init（机器账本开账）**。testcase 冻结完成后、执行任何昂贵测试前，用 canonical gate 开账（见 `gate/PROTOCOL.md`）：
 
 ```bash

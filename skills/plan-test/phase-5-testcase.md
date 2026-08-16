@@ -16,6 +16,10 @@
 
 1. **写分步 testcase**
    - 每个 testcase 一步一步来，**每步给出预期结果**。
+   - **每个 testcase 必须明确绑定至少一个 test obligation**（来自 `acceptance.md` 的 Test Obligation Matrix）：
+     * 在 testcase 文件头部标注 `**绑定**: TO-xxx (类型)`
+     * 说明它证明哪个 AC 或防范哪个风险
+     * 无法绑定 obligation 的测试应标记为 exploratory（不 required）
    - 存放：`{TESTCASE_DIR}/<按测试范围命名的新文件夹>/`。
    - 维护 `{TESTCASE_DIR}/index.md`：把本组 testcase 的测试范围与目的更新进去。
    - 检查根 `README`：若未引用 `{TESTCASE_DIR}/index.md`，补进去。
@@ -49,7 +53,17 @@
 
 4. **子代理迭代**
    - 派 `{CHALLENGER_ENGINE}`，用 `prompts/testcase-iterator.md` 挑战并迭代 testcase（最少 `{TESTCASE_ITERATIONS}` 轮），直到覆盖率能测出各种 bug 与边界情况。
-   - 按 SKILL.md"上下文包"规则派发（附 acceptance.md 条款与上轮已补齐的场景清单）；以末行 `VERDICT` 判定去留，缺结论行按 FAIL 处理。
+   - 按 SKILL.md"上下文包"规则派发（附 acceptance.md 条款、Test Obligation Matrix 与上轮已补齐的场景清单）；以末行 `VERDICT` 判定去留，缺结论行按 FAIL 处理。
+   - **重点检查**（见 `prompts/testcase-iterator.md` 新增要求）：
+     * 所有 MUST AC 是否都有 required testcase 覆盖
+     * 所有 required testcase 是否都有明确的 obligation 绑定（TO-xxx）
+     * 是否存在无法说明必要性的 required testcase（应降级为 exploratory）
+     * 测试集是否为最小充分集（没有冗余测试）
+   - **收敛条件**（优先于固定轮数）：
+     * 所有 MUST AC 都有 required testcase 覆盖
+     * 所有 required testcase 都有明确的 AC 或 risk 绑定
+     * 没有新增 required obligation
+     * 只能新增 exploratory testcase 时，不阻断定稿
 
 5. **独立 full-audit（时序：本阶段最后一步——结果回写、状态一致性修正、证据冻结全部完成之后）**
    - 先把审计输入冻结进 run-dir：`auditor-input.json`（acceptance/testcase/账本摘要与 hash）；
