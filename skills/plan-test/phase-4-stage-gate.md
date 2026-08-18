@@ -128,7 +128,7 @@ manifest.json 必须包含：
 
 **禁止空 release_unit 执行**——这是本次失败案例的核心问题之一。
 
-manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、场景矩阵（含 required/ui/gate_type/expected_run_created/required_lanes/min_root_runs/**input_class**/**cold_start**）、**适用性判定 `applicability`**、`executor_engine`、release_unit 体量指标、baseline HEAD。init 自动把全部 required 场景建为 `NOT_RUN`——**此后状态只能靠 `record-run` + `attach-evidence` 记录的事实由 validator 重算**，任何手写 PASS 不作数。
+manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、场景矩阵（含 required/ui/gate_type/expected_run_created/required_lanes/min_root_runs/**input_class**/**cold_start**）、**适用性判定 `applicability`**、`executor_engine`（以及可选的 `auditor_engine`/`challenger_engine` 声明——实际引擎偏离会被 advisory 曝光）、release_unit 体量指标、baseline HEAD。init 自动把全部 required 场景建为 `NOT_RUN`——**此后状态只能靠 `record-run` + `attach-evidence` 记录的事实由 validator 重算**，任何手写 PASS 不作数。
 
 **适用性判定必须写进 manifest（`APPLICABILITY_UNDECLARED` 会拦截）**：三维各一条
 `{value, rationale(≥10 字), decided_by}`——
@@ -161,7 +161,7 @@ manifest 冻结：原始需求、acceptance、black-box testcase 文件 hash、�
 ## 执行测试与修复
 
 - 严格按已冻结的 testcase 逐条测：UI 用 MCP 真人点击，逻辑用脚本断言。
-- **每条测试当场入账**：每次执行 `record-run`（scenario / kind=root|retry|continuation / lane / driver / engine 终态 / 业务终态 / Session ID / Run ID），每份截图/日志/命令回执 `attach-evidence --kind primary`（UI 场景加 `--ui-action`，负向断言加 `--negative-assertion`）。**时间同步入账**：机器测试用 `record-timing --exec -- <cmd>` 包裹执行（monotonic 实测），真人测试用 `--declared-start/--declared-end` 申报（自动标 measured=false）；连续工作每 90–120 分钟跑一次 `checkpoint`；进入/离开阶段用 `phase-start`/`phase-end`（finalize 查配对）。**事后凭印象补账 = 无账——1.3.0 起这是机器门**：活动跨度超 30 分钟而 timing 覆盖不足即 `TIMING_MISSING`，证据文件时间早于开账即 `EVIDENCE_PREDATES_LEDGER`（历史证据只能走 `import-evidence --from-run`），补录整本账拿不到 receipt。**全 AI 驾驶须批准**：输入语义敏感功能的 required UI 场景，至少 1 次 `--driver human`，或把用户批准入账（`record-approval --kind all-ai-driving --message-hash <批准消息 sha256>`），否则 `DRIVER_APPROVAL_MISSING`。多阶段场景（如"新话题"）必须断言**状态序列与身份**（Session ID 改变、新 root Run 创建、中间态可见），不只终点回答——`expected_run_created` 会被 validator 正反向核对。
+- **每条测试当场入账**：每次执行 `record-run`（scenario / kind=root|retry|continuation / lane / driver / engine 终态 / 业务终态 / Session ID / Run ID），每份截图/日志/命令回执 `attach-evidence --kind primary`（UI 场景加 `--ui-action`，负向断言加 `--negative-assertion`）。**脚本测试优先用 `record-run --exec -- <cmd>`（1.4.0 起）**：gate 亲自执行命令，result 由 exit code 决定（与 `--result` 互斥），输出日志自动记为 primary 证据——自报模式下"一条命令跑一遍、同一秒给 N 条 AC 各记一条 pass"会被 `RUN_ATTESTATION_FANOUT` 曝光，零证据交付会被 `EVIDENCE_FREE_FINALIZE` 曝光。**时间同步入账**：机器测试用 `record-timing --exec -- <cmd>` 包裹执行（monotonic 实测），真人测试用 `--declared-start/--declared-end` 申报（自动标 measured=false）；连续工作每 90–120 分钟跑一次 `checkpoint`；进入/离开阶段用 `phase-start`/`phase-end`（finalize 查配对）。**事后凭印象补账 = 无账——1.3.0 起这是机器门**：活动跨度超 30 分钟而 timing 覆盖不足即 `TIMING_MISSING`，证据文件时间早于开账即 `EVIDENCE_PREDATES_LEDGER`（历史证据只能走 `import-evidence --from-run`），补录整本账拿不到 receipt。**全 AI 驾驶须批准**：输入语义敏感功能的 required UI 场景，至少 1 次 `--driver human`，或把用户批准入账（`record-approval --kind all-ai-driving --message-hash <批准消息 sha256>`），否则 `DRIVER_APPROVAL_MISSING`。多阶段场景（如"新话题"）必须断言**状态序列与身份**（Session ID 改变、新 root Run 创建、中间态可见），不只终点回答——`expected_run_created` 会被 validator 正反向核对。
 - **P1-1 新增（2026-08-14）：每 90 分钟检查 ledger 进度**：
   ```bash
   python {GATE_SCRIPT} check-ledger-progress --run-dir <run-dir>

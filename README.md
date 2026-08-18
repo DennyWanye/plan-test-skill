@@ -75,10 +75,36 @@ git clone https://github.com/DennyWanye/<repo>.git
 常用覆盖：
 
 ```markdown
-EXECUTOR_ENGINE: claude     # 本项目没装 codex，用 Claude 子代理执行
+EXECUTOR_ENGINE: claude     # 默认 current=跟随当前会话模型；这里固定为 Claude 子代理
 PLAN_ITERATIONS: 5          # plan 至少迭代 5 轮
 MANUAL_TEST: required
 ```
+
+## 运行记录（log）在哪里
+
+每次验证运行（run）的记录都存在**被测项目内**，不在插件目录：
+
+```
+<你的项目>/plans/<plan 目录>/verification/<run-id>/
+├── plan-test-run.json     唯一状态账本（所有原始测试事实，只能经 CLI 写入）
+├── auditor-input.json     终审冻结输入
+├── auditor-output.json    终审结论
+├── gate-receipt.json      finalize 通过后才存在（exit 0 的凭证）
+├── artifacts/             证据文件（截图、日志、命令回执）
+└── report.md              人读报告（需手动 render 生成）
+```
+
+常用查看命令：
+
+```bash
+# 生成/刷新人读报告
+python3 skills/plan-test/scripts/plan_test_gate.py render --run-dir <run-dir>
+
+# 查看某次运行的交付判定
+python3 skills/plan-test/scripts/plan_test_gate.py finalize --run-dir <run-dir> --check-only
+```
+
+注意区分三类记录：run 目录是 plan-test 的**测试账本**；Claude 会话聊天记录在本机 `~/.claude/projects/` 下；plan 文档本身在 `<你的项目>/plans/` 下。
 
 ## 目录结构
 

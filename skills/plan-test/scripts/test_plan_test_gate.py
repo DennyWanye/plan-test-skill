@@ -2571,5 +2571,162 @@ class ChallengeLoopAssuranceTestCase(GateHarness):
         self.assertFalse([e for e in errors if "challenge_loops" in e], errors)
 
 
+class ExecRecordRunTestCase(RealRepoAttestationTestCase):
+    """record-run --exec（2026-08-19）：gate 亲眼执行，exit code 决定 result，
+    输出日志自动成为 primary 证据——堵"一次执行扇出成 N 条自报 pass"。"""
+
+    def init_two_scenarios(self):
+        self.init_real_run(scenarios=[{"scenario_id": "S-1", "required": True},
+                                      {"scenario_id": "S-2", "required": True}])
+
+    def test_exec_pass_records_result_and_primary_evidence(self):
+        self.init_two_scenarios()
+        r = run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-2",
+                      "--kind", "root", "--exec", "--",
+                      sys.executable, "-c", "print('hello-gate')"], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("EXEC log=", r.stdout)
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
+            led = json.load(f)
+        mine = [x for x in led["runs"] if x.get("scenario_id") == "S-2"]
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0]["result"], "pass")
+        self.assertEqual(mine[0]["exec_exit_code"], 0)
+        evs = [e for e in led["evidence"] if e.get("scenario_id") == "S-2"]
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]["kind"], "primary")
+        log_path = os.path.join(self.run_dir, evs[0]["path"])
+        self.assertIn("hello-gate", read_utf8(log_path))
+
+    def test_exec_fail_records_fail_and_transparent_exit(self):
+        self.init_two_scenarios()
+        r = run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-2",
+                      "--kind", "root", "--exec", "--",
+                      sys.executable, "-c", "import sys; sys.exit(3)"], cwd=self.repo)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)  # 如实透传
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
+            led = json.load(f)
+        mine = [x for x in led["runs"] if x.get("scenario_id") == "S-2"]
+        self.assertEqual(mine[0]["result"], "fail")
+
+    def test_exec_rejects_self_reported_result(self):
+        self.init_two_scenarios()
+        r = run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-2",
+                      "--kind", "root", "--result", "pass", "--exec", "--",
+                      sys.executable, "-c", "pass"], cwd=self.repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("不许自报", r.stderr)
+
+    def test_no_result_no_exec_is_usage_error(self):
+        self.init_two_scenarios()
+        r = run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-2",
+                      "--kind", "root"], cwd=self.repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("须给 --result", r.stderr)
+
+    def test_exec_unknown_scenario_rejected_before_running(self):
+        self.init_two_scenarios()
+        r = run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-9",
+                      "--kind", "root", "--exec", "--",
+                      sys.executable, "-c", "pass"], cwd=self.repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("不在 init 冻结的场景清单", r.stderr)
+
+
+class ExposureAdvisoryTestCase(RealRepoAttestationTestCase):
+    """2026-08-19 曝光性 advisory：扇出、零证据 finalize、引擎未声明/偏离、deferral。
+    全部不拦截（exit 不受影响），但必须出现在 finalize 输出里。"""
+
+    def audit_real(self, engine="opus-4.8", output_json=None):
+        with open(os.path.join(self.run_dir, "auditor-input.json"), "w",
+                  encoding="utf-8") as f:
+            f.write('{"frozen": true}')
+        with open(os.path.join(self.run_dir, "auditor-output.json"), "w",
+                  encoding="utf-8") as f:
+            f.write(output_json if output_json is not None else '{"verdict": "PASS"}')
+        r = run_gate(["audit", "--run-dir", self.run_dir, "--verdict", "PASS",
+                      "--engine", engine,
+                      "--input", "auditor-input.json",
+                      "--output", "auditor-output.json"], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def finalize_full(self):
+        return run_gate(["finalize", "--run-dir", self.run_dir], cwd=self.repo)
+
+    def test_evidence_free_finalize_exposed_but_not_blocking(self):
+        """required 全 PASS 但零 primary 证据 → advisory 曝光，不拦截交付。"""
+        self.init_real_run(executor_engine="claude")
+        self.audit_real()
+        r = self.finalize_full()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("EVIDENCE_FREE_FINALIZE", r.stdout)
+
+    def test_primary_evidence_silences_evidence_free(self):
+        self.init_real_run(executor_engine="claude")
+        self.write("plans/p/verification/run-1/artifacts/out.log", "pytest ok\n")
+        r = run_gate(["attach-evidence", "--run-dir", self.run_dir,
+                      "--path", "artifacts/out.log", "--kind", "primary",
+                      "--scenario", "S-1"], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.audit_real()
+        r = self.finalize_full()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("EVIDENCE_FREE_FINALIZE", r.stdout)
+
+    def test_executor_engine_undeclared_exposed(self):
+        self.init_real_run()  # 未声明 executor_engine
+        self.audit_real()
+        r = self.finalize_full()
+        self.assertIn("EXECUTOR_ENGINE_UNDECLARED", r.stdout)
+
+    def test_auditor_engine_mismatch_exposed(self):
+        self.init_real_run(executor_engine="claude", auditor_engine="opus-4.8")
+        self.audit_real(engine="gpt-5")
+        r = self.finalize_full()
+        self.assertIn("AUDITOR_ENGINE_MISMATCH", r.stdout)
+        self.assertIn("opus-4.8", r.stdout)
+
+    def test_open_deferrals_exposed(self):
+        self.init_real_run(executor_engine="claude")
+        self.audit_real(output_json=json.dumps({
+            "verdict": "PASS",
+            "findings": [{"id": "E-1", "severity": "info", "status": "deferred",
+                          "text": "真实 LLM 对话 E2E 留待 slice 5"}]}))
+        r = self.finalize_full()
+        self.assertIn("OPEN_DEFERRALS", r.stdout)
+        self.assertIn("E-1", r.stdout)
+
+    def test_fanout_advisory_via_validate(self):
+        """同命令同时间戳扇出到多个场景 → advisory（直接喂合成账本，规避秒界抖动）。"""
+        spec = importlib.util.spec_from_file_location("plan_test_gate_fanout", GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        base = {
+            "schema_version": gate.SCHEMA_VERSION, "run_id": "t", "source_request": {},
+            "scenarios": [{"scenario_id": "S-1", "required": True},
+                          {"scenario_id": "S-2", "required": True}],
+            "evidence": [], "applicability": {},
+        }
+        fanout_runs = [
+            {"scenario_id": "S-1", "kind": "root", "result": "pass",
+             "command": "pytest -q", "recorded_at": "2026-08-18T18:56:24+0800"},
+            {"scenario_id": "S-2", "kind": "root", "result": "pass",
+             "command": "pytest -q", "recorded_at": "2026-08-18T18:56:24+0800"},
+        ]
+        diags, _ = gate.validate(self.run_dir, dict(base, runs=fanout_runs),
+                                 mode="full", fixture=False)
+        self.assertIn("RUN_ATTESTATION_FANOUT", {d.code for d in diags})
+        # 不同时间戳 → 不曝光
+        staggered = [dict(r, recorded_at="2026-08-18T18:56:2%d+0800" % i)
+                     for i, r in enumerate(fanout_runs)]
+        diags, _ = gate.validate(self.run_dir, dict(base, runs=staggered),
+                                 mode="full", fixture=False)
+        self.assertNotIn("RUN_ATTESTATION_FANOUT", {d.code for d in diags})
+        # fixture 免检
+        diags, _ = gate.validate(self.run_dir, dict(base, runs=fanout_runs),
+                                 mode="full", fixture=True)
+        self.assertNotIn("RUN_ATTESTATION_FANOUT", {d.code for d in diags})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

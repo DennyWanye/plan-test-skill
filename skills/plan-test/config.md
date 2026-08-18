@@ -6,8 +6,11 @@
 
 ## 子代理引擎
 
-- `EXECUTOR_ENGINE`: codex-gpt5.5
-  - 执行阶段并行实现用。若当前环境未安装 codex 插件，**优雅回退到 claude 子代理**。
+- `EXECUTOR_ENGINE`: current
+  - 执行阶段并行实现用。`current` = **跟随用户当前会话使用的大模型**（派发子代理时不指定
+    model，自动继承当前模型——用户用 DeepSeek V4 Pro 执行子代理就是 DeepSeek V4 Pro，
+    用 Claude 就是 Claude），不再默认绑定某个固定模型（如 GPT 系）。
+  - 需要固定引擎时，在项目根 `.claude/plan-test.config.md` 里覆盖本键（如 `claude`）。
 - `CHALLENGER_ENGINE`: claude
   - 挑战 plan / 挑战架构文档 / 迭代 testcase 的子代理。
 - `AUDITOR_ENGINE`: opus-4.8
@@ -202,6 +205,16 @@
   - `audit --engine` 必填；与 `executor_engine` 相同或未标注 → advisory
     `AUDITOR_INDEPENDENCE_UNVERIFIED`（曝光不拦截）。审计产物里的 verdict 与命令行不一致 →
     直接拒绝（`AUDITOR_VERDICT_MISMATCH`）——以产物为准，不许命令行改判。
+  - 引擎声明入账（1.4.0 起）：manifest 可声明 `executor_engine` / `auditor_engine` /
+    `challenger_engine`（init 冻结）。executor 未声明 → advisory `EXECUTOR_ENGINE_UNDECLARED`；
+    实际审计引擎偏离声明 → advisory `AUDITOR_ENGINE_MISMATCH`。曝光不拦截，但
+    "配置写在 Markdown 里、实际用了别的引擎"从此在 report/receipt 里可见。
+- `SELF_REPORT_EXPOSURE`: on（schema 1.4.0）
+  - 脚本测试优先 `record-run --exec -- <cmd>`：gate 亲自执行，result 由 exit code 决定，
+    输出日志自动记为 primary 证据。自报模式下：同一命令同一时间戳扇出 ≥2 个场景的
+    root pass → advisory `RUN_ATTESTATION_FANOUT`；required 全 PASS 但零 primary 证据 →
+    advisory `EVIDENCE_FREE_FINALIZE`；auditor 产物含 deferred findings →
+    advisory `OPEN_DEFERRALS`（"留待后续"不许悬空）。均曝光不拦截、fixture 免检。
 - `EVIDENCE_CLASSES`: primary / derived
   - 截图、原始日志、命令回执、DB 记录是 primary；auditor 报告与交付汇总是 derived。
     derived 只辅助审计，不能单独满足 AC/testcase；证据依赖图存在环 →

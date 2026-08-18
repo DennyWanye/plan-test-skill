@@ -39,7 +39,7 @@ Every write to the ledger appends to the integrity chain: `chain_n = sha256(chai
 ### Testing the Gate System
 
 ```bash
-# Run the full test suite (137 test cases, must all pass)
+# Run the full test suite (204 test cases, must all pass)
 python3 skills/plan-test/scripts/test_plan_test_gate.py
 ```
 
@@ -61,9 +61,15 @@ python3 skills/plan-test/scripts/plan_test_gate.py check-release-unit \
 python3 skills/plan-test/scripts/plan_test_gate.py validate-release-unit \
   --run-dir <run-dir>
 
-# Record a test run
+# Record a test run (self-reported result)
 python3 skills/plan-test/scripts/plan_test_gate.py record-run \
   --run-dir <D> --scenario S-1 --kind root --result pass
+
+# Record a test run with real execution (preferred for scripted tests, 2026-08-19 new):
+# gate runs the command itself, result comes from the exit code, and the output log
+# is automatically attached as primary evidence
+python3 skills/plan-test/scripts/plan_test_gate.py record-run \
+  --run-dir <D> --scenario S-1 --kind root --exec -- python -m pytest tests/ -q
 
 # Attach evidence
 python3 skills/plan-test/scripts/plan_test_gate.py attach-evidence \
@@ -206,7 +212,9 @@ The gate has 25+ stable diagnostic codes in canonical order (see `gate/PROTOCOL.
 - `LEDGER_STALLED`: Ledger has no progress (runs/evidence/timing) for >90 minutes
 - `PLAN_SCOPE_EXPANSION` (advisory): Plan size increased by >50% from baseline (exit 0, 仅警告)
 
-**总计诊断码**: 41 个（原 32 + 新增 9）
+**总计诊断码**: 46 个（原 32 + 2026-08-14 新增 9 + 2026-08-19 新增 5 个 advisory 曝光码：
+`RUN_ATTESTATION_FANOUT` / `EVIDENCE_FREE_FINALIZE` / `EXECUTOR_ENGINE_UNDECLARED` /
+`AUDITOR_ENGINE_MISMATCH` / `OPEN_DEFERRALS`，均不拦截、fixture 免检）
 
 Diagnostic output is deterministic: same ledger state → same diagnostic sequence byte-for-byte.
 
@@ -242,7 +250,7 @@ Default configuration: `skills/plan-test/config.md`
 Project overrides: `.claude/plan-test.config.md` (only write keys you want to change)
 
 Key configuration variables:
-- `EXECUTOR_ENGINE`: codex-gpt5.5 (fallback to claude if codex unavailable)
+- `EXECUTOR_ENGINE`: current (inherit the user's current session model; no fixed model binding)
 - `CHALLENGER_ENGINE`: claude
 - `AUDITOR_ENGINE`: opus-4.8
 - `FLOW_TIER`: auto (S/M/L based on change scope)
@@ -324,4 +332,4 @@ After modifying gate code:
 python3 skills/plan-test/scripts/test_plan_test_gate.py
 ```
 
-All 137 test cases must pass. Any change that alters the two static fixture outputs (`pass-minimal` must reach SHIPPABLE + receipt; `fail-companion-conflict` must output exactly the frozen 15 diagnostics) requires reviewing the new output and explaining the reason in the commit message.
+All 204 test cases must pass. Any change that alters the two static fixture outputs (`pass-minimal` must reach SHIPPABLE + receipt; `fail-companion-conflict` must output exactly the frozen 15 diagnostics) requires reviewing the new output and explaining the reason in the commit message.

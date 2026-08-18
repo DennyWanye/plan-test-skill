@@ -113,6 +113,11 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 25 | `TIMING_GAP` | error | 记账覆盖区间合并后仍有 > 120 分钟空洞（1.3.0 起升 error；申报 timing 可补覆盖） |
 | 26 | `PHASE_UNPAIRED` | error | phase-start 无配对 phase-end（或反之）；check-only 不查，full/render 查 |
 | 27 | `AUDITOR_INDEPENDENCE_UNVERIFIED` | **advisory** | auditor engine 未标注或与 executor 相同——自审自判，曝光不拦截 |
+| 28 | `RUN_ATTESTATION_FANOUT` | **advisory** | 同一命令在同一时间戳扇出为 ≥2 个场景的 root pass——一次执行被记成 N 次独立验证（1.4.0 起；fixture 免检；解法：`record-run --exec`） |
+| 29 | `EVIDENCE_FREE_FINALIZE` | **advisory** | required 全 PASS 但整本账零 primary 证据——所有结论均为自报（1.4.0 起；fixture 免检） |
+| 30 | `EXECUTOR_ENGINE_UNDECLARED` | **advisory** | manifest 未声明 `executor_engine`——独立性检查无从对照（1.4.0 起；fixture 免检） |
+| 31 | `AUDITOR_ENGINE_MISMATCH` | **advisory** | 实际审计引擎偏离 init 冻结的 `auditor_engine` 声明——引擎配置被静默偏离（1.4.0 起；fixture 免检） |
+| 32 | `OPEN_DEFERRALS` | **advisory** | auditor 产物含 deferred findings（`"status": "deferred"` 或 `"deferred": true`）——"留待后续"不许悬空（1.4.0 起；fixture 免检） |
 | - | `REVISION_CONFLICT`（stderr） | - | 并发写 CAS 冲突——重读后重试，不静默覆盖 |
 | - | `LEDGER_LOCKED`（stderr） | - | 文件锁被占用 |
 
@@ -328,6 +333,10 @@ validator 能重算的只有"已入账事实之间的自洽性"，事实本身�
 - **证据可伪造**：`attach-evidence` 只校验文件存在与 hash，不看内容来源。代理自己造一张
   截图、写一行假日志，门禁看不出来。`--ui-action` 只是一个 bool。
 - **result 是自陈**：`record-run --result pass` 的 engine/业务终态是自由文本。
+  缓解（1.4.0 起）：脚本测试改用 `record-run --exec -- <cmd>`——gate 亲自执行命令，
+  result 由 exit code 决定（0=pass 非 0=fail，与 `--result` 互斥），stdout/stderr 落盘
+  `artifacts/exec-*.log` 自动记为 primary 证据，被包裹命令的 exit code 如实透传。
+  一次执行扇出成 N 条自报 pass 会被 `RUN_ATTESTATION_FANOUT` 曝光（advisory）。
 - **oracle 由被测者定义**：场景全部来自代理自写的 manifest。**漏写一个风险场景，
   门禁根本不知道它存在**——这是本协议最大的剩余缺口，适用性判定（§5.12）只覆盖了
   其中"条件门被口头判掉"这一类。
@@ -347,6 +356,8 @@ python skills/plan-test/scripts/test_plan_test_gate.py
 137 个用例（曾对外称 57，其中 23 条是被 `TimingTestCase(GateTestCase)` 继承重跑的重复项，
 拆 `GateHarness` 基类后为 50；五轮独立审计逐次打穿实现补齐攻击回归至 94；schema 1.3.0
 新增时间硬门/先测后补账/phase 配对/驾驶批准/影响范围复测的正反路径至 137）。
+2026-08-19 起 204 个用例（新增 record-run --exec 真执行、扇出/零证据/引擎声明/deferral
+曝光的正反路径）。
 
 覆盖：状态矛盾 FAIL、required NOT_RUN、证据缺失/hash 不符、循环证据、frozen oracle
 变异、audit 后 stale、receipt 幂等、适用性未声明/理由缺失/判「适用」未兑现矩阵、

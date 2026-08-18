@@ -72,7 +72,7 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 ## 子代理用法
 
 - 挑战/评估/审计/迭代类子代理：各自的提示词在 `prompts/` 下，派发时把对应文件内容作为子代理 prompt，引擎用配置里指定的值。
-- 执行类子代理：用 `{EXECUTOR_ENGINE}` 并行派发（默认 codex-gpt5.5，未装则回退 claude）。
+- 执行类子代理：用 `{EXECUTOR_ENGINE}` 并行派发（默认 `current` = 继承当前会话模型，不指定 model 参数；用户当前用什么模型，执行子代理就用什么模型）。
 - 终审（完成度/测试覆盖最终确认）：用 `{AUDITOR_ENGINE}`（默认 opus-4.8）。
 - 调研类步骤（phase-0/1/2）遵循 `methods/research-method.md` 的调研纪律。
 

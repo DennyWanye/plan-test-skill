@@ -140,6 +140,14 @@ CANONICAL_ORDER = [
     "TIMING_MISSING", "TIMING_GAP", "PHASE_UNPAIRED",
     "PLAN_SCOPE_EXPANSION",  # advisory
     "AUDITOR_INDEPENDENCE_UNVERIFIED",
+    # 2026-08-19 新增（simple_harness memory-sdk-integration 4 个 slice 实测曝光）：
+    # 全部 advisory 曝光不拦截，且 fixture_only run 免检（与钟门同一先例——
+    # fixture 是合成回放，时间戳与证据分布天然不适用真实执行启发式）。
+    "RUN_ATTESTATION_FANOUT",      # 同命令同时间戳扇出成 N 个场景的 root pass
+    "EVIDENCE_FREE_FINALIZE",      # required 全 PASS 但整本账零 primary 证据
+    "EXECUTOR_ENGINE_UNDECLARED",  # manifest 未声明 executor_engine
+    "AUDITOR_ENGINE_MISMATCH",     # 实际审计引擎偏离 init 冻结的 auditor_engine
+    "OPEN_DEFERRALS",              # auditor 产物里留有"留待后续"的 deferred findings
 ]
 _ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
 
@@ -947,6 +955,35 @@ def read_output_verdict(run_dir, output_path):
     return m[-1].upper() if m else None
 
 
+def read_output_deferrals(run_dir, output_path):
+    """从 auditor 原始产物（JSON）里收集 deferred findings 的标识列表。
+
+    "留待 slice 5 / 后续兑现"这类承诺此前只写在审计文本里，run 一收尾就悬空——
+    没有任何机制提醒它还没兑现。findings 项标了 "status": "deferred" 或
+    "deferred": true 即视为待办 deferral，finalize/render 时曝光（OPEN_DEFERRALS）。
+    返回 id（或截断 text）列表；非 JSON / 无 findings 返回空列表。
+    """
+    if not output_path:
+        return []
+    p = os.path.join(run_dir, output_path)
+    if not os.path.exists(p):
+        return []
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(obj, dict):
+        return []
+    out = []
+    for f_ in obj.get("findings") or []:
+        if not isinstance(f_, dict):
+            continue
+        if str(f_.get("status") or "").lower() == "deferred" or f_.get("deferred") is True:
+            out.append(str(f_.get("id") or f_.get("text") or "")[:60])
+    return out
+
+
 def validate(run_dir, ledger, mode="full", fixture=False):
     """核心 validator。mode: check-only | full | render。返回 (diags, computed)。"""
     diags = []
@@ -1066,6 +1103,28 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             diags.append(Diag("DERIVED_EVIDENCE_ONLY",
                               "场景 %s 只有 derived report，无 primary 证据" % sid,
                               hint=sid))
+
+    # 4b. 同命令同时间戳扇出曝光（simple_harness 2026-08-18 实测：一条 pytest 跑一遍，
+    #     同一秒给 4 条 AC 各记一条 root pass——一次执行伪装成 N 次独立验证，账本上完全
+    #     合法。解法不是删记录，是曝光并引导改用 record-run --exec 让每个场景有自己的
+    #     执行见证。advisory，不拦截；fixture 免检）。
+    if not fixture:
+        fanout = {}
+        for r in runs:
+            if r.get("kind") != "root":
+                continue
+            cmd = str(r.get("command") or "").strip()
+            when = str(r.get("recorded_at") or "")
+            if not cmd or not when:
+                continue
+            fanout.setdefault((cmd, when), set()).add(r.get("scenario_id"))
+        for (cmd, when), sids in sorted(fanout.items()):
+            if len(sids) >= 2:
+                diags.append(Diag("RUN_ATTESTATION_FANOUT",
+                                  "同一命令在同一时间戳（%s）扇出为 %d 个场景的 root pass（%s）——"
+                                  "一次执行被记成 N 次独立验证；改用 record-run --exec 让每个场景"
+                                  "有自己的执行日志证据" % (when, len(sids), "、".join(sorted(sids))),
+                                  severity="advisory"))
 
     # 5. 冻结 black-box oracle 变异审计
     for tc in (ledger.get("testcase_lock") or {}).get("files") or []:
@@ -1299,6 +1358,36 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                         diags.append(Diag("EVIDENCE_HASH_MISMATCH",
                                           "auditor 文件被改动: %s" % fname))
 
+    # 12b. 引擎声明对账（2026-08-19 新增，均 advisory，fixture 免检）。
+    # 病根：引擎选择此前纯靠代理自觉读 Markdown 配置——simple_harness 无项目级 override、
+    # 默认 AUDITOR_ENGINE=opus-4.8，实际 4 次审计全是 gpt-5，executor_engine 全部 None，
+    # 独立性检查因此形同虚设。现在：executor 未声明、实际审计引擎偏离 init 冻结声明，
+    # 都要在 report/receipt 里看得见。
+    if not fixture and mode in ("full", "render"):
+        if not str(ledger.get("executor_engine") or "").strip():
+            diags.append(Diag("EXECUTOR_ENGINE_UNDECLARED",
+                              "manifest 未声明 executor_engine——实现引擎无记录，"
+                              "AUDITOR_INDEPENDENCE 自审检查无从对照",
+                              severity="advisory"))
+        declared_auditor = str(ledger.get("auditor_engine") or "").strip().lower()
+        if auditor and declared_auditor:
+            actual_engine = str(auditor.get("engine") or "").strip().lower()
+            if actual_engine and actual_engine != declared_auditor:
+                diags.append(Diag("AUDITOR_ENGINE_MISMATCH",
+                                  "init 冻结 auditor_engine=%s，实际审计引擎=%s——"
+                                  "引擎配置被静默偏离" % (declared_auditor, actual_engine),
+                                  severity="advisory"))
+        # 12c. auditor 产物里的 deferred findings 曝光："留待 slice 5"这类承诺此前只在
+        # 审计文本里，run 一收尾就悬空（simple_harness run-4 的"真实 LLM E2E 留待
+        # slice 5"之后无人兑现）。曝光不拦截——关闭方式是后续 run 真的覆盖该承诺。
+        deferred = read_output_deferrals(run_dir, auditor.get("output_path"))
+        if deferred:
+            diags.append(Diag("OPEN_DEFERRALS",
+                              "审计留有 %d 条待办 deferral（%s）——后续 slice/run 必须兑现"
+                              "或在交付说明里显式关闭，不许悬空"
+                              % (len(deferred), "、".join(deferred)),
+                              severity="advisory"))
+
     # 13. 时间记账硬门（schema 1.3.0：advisory → error）。
     # DeskPet 复盘实锤：12h24m 的真实执行，四本账 timing/checkpoint 全 0，phase-4 写的
     # "每 90–120 分钟 checkpoint" 只是 advisory——文档说必须、机器不拦，规则权威一起塌。
@@ -1383,6 +1472,18 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             elif open_count[ph] < 0:
                 diags.append(Diag("PHASE_UNPAIRED",
                                   "阶段 %s 有 phase-end 但没有 phase-start" % ph, hint=ph))
+
+    # 14. 零证据 finalize 曝光（2026-08-19 新增，advisory，fixture 免检）。
+    # simple_harness 实测：4 个 slice required 全 PASS、receipt 全拿到，但 evidence=0、
+    # timing=0——DERIVED_EVIDENCE_ONLY 只在"有证据但全是 derived"时触发，"零证据"反而
+    # 无声通过。所有 PASS 均为自报的交付，report/receipt 里必须看得见。
+    if not fixture and mode in ("full", "render") \
+            and scenarios and required_all_pass \
+            and not any(e.get("kind") == "primary" for e in evidence):
+        diags.append(Diag("EVIDENCE_FREE_FINALIZE",
+                          "全部 required 场景 PASS 但账本零 primary 证据——所有结论均为自报；"
+                          "脚本测试改用 record-run --exec（执行日志自动入账），"
+                          "UI 测试 attach 截图/回执", severity="advisory"))
 
     diags = sort_diags(diags)
     computed = {
@@ -1528,6 +1629,10 @@ def cmd_init(args):
         "external_run_dir": bool(getattr(args, "allow_external_run_dir", False)),
         "doc_only_globs": manifest.get("doc_only_globs"),
         "executor_engine": manifest.get("executor_engine"),
+        # 引擎声明冻结（2026-08-19）：配置写在 Markdown 里代理未必遵守（实测默认 opus-4.8、
+        # 实际 4 次审计全是 gpt-5）。声明进账本后，finalize 对账实际引擎并曝光偏离。
+        "auditor_engine": manifest.get("auditor_engine"),
+        "challenger_engine": manifest.get("challenger_engine"),
         "release_unit": manifest.get("release_unit") or {},
         "thresholds": manifest.get("thresholds") or {},
         "baseline": {},
@@ -1611,6 +1716,54 @@ def _append(run_dir, mutate, op="append"):
 
 
 def cmd_record_run(args):
+    exec_exit = None
+    exec_ev = None
+    started_at = ended_at = None
+    elapsed_ms = None
+    if args.exec_cmd is not None:
+        if args.exec_cmd and args.exec_cmd[0] == "--":
+            args.exec_cmd = args.exec_cmd[1:]
+        if not args.exec_cmd:
+            die("--exec 后须给出要执行的命令（用法：record-run ... --exec -- <cmd...>）")
+        if args.result:
+            die("--exec 模式下 result 由被包裹命令的 exit code 决定（0=pass 非 0=fail），"
+                "不许自报 --result——自报与实测并存等于给'假 pass'留门")
+        # 病根（simple_harness 2026-08-18 实测）：一条 pytest 跑一遍，同一秒给 4 条 AC 各记
+        # 一条 root pass，零证据零耗时，finalize 全绿。--exec 把"自报"变成"gate 亲眼执行"：
+        # exit code 决定 result，stdout/stderr 落盘自动成为 primary 证据。
+        pre = load_ledger(args.run_dir)
+        if args.scenario not in {s["scenario_id"] for s in pre.get("scenarios", [])}:
+            die("场景 %s 不在 init 冻结的场景清单里（不许测后补场景，需重新 init/批准）" % args.scenario)
+        os.makedirs(os.path.join(args.run_dir, "artifacts"), exist_ok=True)
+        start_wall = time.time()
+        t0 = time.monotonic_ns()
+        proc = subprocess.run(args.exec_cmd, capture_output=True, text=True)
+        elapsed_ms = int((time.monotonic_ns() - t0) // 1_000_000)
+        end_wall = time.time()
+        exec_exit = proc.returncode
+        started_at, ended_at = _utc_iso(start_wall), _utc_iso(end_wall)
+        args.result = "pass" if exec_exit == 0 else "fail"
+        args.command = " ".join(args.exec_cmd)
+        seq = len(pre.get("runs") or []) + 1
+        safe_scenario = re.sub(r"[^A-Za-z0-9_.-]", "_", args.scenario)
+        log_rel = "artifacts/exec-%s-%04d.log" % (safe_scenario, seq)
+        log_abs = os.path.join(args.run_dir, log_rel)
+        with open(log_abs, "w", encoding="utf-8") as f:
+            f.write("command: %s\nexit_code: %d\nstarted_at: %s\nended_at: %s\n"
+                    "elapsed_ms: %d\n---- stdout ----\n%s\n---- stderr ----\n%s\n"
+                    % (args.command, exec_exit, started_at, ended_at, elapsed_ms,
+                       proc.stdout or "", proc.stderr or ""))
+        exec_ev = {
+            "evidence_id": "ev-" + sha256_file(log_abs)[:12],
+            "path": log_rel,
+            "sha256": sha256_file(log_abs),
+            "kind": "primary",
+            "scenario_id": args.scenario,
+            "file_mtime": _mtime_iso(log_abs),
+            "attached_at": now_iso(),
+        }
+    elif not args.result:
+        die("须给 --result（自报）或 --exec -- <cmd>（gate 真执行，result 由 exit code 决定）")
     rec = {
         "scenario_id": args.scenario,
         "kind": args.kind,
@@ -1622,6 +1775,10 @@ def cmd_record_run(args):
         "business_terminal": args.business_terminal,
         "session_id": args.session_id,
         "run_id_under_test": args.run_id_under_test,
+        "exec_exit_code": exec_exit,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "elapsed_ms": elapsed_ms,
         "recorded_at": now_iso(),
     }
     rec = {k: v for k, v in rec.items() if v is not None}
@@ -1630,9 +1787,16 @@ def cmd_record_run(args):
         if args.scenario not in {s["scenario_id"] for s in ledger.get("scenarios", [])}:
             die("场景 %s 不在 init 冻结的场景清单里（不许测后补场景，需重新 init/批准）" % args.scenario)
         ledger["runs"].append(rec)
+        if exec_ev:
+            ledger["evidence"].append(exec_ev)
 
     _append(args.run_dir, mutate, op="record-run")
     print("RECORDED run scenario=%s kind=%s result=%s" % (args.scenario, args.kind, args.result))
+    if exec_exit is not None:
+        print("EXEC log=%s exit=%d（result 由 exit code 决定，执行日志已自动记为 primary 证据）"
+              % (exec_ev["path"], exec_exit))
+        if exec_exit != 0:
+            sys.exit(exec_exit)  # 与 record-timing --exec 一致：如实透传被包裹命令的 exit code
 
 
 def cmd_attach_evidence(args):
@@ -3635,7 +3799,8 @@ def main(argv=None):
     p.add_argument("--run-dir", required=True)
     p.add_argument("--scenario", required=True)
     p.add_argument("--kind", required=True, choices=sorted(KIND_VALUES))
-    p.add_argument("--result", required=True, choices=sorted(RESULT_VALUES))
+    p.add_argument("--result", choices=sorted(RESULT_VALUES),
+                   help="自报结果；与 --exec 互斥（--exec 时由 exit code 决定）")
     p.add_argument("--lane", default="fresh")
     p.add_argument("--driver", default="ai", choices=["ai", "human"])
     p.add_argument("--command")
@@ -3643,7 +3808,9 @@ def main(argv=None):
     p.add_argument("--business-terminal")
     p.add_argument("--session-id")
     p.add_argument("--run-id-under-test")
-    p.set_defaults(fn=cmd_record_run)
+    # --exec -- <cmd...> 在 main() 里预切分（与 record-timing 同一约定）：
+    # gate 亲自执行命令，exit code 决定 result，输出日志自动记为 primary 证据
+    p.set_defaults(fn=cmd_record_run, exec_cmd=None)
 
     p = sub.add_parser("attach-evidence")
     p.add_argument("--run-dir", required=True)
@@ -3930,7 +4097,7 @@ def main(argv=None):
 
     argv = list(sys.argv[1:] if argv is None else argv)
     exec_cmd = None
-    if argv and argv[0] == "record-timing" and "--exec" in argv:
+    if argv and argv[0] in ("record-timing", "record-run") and "--exec" in argv:
         i = argv.index("--exec")
         exec_cmd = argv[i + 1:]
         argv = argv[:i]
