@@ -9,6 +9,8 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 
 **姊妹 skill**：本插件还提供两个拆分入口，共享本目录的阶段文档与配置——`plan-bs`（头脑风暴共创 plan → 迭代 + spike 验证 → review 定稿，不实现业务代码）和 `plan-task`（执行已定稿 plan + 测试闭环）。plan-test = plan-bs + plan-task 的一条龙自动版。
 
+规则的历史原因放在冷路径 `rationale.md`；正常执行不要加载它。修改规则或做 gate 退休评审时再读。
+
 **核心原则**
 - **唯一真相来源**：一切回溯到用户批准的 `acceptance.md` + `assurance-contract.json`。
   后者冻结保障等级、可信假设、范围内失败/对手和最大影响；challenger 不得自行扩大。
@@ -21,7 +23,9 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
   但复用只复用 oracle，当前 run 仍必须重新执行并取证。
 - **每个失败有出口**：plan challenge 使用 3/5/8 的 scope-audit/user-review/hard-stop；
   其他循环使用 `MAX_ROUNDS`。任何 reset 都不清零历史。
-- **功能只增不减**：遇分歧按最佳实践自决（**自决仅限实现层**——plan 层缺陷走 phase-3 A2 回炉，不许打补丁绕），但绝不少做。
+- **已批准行为不缩水**（`BEHAVIOR_POLICY = preserve-approved`）：不得静默减少用户已批准的外部行为；
+  可以删除、替换或重构内部实现，也可以删除 acceptance 明确批准删除的旧行为。下限之上的最小化
+  统一按 `policies/acceptance-preserving-ponytail.md` 执行。
 - **小 slice 交付**：交付体量超 `RELEASE_UNIT_LIMITS`（默认 8 条 MUST AC / 10 个 Task /
   2000 行 plan / 3 个高风险子系统）→ validator 直接 `RELEASE_UNIT_TOO_LARGE`，拆 program plan +
   垂直 slice，每个 slice 独立验收。
@@ -30,8 +34,10 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 
 1. **Announce**：输出 "I'm using the plan-test skill to run the full plan→execute→test workflow."
 2. **读配置**：读取本 skill 的 `config.md`；若项目根存在 `.claude/plan-test.config.md`，用它覆盖默认值。本文档中所有 `{大写变量}` 在运行时用配置值替换。
-3. **判档并宣布**（`FLOW_TIER`，见 config.md"流程档位"）：按改动面判 S/M/L，**明确说出判了哪档、依据是什么、因此跳过哪些阶段**。判档有疑义往高了判。裁剪必须是明示的选择，不是跑到一半偷偷省略——**一旦开始"这条规则在我这个情况下可以变通"，其余规则的权威会一起塌掉**。
-4. **建 TodoWrite**：把该档要跑的阶段建成 todo，逐项 in_progress → completed 推进。
+3. **判路径并宣布**（`FLOW_TIER`，见 config.md“流程路径”）：按风险与可逆性判
+   DIRECT / LEAN / FULL，明确依据和跳过的阶段。DIRECT = 不启动本流程。疑义往高风险路径判。
+   LEAN 仍保留“primary 主挑战 → 按 cluster 专项挑战”的顺序，只压缩无新增关键问题后的轮次。
+4. **建 TodoWrite**：把该路径要跑的阶段建成 todo，逐项 in_progress → completed 推进。
 
 ## 阶段全景
 
@@ -69,8 +75,10 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 
 - **每阶段先读文档（防跳步硬闸）**：进入每个阶段前，**先完整读该阶段的 `phase-X.md`** 并列出其必做项清单，逐项打勾——不许凭"我大概懂了"跳过子步骤（漏测几乎都源于此）。
 - **⚠️ 末尾警戒**：越接近收尾越容易用便宜的代码审计替昂贵的真机测试来"尽快合上"。**`MANUAL_TEST=required` 的 UI 测试不许降级**，测不了就 BLOCKED 升级（见 phase-4 ①b 兑现表）。**"主流程通过"≠"每条 AC 都测了"。**
-- **会话续接先复验（防"上一段未提交工作丢失"）**：会话被压缩/跨会话续接/换 agent 接手时，推进任何阶段前**第一步先跑一遍全表面冒烟脚本**（`FULL_SURFACE_SMOKE`，phase-4 ②）——上一段会话的"验证通过"可能通过在一棵已被回退的脏工作树上，不能带过来当证据。
-- **增量 AC 不许绕流程（`INCREMENTAL_AC_MODE`）**：全流程跑完后，后续会话再加的任何新功能点（哪怕很小）都是新 AC——必须先进 `{ACCEPTANCE_FILE}` 唯一真相，并至少过 phase-4 兑现表 + phase-final DoD 的对应行；允许只跑受影响 AC 的兑现表，但**全表面冒烟 + 提交态硬门（`COMMIT_STATE_GATE`）不得豁免**。"建一个功能→浏览器里点一下→提交"不算走过流程。
+- **会话续接先复验**：压缩/跨会话/换 agent 后，推进前先重跑当前路径声明范围的分级冒烟；
+  旧的脏工作树 PASS 不得沿用。
+- **增量 AC 不许绕流程**：新 AC 必须先进 acceptance；可只跑受影响兑现表，但提交态硬门不得豁免，
+  smoke 按 config 分级执行。
 
 ## 子代理用法
 
@@ -96,9 +104,10 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 - 其他 qualitative auditor 仍按各自 prompt 的 `VERDICT` 契约输出；最终交付 authority 始终是
   deterministic gate 的 exit code 与 receipt。
 
-## 何时不要用
+## 何时不要用（= DIRECT 路径）
 
-- 单文件小改、一次性脚本、纯问答 → 直接做，别套这套重流程。
+- 低风险且可快速回滚、不涉及权限/资金/身份/迁移/新持久化状态/公共协议/信任边界/新依赖的
+  单点小改、一次性脚本、纯问答 → 不启动阶段流程，直接做；仍保留一句 AC 和提交态硬门。
 - 没有明确"项目"上下文（不在仓库里）→ 先确认工作目录。
 - **只想要一份实现计划、不需要执行与测试**（"帮我写个plan""写个计划"）→ 用 `writing-plans`，不要用本 skill。本 skill 的"写计划"只是全流程中的一步。
 - **想和用户对话讨论、共创出 plan 再说**（"头脑风暴""一起想想怎么做"）→ 用 `plan-bs`。

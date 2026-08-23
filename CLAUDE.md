@@ -12,6 +12,11 @@ This is a Claude Code **plugin** containing three skills that orchestrate a comp
 
 The skills share phase documents, prompts, and configuration from `skills/plan-test/`.
 
+## Repository Workflow
+
+For this repository, develop directly on `main` and push to `origin/main`. Do not create feature branches or
+worktrees unless the repository owner explicitly overrides this policy for a specific task.
+
 ## Core Architecture Principles
 
 ### Machine Gate as Single Authority
@@ -39,8 +44,8 @@ Every write to the ledger appends to the integrity chain: `chain_n = sha256(chai
 ### Testing the Gate System
 
 ```bash
-# Run the full test suite (204 test cases, must all pass)
-python3 skills/plan-test/scripts/test_plan_test_gate.py
+# Run the full test suite (all discovered tests must pass)
+python3 -m unittest discover -s skills/plan-test/scripts -p 'test*.py'
 ```
 
 **Always run this after modifying any gate-related code.** The two static fixtures (`pass-minimal` and `fail-companion-conflict`) are frozen behavioral contracts.
@@ -253,7 +258,7 @@ Key configuration variables:
 - `EXECUTOR_ENGINE`: current (inherit the user's current session model; no fixed model binding)
 - `CHALLENGER_ENGINE`: claude
 - `AUDITOR_ENGINE`: opus-4.8
-- `FLOW_TIER`: auto (S/M/L based on change scope)
+- `FLOW_TIER`: auto (DIRECT/LEAN/FULL based on risk and reversibility)
 - `ARCH_DIR`: ./ARCHITECTURE
 - `PLANS_DIR`: ./plans
 - `TESTCASE_DIR`: ./testcase
@@ -279,9 +284,9 @@ Phases have dependencies but allow parallelism where possible (see `SKILL.md` fo
 ## Important Files to Read
 
 **Before starting any work on the gate system:**
-1. `skills/plan-test/gate/PROTOCOL.md` - Normative contract (25 diagnostic codes, 14 hard rules, limitations)
+1. `skills/plan-test/gate/PROTOCOL.md` - Normative contract, diagnostics, and limitations
 2. `skills/plan-test/gate/ROADMAP.md` - Completed and remaining work
-3. `skills/plan-test/schemas/plan-test-run.schema.json` - Ledger schema (currently 1.2.0)
+3. `skills/plan-test/schemas/plan-test-run.schema.json` - Current ledger schema
 4. `HANDOFF.md` - Detailed context on the three implementation rounds
 
 **For understanding the workflow:**
@@ -329,7 +334,7 @@ The gate validates **consistency between recorded facts**, not whether the facts
 After modifying gate code:
 
 ```bash
-python3 skills/plan-test/scripts/test_plan_test_gate.py
+python3 -m unittest discover -s skills/plan-test/scripts -p 'test*.py'
 ```
 
-All 204 test cases must pass. Any change that alters the two static fixture outputs (`pass-minimal` must reach SHIPPABLE + receipt; `fail-companion-conflict` must output exactly the frozen 15 diagnostics) requires reviewing the new output and explaining the reason in the commit message.
+All discovered tests must pass. Any change that alters the two static fixture outputs (`pass-minimal` must reach SHIPPABLE + receipt; `fail-companion-conflict` must match its frozen diagnostics) requires reviewing the new output and explaining the reason in the commit message.

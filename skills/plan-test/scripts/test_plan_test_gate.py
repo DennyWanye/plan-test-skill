@@ -996,6 +996,15 @@ class RealRepoAttestationTestCase(unittest.TestCase):
         r = self.check()
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_baseline_is_summary_and_runtime_holds_content_entries(self):
+        self.init_real_run()
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
+            ledger = json.load(f)
+        self.assertNotIn("content_entries", ledger["baseline"])
+        self.assertIn("content_entries", ledger["runtime_attestation"])
+        self.assertEqual(ledger["baseline"].get("content_digest"),
+                         ledger["runtime_attestation"].get("content_digest"))
+
     def test_deletion_digest_is_index_independent(self):
         """删文件后，"未 git add"与"已提交"必须算出同一个指纹。
 
@@ -2643,8 +2652,7 @@ class ExecRecordRunTestCase(RealRepoAttestationTestCase):
 
 
 class ExposureAdvisoryTestCase(RealRepoAttestationTestCase):
-    """2026-08-19 曝光性 advisory：扇出、零证据 finalize、引擎未声明/偏离、deferral。
-    全部不拦截（exit 不受影响），但必须出现在 finalize 输出里。"""
+    """自报暴露规则；fanout 缺独立证据为 error，其余启发式保持 advisory。"""
 
     def audit_real(self, engine="opus-4.8", output_json=None):
         with open(os.path.join(self.run_dir, "auditor-input.json"), "w",
@@ -2705,8 +2713,8 @@ class ExposureAdvisoryTestCase(RealRepoAttestationTestCase):
         self.assertIn("OPEN_DEFERRALS", r.stdout)
         self.assertIn("E-1", r.stdout)
 
-    def test_fanout_advisory_via_validate(self):
-        """同命令同时间戳扇出到多个场景 → advisory（直接喂合成账本，规避秒界抖动）。"""
+    def test_fanout_requires_independent_primary_evidence(self):
+        """required 场景扇出缺独立证据时拦截；每场景有证据时放行。"""
         spec = importlib.util.spec_from_file_location("plan_test_gate_fanout", GATE)
         gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gate)
@@ -2724,7 +2732,18 @@ class ExposureAdvisoryTestCase(RealRepoAttestationTestCase):
         ]
         diags, _ = gate.validate(self.run_dir, dict(base, runs=fanout_runs),
                                  mode="full", fixture=False)
-        self.assertIn("RUN_ATTESTATION_FANOUT", {d.code for d in diags})
+        fanout_diags = [d for d in diags if d.code == "RUN_ATTESTATION_FANOUT"]
+        self.assertEqual(len(fanout_diags), 1)
+        self.assertEqual(fanout_diags[0].severity, "error")
+        # 每个 required 场景都有独立 primary evidence → 不报 fanout
+        evidenced = dict(base, runs=fanout_runs, evidence=[
+            {"evidence_id": "E-1", "scenario_id": "S-1", "kind": "primary",
+             "path": "artifacts/s1.log"},
+            {"evidence_id": "E-2", "scenario_id": "S-2", "kind": "primary",
+             "path": "artifacts/s2.log"},
+        ])
+        diags, _ = gate.validate(self.run_dir, evidenced, mode="full", fixture=False)
+        self.assertNotIn("RUN_ATTESTATION_FANOUT", {d.code for d in diags})
         # 不同时间戳 → 不曝光
         staggered = [dict(r, recorded_at="2026-08-18T18:56:2%d+0800" % i)
                      for i, r in enumerate(fanout_runs)]

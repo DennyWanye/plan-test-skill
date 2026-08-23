@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "plan-test-run.schema.json",
   "title": "plan-test verification run ledger",
-  "description": "唯一状态账本（schema 1.5.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算。1.5.0 新增：分层 challenge 编排、testcase 编译清单、evidence contract、结构化 audit finding 与可选 active-run 身份。版本策略：validator 校验 major 相同；1.x 旧 minor 可读，新增严格能力均为显式启用。",
+  "description": "唯一状态账本（schema 1.5.0）。只存原始 fact/event；所有 status/state/projection 由 plan_test_gate.py 在检查时完全重算。1.5.0 新增：分层 challenge 编排、testcase 编译清单、evidence contract、结构化 audit finding、可选 active-run 身份，以及 baseline 摘要化（content_entries 只存 runtime_attestation）。版本策略：validator 校验 major 相同；1.x 旧 minor 可读。",
   "type": "object",
   "required": [
     "schema_version",
@@ -508,12 +508,17 @@
     },
     "baseline": {
       "type": "object",
+      "description": "init 冻结的运行时身份摘要；全量 content_entries 只存 runtime_attestation。",
       "properties": {
         "head": {
           "type": "string"
         },
         "dirty_patch_sha256": {
           "type": "string"
+        },
+        "content_digest": {
+          "type": "string",
+          "description": "由 content_entries 计算的被测内容 SHA-256"
         }
       }
     },

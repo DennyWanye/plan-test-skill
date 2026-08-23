@@ -23,26 +23,29 @@
 - `TESTCASE_DIR`: ./testcase
 - `ACCEPTANCE_FILE`: ./acceptance.md
 
-## 流程档位（`FLOW_TIER`，默认 auto）
+## 流程路径（`FLOW_TIER`，默认 auto）
 
 > **病根**：此前只有二元选择——要么全套 8 阶段（一轮 15–25 万 token），要么"别用本 skill"。
 > 中等改动被迫走全套，代理跑到一半开始自行省略；**一旦学会"这条规则在我这个情况下可以变通"，
 > 其余规则的权威一起塌掉**。分档是为了让裁剪变成明示的、有边界的选择，而不是偷偷跳步。
 
 - `FLOW_TIER`: auto
-  - `auto` = 按下表自动判档并**在开场明确宣布判了哪档、依据是什么**；用户可直接指定 `S`/`M`/`L`。
+  - `auto` = 按下表自动判路径并在开场明确依据；用户可指定 `DIRECT`/`LEAN`/`FULL`。
+  - 自动判定优先选择满足条件的最低成本路径：全部 DIRECT 条件满足才 DIRECT；命中任一 FULL
+    条件即 FULL；其余有用户可见交付的单切面默认 LEAN。
 
-| 档 | 触发条件（取最高命中档） | 跑什么 | 不跑什么 |
-|----|------------------------|--------|---------|
-| **S** | 单文件/单函数改动，无 UI，无新端点，无数据迁移 | AC 一句话写进 `{ACCEPTANCE_FILE}` + 自动化测试 + 全表面冒烟 + 提交态硬门 | 不建 run-dir、不派挑战子代理、不做 full-audit |
-| **M** | ≤3 文件或 1 个垂直切面；有 UI 但无新状态机/新 provider | phase-A/1/3/4/final（**跳过 phase-0 架构基线与 phase-2 多轮挑战**，plan 迭代 1 轮）+ 机器门全套 | 不做架构 challenger、不做 testcase challenger 多轮 |
-| **L** | 其余：新功能、跨层改动、状态机/provider/权限变更、任何 `input_sensitive=true` 的功能 | 全套 8 阶段 | —— |
+| 路径 | 触发条件（取最高风险） | 跑什么 | 不跑什么 |
+|------|----------------------|--------|----------|
+| **DIRECT** | 同时满足：可快速回滚；不涉权限/资金/身份/迁移；无新持久化状态；不改公共协议；不跨信任边界；不引新依赖 | 不启动 plan-test：一句 AC → Ponytail 最小实现 → 最小决定性测试 → 变更入口 smoke → 提交态硬门 | 不建 run-dir/plan/architecture/contract，不派子代理，不做 ledger/receipt/full-audit |
+| **LEAN** | 单个明确业务切面；用户可见变化；风险可局部隔离；有自动化出口；无高风险迁移或共享基础设施 | phase-A/1/2-lite/3/4/final + 机器门；2-lite 仍按“primary 主挑战 → 必要 cluster 专项挑战 → synthesis → 必要时一次 closure → minimality”执行 | 不做 phase-0 架构 challenger、无 open P0/P1 时不进入多轮 closure、不做 testcase 多轮挑战 |
+| **FULL** | 权限/身份/支付/数据完整性、schema/迁移、多阶段状态机、公共 Provider/API、跨服务、LLM 驱动状态机、不可逆副作用、共享基础设施或 `input_sensitive=true` | 全套 8 阶段 | —— |
 
-- **不可裁剪项（任何档都必做，裁掉即无效交付）**：`{ACCEPTANCE_FILE}` 唯一真相、
-  `COMMIT_STATE_GATE`、`FULL_SURFACE_SMOKE`、`FEATURE_POLICY: only-add`、BLOCKED 升级纪律。
-- S/M 档不建 run-dir 时，**交付措辞不得使用 receipt 模板**，只能写"S 档交付：<范围> + <证据>"，
-  不许出现 100%/SHIP 字样（没有 receipt 就没有那个状态）。
-- 判档有疑义 → 往高了判。裁剪的代价是漏测，判高的代价只是慢。
+- DIRECT 是“不启动本 skill”的决定；一句 AC 和提交态硬门是项目级 invariant。
+- LEAN 的 2-lite 只压缩轮数，不改变挑战顺序；primary 之前不得先平铺专项子代理。
+- LEAN/FULL 不可裁剪：acceptance 唯一真相、提交态硬门、按路径分级 smoke、
+  `BEHAVIOR_POLICY: preserve-approved`、BLOCKED 升级纪律。
+- DIRECT 无 run-dir、LEAN 无 full-audit 时不得使用 receipt/SHIP/全部完成措辞，只报告范围与证据。
+- 路径有疑义 → 往高风险路径判。裁剪的代价是漏测，判高的代价只是慢。
 
 ## 轮次与出口
 
@@ -131,28 +134,27 @@
     **对未提交工作树的任何 PASS 一律不作数**。多代理/worktree 参与实现时，
     额外要求"干净态复验"（见 phase-final-dod）。
 - `FULL_SURFACE_SMOKE`: required
-  - 全表面冒烟：对**每一个用户可达的端点/入口**（含历史功能，不只本次改动链路）
-    各打最小一枪（一条 curl 或一次 MCP 点击），断言非 404 / 非 500 / 非"未接通"降级码。
-    脚本存盘、可复跑、纳入回归套件（见 phase-4 ②）。
-    会话续接/压缩恢复/换 agent 接手时，推进前先跑一遍（见 SKILL.md 推进规则）。
+  - 冒烟按当前路径声明范围，每个范围内用户入口各打最小一枪，断言非 404/500/未接通；
+    脚本存盘可复跑。会话续接时重跑同一声明范围。
     
     **分级触发策略**（防止对所有改动都全量打历史端点）：
-    - **critical-surface-smoke**（必做）：少量核心历史入口（登录、主页、关键功能入口），所有交付都跑
+    - **change-entry-smoke**：DIRECT 只跑本次变更入口
+    - **critical-surface-smoke**：LEAN/FULL 必做少量核心历史入口
     - **affected-surface-smoke**（条件触发）：根据入口依赖和 impact_paths 运行受影响的端点
-    - **full-surface-smoke**（高风险触发）：全量历史端点，仅在以下情况强制：
+    - **full-surface-smoke**：全量历史端点，仅在以下高风险条件强制：
       * 路由层、公共基础设施、启动装配有改动
       * 共享 provider、中间件、权限系统有改动
       * 正式 release 前的完整验证
       * 无 impact_paths 映射或映射覆盖不完整时（fail-closed）
     
-    单文件/单函数改动且有明确 impact_paths 时，只跑 critical + affected。
+    LEAN 默认 critical + affected；FULL 默认 critical + affected，命中高风险条件再升级 full-surface。
 - `WIRING_CHECK`: required
   - 服务层-路由接线断言：services / prompts 等处新 `export` 的函数/枚举/新增入参，
     routes / 入口层必须有真实引用；运行时白名单数组必须与对应类型全集同步
     （`satisfies` + exhaustiveness 断言测试，见 phase-4 ②）。
 - `INCREMENTAL_AC_MODE`: on
   - 增量 AC 模式：后续会话增量加功能时，新 AC 必须先进 `{ACCEPTANCE_FILE}` 唯一真相；
-    允许只跑受影响 AC 的兑现表与 DoD 对应行，但**全表面冒烟 + 提交态硬门不得豁免**。
+    允许只跑受影响 AC 的兑现表与 DoD 对应行，但**按路径分级冒烟 + 提交态硬门不得豁免**。
     "小功能就不走流程"不被允许。
 
 ## 机器门禁（唯一状态 authority，见 `gate/PROTOCOL.md`）
@@ -262,5 +264,6 @@
 
 - `EXECUTE_AUTONOMY`: high
   - high = 执行阶段遇分歧按最佳实践自决、不打断用户（BLOCKED 例外）。
-- `FEATURE_POLICY`: only-add
-  - 功能只能多做，不可少做。
+- `BEHAVIOR_POLICY`: preserve-approved
+  - 不静默减少用户已批准的外部行为；内部实现可删除、替换或重构；acceptance 明确批准删除的
+    旧行为可以删除。最小化规则见 `policies/acceptance-preserving-ponytail.md`。

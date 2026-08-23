@@ -16,13 +16,17 @@
    - 每个改动点必须明确：**改哪个文件 → 哪段/哪个函数 → 怎么改 → 改成什么样**。
    - 把 plan 切成可独立执行、可独立验证的"咬一口大小"的任务。
    - 每个任务标注它满足 `{ACCEPTANCE_FILE}` 里的哪条 AC（建立可追溯链的起点）。
+   - 填写下方 `Complexity inventory`：每个新增复杂度表面必须绑定 AC 或范围内风险；
+     无绑定项会在 phase-2 收敛后的 minimality pass 中删除。统一规则见
+     `policies/acceptance-preserving-ponytail.md`。
    - 明确列出入口链、数据流/持久化、外部依赖、可信边界和停止追踪点；安全敏感任务在首次
      challenger 前完成 attack-surface inventory。
    - 把已知假设绑定 `assurance-contract.json` 的稳定 ID；不在当前 contract 内的新要求只能写成
      scope-change proposal，不能直接纳入 required plan。
 
 3. **铁律**
-   - `FEATURE_POLICY = only-add`：功能只能多做，不可少做。
+   - `BEHAVIOR_POLICY = preserve-approved`：不得静默减少用户已批准的外部行为；内部实现可删除、
+     替换或重构，acceptance 明确批准删除的旧行为可以删除。
    - 必须含**实现细节调研**结论，不只是"做什么"。
    - "100% 代码可执行"只表示：对用户批准的 required AC、assurance contract 和已知证据，
      所有条款都有确定实现与验证出口；不表示未来零缺陷或抵御任意未批准攻击者。
@@ -41,6 +45,18 @@
 ## 文件影响清单
 | 文件 | 职责 | 本次改动 |
 |------|------|----------|
+
+## Complexity inventory
+| 复杂度表面 | 本次是否新增 | 理由 / AC 或 risk 绑定 |
+|-----------|:---:|-----------------------|
+| 新依赖 | 否 | — |
+| 新公共 API | 否 | — |
+| 新持久化状态 | 否 | — |
+| 新配置项 | 否 | — |
+| 新抽象层 | 否 | — |
+| 新后台任务 | 否 | — |
+| 可复用已有实现 | path/to/helper | Task N 复用 |
+| 标准库/平台能力 | API 名 | Task N 使用 |
 
 ## Assurance / 信任与失败边界
 - Profile 与 contract：……

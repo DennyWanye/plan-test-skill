@@ -42,7 +42,7 @@ finalize"，也挡不住一个想尽快收尾的代理直接不跑——这是�
 - 半截 init（有 gate manifest 却没有账本）同样按形状识别：manifest 的 `scenarios` 须是
   **带 `scenario_id` 的对象数组**且含 `applicability` / `source_request_*` / `run_id` 之一。
   业务目录即使叫 `verification/`、业务 manifest 即使含 `run_id`、业务文档即使叫 `report.md`，
-  都不会触发——**这三种误报都是独立审计实测抓到后才修的**。没开账本的会话（S 档、纯问答、
+  都不会触发——**这三种误报都是独立审计实测抓到后才修的**。没开账本的会话（DIRECT、纯问答、
   探索）不受影响；
 - **仍会漏掉的**：把账本整个删掉（git diff 里可见，但 hook 当场无感）；把 run-dir 放到仓库
   之外（`init` 现在要求显式 `--allow-external-run-dir` 并记入账本，但那只约束经 CLI 的路径）；
@@ -130,7 +130,7 @@ jobs:
             python skills/plan-test/scripts/plan_test_gate.py finalize --run-dir "$dir" --check-only
             echo "::endgroup::"
           done
-          [ "$found" = 1 ] || echo "本次没有提交任何 run 账本，跳过（S 档交付不建账本）"
+          [ "$found" = 1 ] || echo "本次没有提交任何 run 账本，跳过（DIRECT 不建账本）"
 ```
 
 注意 CI 里跑的是 `--check-only`：正式 `finalize` 需要 auditor 产物与当时的 HEAD/dirty 指纹，
@@ -148,7 +148,7 @@ jobs:
 两列必须如实标 ✗：
 
 - **压根不建账本**：hook 只在仓库里存在 gate 记账物时才生效（全仓按内容查找，不限目录）。代理若判成
-  S 档（或干脆不开账本）直接收尾，hook 无感。要堵这一列，只能在项目侧规定"什么改动必须开账本"
+  DIRECT（或干脆不开账本）直接收尾，hook 无感。要堵这一列，只能在项目侧规定"什么改动必须开账本"
   并由 CI 按改动面反查（例如：diff 命中 `src/routes/**` 却没有新 run 账本即 FAIL）——
   本目录不提供该规则，因为它依赖项目结构。
 - **伪造证据**：截图/日志由代理自己生产，门只能校验它没被事后改动。

@@ -35,7 +35,10 @@
    - 有依赖的任务按依赖顺序；独立任务并行派发。
    - 多代理并行写文件时用 git worktree 隔离，避免冲突。
 2. `EXECUTE_AUTONOMY = high`：遇分歧按最佳实践自决，不打断用户（BLOCKED 例外）。**自决范围仅限实现层**（换个写法、局部结构微调）；plan 层缺陷不在自决范围内，走 A2 回炉，派发执行子代理时必须把这条写进其 prompt。
-3. `FEATURE_POLICY = only-add`：不少做。
+3. `BEHAVIOR_POLICY = preserve-approved`：不静默减少已批准外部行为；内部实现可删可换可重构。
+3a. **执行层最小化**：把 `policies/acceptance-preserving-ponytail.md` 写入执行子代理上下文；
+   优先删除无必要任务、复用已有实现、标准库/平台能力与已安装依赖，最后才写最小自定义实现。
+   保护清单、frozen oracle 及有 AC/risk 绑定的 required tests 不得删除。
 3b. **frozen oracle 不可动**（派发执行子代理时必须写进其 prompt）：phase-2 冻结的
    black-box testcase 与既有 black-box 断言，执行子代理**无权删除、反转、放宽**——测试
    失败只有两条路：改实现，或上报"疑似行为变更"走 `behavior_changes` 用户批准。私自把
@@ -91,6 +94,14 @@
      - plan 更新回写后再恢复执行。回炉超 `{MAX_ROUNDS}` 或需要推翻用户已拍板的方案方向 → BLOCKED 升级给用户；
    - **执行子代理无权自行决定"就这样先绕过去"**——它只能上报，回炉由主编排者执行。
 
+## A3. diff minimality review（便宜检查绿后、完成度审计前，只跑一次）
+
+1. 派子代理读取 `prompts/minimality-reviewer.md`，声明 `MODE: diff-review`；只附相对执行基线的
+   `git diff`、acceptance 和 Ponytail policy。
+2. JSON 保存为 plan 目录的 `minimality-diff-review.json`。
+3. 只应用不改变 AC/用户行为、不降低 assurance 的简化，之后重跑编译、类型检查与最小单测。
+4. `ALREADY_MINIMAL` 是正常结果；不循环、不凑 finding。
+
 ## B. 完成度审计（循环至 100%）
 
 1. 派 `{AUDITOR_ENGINE}` 子代理，用 `prompts/completion-auditor.md` 评估完成度，**派发时声明 `MODE: code-audit`**（本阶段测试还没跑，只审"AC→任务→代码"前半链 + plan 层缺陷 + 主要矛盾；全链终审在 phase-4 ④）。
@@ -124,7 +135,7 @@
    - 用 `prompts/testcase-iterator.md` 最少 `{TESTCASE_ITERATIONS}` 轮迭代所选集合。
    冻结动作仍在 phase-4 昂贵层前置执行，这里只把能冻结的资产提前准备好；
 2. **fixture / 种子数据 / 测试环境准备脚本**（起服务、造数据、清理脚本）；
-3. **全表面冒烟脚本**（`FULL_SURFACE_SMOKE`）与核心价值 smoke 的输入清单；
+3. **分级冒烟脚本**（`FULL_SURFACE_SMOKE`，范围按 config 的当前路径）与核心价值 smoke 输入清单；
 4. **verification spec + gate manifest 草案**：把 acceptance、assurance、obligation、testcase
    inventory/reuse report 与场景矩阵写入结构化 spec，用 `compile-manifest` 生成 manifest；
    不手抄 required 场景集合，不解析 Markdown。

@@ -44,12 +44,16 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 - 按 `../plan-test/phase-1-plan.md` 写初始 plan（含最佳实践调研、主要矛盾、代码级任务、AC 追溯）。
 - **共创原则**：方案级选择（选哪个技术方向、砍不砍某功能）在头脑风暴已和用户定了，这里不推翻；代码级细节（改哪个文件怎么改）由我调研后自主写，不逐条打扰用户。
 
-### 5. 迭代 plan（挑战与 spike 验证在同一循环内）
+### 5. 迭代 plan（先主挑战，再按主要挑战点分派专项挑战）
 
-- 按 `../plan-test/phase-2-iterate-plan.md` 的 **A 节**执行：challenger 子代理挑战（`../plan-test/prompts/plan-challenger.md`）、上下文包派发、VERDICT 判定、收敛判据"100% 代码可执行"、`{MAX_ROUNDS}` 兜底。
+- 按 `../plan-test/phase-2-iterate-plan.md` 的 **A 节四阶段编排**执行：先由 primary challenger
+  完成一轮 breadth challenge，找主要矛盾并输出 root-cause clusters；再对每个
+  `specialist_required=true` 的 cluster 分别派专项子代理；主代理统一 synthesis，最后做 closure diff
+  review。不得一开始就平铺多个无焦点 challenger，也不得跳过 primary 直接专项挑战。
 - **spike 是迭代循环的组成部分，不是迭代后的补课**：进入循环前先列**关键假设清单**（"决定方案成败、且静态阅读无法确认"的假设——三方库/API 真实能力、LLM 输出契约、数据源真实形态、性能可达性；局部细节不算，别撑成全量测试）；挑战者把"缺 spike 证据"列为致命问题时，**当轮就写可丢弃 spike 真跑验证**（真实调用/数据/provider，记录命令+实际输出），结论回写 plan 再进下一轮挑战——这就是收敛判据第 5 条的达成方式。
 - 假设验证**不成立** → 方案层面改（必要时回步骤 1 和用户重新讨论方向），不许硬着头皮收敛。spike 代码即弃，不滚成实现。
 - **注意**：B 节"锁定绿色基线"不在本 skill 做——那是执行前动作，归 plan-task。
+- 正确性收敛后按 phase-2 的 Ponytail minimality pass 单独审一次；它不进入挑战循环。
 
 ### 5b. 关键假设验证收口（定稿前检查，非首次验证时点）
 

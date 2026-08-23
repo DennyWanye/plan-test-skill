@@ -33,6 +33,10 @@ python3 skills/plan-test/scripts/plan_test_gate.py check-loop-limit \
 开始本节前完整读取 `references/challenge-orchestration.md`。派发时把该 reference、对应 role prompt
 和最小上下文包一起交给子代理，不把规则复制进多份临时 prompt。
 
+**LEAN 的 2-lite**：四阶段顺序不变。先跑一次 Primary，再只对 `specialist_required=true` 的
+cluster fan-out，随后 synthesis；plan 被修改或仍有 open P0/P1 时跑一次 closure。若 closure 仍有
+open P0/P1、出现新主要结构根因或需要 architecture reset，立即升级 FULL，不在 LEAN 中反复压缩。
+
 #### Stage 1：Primary breadth challenge
 
 派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-primary-challenger.md`。它必须在一轮内完成固定
@@ -158,7 +162,8 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
    - 已**认真调研过当前代码层**：相关文件、函数、调用链、依赖、现有实现方式都已读过并写进 plan；
    - 已**确认代码级别的修改方式**：每个改动点明确到"改哪个文件/哪段/怎么改/改成什么样"，不是假设；
    - 若调研中发现问题/不确定项（接口不清、改动牵连别处、最佳实践存疑），**不允许带着模糊收尾**——必须**继续调研该如何解决**，把结论补回 plan，直到该问题闭环。
-7. 功能可达预期，且 `FEATURE_POLICY = only-add`（只增不减）。
+7. 功能可达预期，且 `BEHAVIOR_POLICY = preserve-approved`（不静默减少已批准外部行为；
+   内部实现可删可换可重构）。
 8. plan 含实现细节调研结论（"怎么做、为什么这样做"）。
 9. **无"绕过真架构问题的补丁式收尾"**（见下方强约束）。
 10. acceptance/assurance contract 没有未经批准的变化。
@@ -179,7 +184,8 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
 **判定为真架构问题 → 铁律：**
 
 1. **按最佳实践重构，不许小修小补**。plan 里对这一处不能写"临时绕过 / 先 hack 一下 / TODO 以后再重构"——必须写出**符合最佳实践的结构改法**（怎么调整边界/抽象/依赖方向），并附本项目适配分析（反对本本主义，见 research-method 第 3 条）。
-2. **不受 `FEATURE_POLICY = only-add` 阻挡**：only-add 约束的是"功能不许缩水"，不是"结构不许改"。重构可以改动/删除既有实现，只要对外功能只增不减、且有回归测试兜底。
+2. **不受 `BEHAVIOR_POLICY = preserve-approved` 阻挡**：该策略约束的是已批准外部行为不得
+   静默缩水，不是结构不许改。重构可以改动或删除既有实现，只要保持已批准行为并有回归测试兜底。
 3. **范围闸（防过度重构 + 尊重用户知情权）**：若重构显著超出原需求范围（大面积改动、影响 plan 之外的模块、明显拉长工期），**不自决**——列出"补丁方案 vs 重构方案"的代价对比，标记 BLOCKED 升级给用户拍板（plan-bs 里则直接和用户讨论）。范围可控的重构按铁律 1 直接纳入 plan。
 
 **判定为局部实现问题** → 正常在 plan 里改对即可，不必上纲上线到重构。
@@ -211,6 +217,18 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
   失败后不许把 expected result 改成当前实现结果。repo 内部 unit/integration test 的
   mutation report 只能作审计信号，不能替代冻结的 black-box oracle，也不能单独证明行为
   变更获得授权。
+
+### Ponytail minimality pass（正确性收敛后、用户 review 前，只跑一次）
+
+正确性 challenger 与最小化 reviewer 不在同一轮混跑：前者寻找遗漏，后者删除冗余，混跑会互相
+制造 finding。Gate 推导 `CONVERGED` 后：
+
+1. 派子代理读取 `prompts/minimality-reviewer.md`，声明 `MODE: plan-pass`；上下文只附定稿 plan、
+   acceptance、assurance contract 与 Ponytail policy。
+2. 将 JSON 保存为 plan 目录的 `minimality-plan-pass.json`。
+3. 仅自动应用 `scope_change=false`、不改变用户行为、不降低 assurance 且保持 AC/risk 覆盖的建议；
+   用户可见行为变化仅带入 review 作为选项。
+4. 修改后同步 AC/任务映射；不得制造 MUST AC 覆盖空洞。无建议即结束，不循环、不凑 finding。
 
 定稿后**和用户 review**；通过后在 `plan.md` 头部写入标记 `<!-- plan-status: finalized -->`（plan-task 开工前会校验此标记）。
 

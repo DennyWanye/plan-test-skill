@@ -148,10 +148,8 @@ CANONICAL_ORDER = [
     "TIMING_MISSING", "TIMING_GAP", "PHASE_UNPAIRED",
     "PLAN_SCOPE_EXPANSION",  # advisory
     "AUDITOR_INDEPENDENCE_UNVERIFIED",
-    # 2026-08-19 新增（simple_harness memory-sdk-integration 4 个 slice 实测曝光）：
-    # 全部 advisory 曝光不拦截，且 fixture_only run 免检（与钟门同一先例——
-    # fixture 是合成回放，时间戳与证据分布天然不适用真实执行启发式）。
-    "RUN_ATTESTATION_FANOUT",      # 同命令同时间戳扇出成 N 个场景的 root pass
+    # fixture_only run 免检：合成回放的时间戳与证据分布不适用真实执行启发式。
+    "RUN_ATTESTATION_FANOUT",      # 条件 error：required 场景缺独立 primary 证据
     "EVIDENCE_FREE_FINALIZE",      # required 全 PASS 但整本账零 primary 证据
     "EXECUTOR_ENGINE_UNDECLARED",  # manifest 未声明 executor_engine
     "AUDITOR_ENGINE_MISMATCH",     # 实际审计引擎偏离 init 冻结的 auditor_engine
@@ -1294,10 +1292,8 @@ def validate(run_dir, ledger, mode="full", fixture=False):
                               hint=sid))
         diags.extend(validate_evidence_contract(s, evidence))
 
-    # 4b. 同命令同时间戳扇出曝光（simple_harness 2026-08-18 实测：一条 pytest 跑一遍，
-    #     同一秒给 4 条 AC 各记一条 root pass——一次执行伪装成 N 次独立验证，账本上完全
-    #     合法。解法不是删记录，是曝光并引导改用 record-run --exec 让每个场景有自己的
-    #     执行见证。advisory，不拦截；fixture 免检）。
+    # 4b. 同命令同时间戳扇出：若任一 required 场景缺独立 primary 证据则拦截。
+    #     一次 smoke 不能仅靠复制自报记录证明 N 条 AC；每场景有独立断言证据则合法。
     if not fixture:
         fanout = {}
         for r in runs:
@@ -1308,13 +1304,20 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             if not cmd or not when:
                 continue
             fanout.setdefault((cmd, when), set()).add(r.get("scenario_id"))
+        primary_sids = {e.get("scenario_id") for e in evidence
+                        if e.get("kind") == "primary" and e.get("scenario_id")}
+        required_sids = {s.get("scenario_id") for s in scenarios if s.get("required")}
         for (cmd, when), sids in sorted(fanout.items()):
-            if len(sids) >= 2:
+            if len(sids) < 2:
+                continue
+            lacking = sorted((sids & required_sids) - primary_sids)
+            if lacking:
                 diags.append(Diag("RUN_ATTESTATION_FANOUT",
-                                  "同一命令在同一时间戳（%s）扇出为 %d 个场景的 root pass（%s）——"
-                                  "一次执行被记成 N 次独立验证；改用 record-run --exec 让每个场景"
-                                  "有自己的执行日志证据" % (when, len(sids), "、".join(sorted(sids))),
-                                  severity="advisory"))
+                                  "同一命令在同一时间戳（%s）扇出为 %d 个场景的 root pass，"
+                                  "其中 %s 缺独立 primary 证据；用 record-run --exec 或"
+                                  " attach-evidence 为每个场景保存独立断言日志"
+                                  % (when, len(sids), "、".join(lacking)),
+                                  severity="error"))
 
     # 5. 冻结 black-box oracle 变异审计
     for tc in (ledger.get("testcase_lock") or {}).get("files") or []:
@@ -2109,9 +2112,14 @@ def cmd_init(args):
             scope.append(".plan-test/active-run.json")
             scope.sort()
         ledger["exclusion_scope"] = scope
-        ledger["baseline"] = attest_runtime(repo, scope)
-        ledger["runtime_attestation"] = dict(ledger["baseline"])
-        if ledger["baseline"].get("content_digest_error"):
+        attestation = attest_runtime(repo, scope)
+        # content_entries 可占账本绝大部分；runtime_attestation 保留唯一全量副本，
+        # baseline 只存摘要，避免 init 时逐字节复制一份。
+        ledger["runtime_attestation"] = attestation
+        ledger["baseline"] = {
+            key: value for key, value in attestation.items() if key != "content_entries"
+        }
+        if attestation.get("content_digest_error"):
             print("警告：内容指纹不可用（%s）——退回 HEAD+dirty 口径，提交会触发 "
                   "TESTED_RUNTIME_MISMATCH" % ledger["baseline"]["content_digest_error"])
     else:

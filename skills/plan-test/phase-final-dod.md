@@ -65,8 +65,10 @@ python {GATE_SCRIPT} render   --run-dir <run-dir>
 - [ ] **执行期的 plan 层回炉已全部闭环**：回炉的部分重过了 phase-2 收敛判据并回写 plan，无"用补丁掩盖 plan 缺陷"的遗留 —— 证据：auditor"plan 层缺陷清单"为空
 - [ ] `{ACCEPTANCE_FILE}` 全部"必须"条款都有测试证据通过 —— 证据：phase-4 ①b **兑现表**（每条 AC 一行；含 UI 的须有真机 MCP 证据）
 - [ ] **工作树干净且已提交（`COMMIT_STATE_GATE`）**：本轮全部改动已提交，验证针对的就是 HEAD 的代码 —— 证据：`git status --porcelain -- . ':(exclude)<run-dir>'` 空输出 + `git log -1` 的 hash（**排除 run-dir**：gate 产物写在里面，不排除的话刚生成的 receipt 会让这条自己失败）。**非空即 DoD FAIL**，尤其警惕未跟踪的路由/接线文件（服务层提交了、接线层没提交的"半截提交"正是这样漏的）
-- [ ] **干净态复验**（多代理/worktree 参与实现时必做）：提交后在干净态（`git stash -u` 之后，或临时 `git worktree add` 出的干净 checkout）重启服务，重跑核心价值 smoke + 全表面冒烟 —— 证据：复验命令输出。目的：证明**通过的代码 == HEAD 的代码**
-- [ ] **全表面冒烟通过（`FULL_SURFACE_SMOKE`）**：每一个用户可达端点/入口各打一枪，无 404/500/未接通降级 —— 证据：phase-4 ② 冒烟脚本输出
+- [ ] **干净态复验**（多代理/worktree 参与实现时必做）：提交后在干净态重启服务，重跑核心价值
+  smoke + 当前路径声明范围的分级冒烟。目的：证明**通过的代码 == HEAD 的代码**
+- [ ] **分级冒烟通过（`FULL_SURFACE_SMOKE`）**：已记录路径、范围和升级判断；声明范围内每个入口
+  各打一枪，无 404/500/未接通 —— 证据：phase-4 ② 冒烟脚本输出
 - [ ] 无回归：构建/测试/lint/类型检查不低于 phase-2 绿色基线 —— 证据：命令输出对比
 - [ ] 测试已按策略路由完成：UI 走 MCP 真人测试，逻辑走脚本，两者皆有则都做 —— 证据：兑现表**无 ❌、无未经用户批准的降级**
 - [ ] 幂等性审查清单已逐条过 —— 证据：`checklists/idempotency-review.md` 逐条结论
@@ -98,6 +100,13 @@ python {GATE_SCRIPT} render   --run-dir <run-dir>
 - 代码改完后，`{ARCH_DIR}/ARCHITECTURE.md` 可能又过期：更新它，使其反映新架构。
 - 更新 README / changelog（若项目维护）。
 - 文档改动同样计入内容指纹：改完要重跑受影响的门，再 finalize（提交与 finalize 的先后不影响判定）。这样下次跑本 skill 时 phase-0 从最新基线开始，闭环真正合上。
+
+## 存储卫生
+
+- 用 `du` 检查 plans/testcase 下的大体积证据；超过项目保留策略的截图、录屏和重复日志只保留
+  可追溯指针或摘要，原件移入项目约定的本地归档。不得删除 active run、唯一证据或用户要求留存的产物。
+- 清理已完成且无未提交改动的临时 worktree；不操作用户正在使用或来源不明的 worktree。
+- 定期运行 `scripts/gate_usage_report.py`，用真实触发频率评估门禁合并/降级/退休，避免规则单向膨胀。
 
 ## 升级与交付
 
