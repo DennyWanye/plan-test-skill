@@ -6,11 +6,20 @@
 
 ## 必做项
 
+- [ ] **项目 testcase 目录已发现**：先读 `{TESTCASE_DIR}/index.md` 和 `index.json`；缺失时用
+      `scripts/testcase_inventory.py build --testcase-dir {TESTCASE_DIR}` 从现有文件生成，legacy
+      用例先登记为 `needs-review`，不得假装不存在
+- [ ] **候选原文已审查**：按 obligation 查询 inventory，并逐个阅读候选 testcase 全文，确认
+      当前入口、fixture、步骤、预期与 revision 有效；不能只凭 index 摘要决定复用
+- [ ] **reuse report 已通过校验**：每条 obligation 是 `reuse-as-is / reuse-with-extension /
+      supersede / create-new` 之一；`create-new` 写明增量价值，复用不继承历史 PASS
 - [ ] **black-box testcase 编写完成**：每条 required AC 至少一个分步用例，每步含预期结果；
-      存放 `{TESTCASE_DIR}/<组>/`，同步 index.md
+      优先复用/扩展已有资产，仅必要的新用例存放 `{TESTCASE_DIR}/<组>/`，同步 index.md/index.json
 - [ ] **testcase challenger 迭代定稿**：`prompts/testcase-iterator.md`，最少
       `{TESTCASE_ITERATIONS}` 轮，末行 VERDICT: PASS
-- [ ] **场景矩阵草案**：scenario_id / required / ui / gate_type / required_lanes /
+- [ ] **verification spec 可编译**：acceptance → obligation → selected testcase → scenario 双向
+      覆盖完整，`compile-manifest` 成功并冻结 `case_sets.full`
+- [ ] **场景矩阵草案**：scenario_id / testcase_ids / evidence_contract / required / ui / gate_type / required_lanes /
       min_root_runs / input_class / cold_start / expected_run_created
 - [ ] **impact_paths 映射草案**：每个场景关联的代码路径 glob（宁缺勿滥——声明不了就留空，
       fail-closed 会退回全量复测，错误的映射比没有映射更危险）

@@ -219,6 +219,23 @@
   - 截图、原始日志、命令回执、DB 记录是 primary；auditor 报告与交付汇总是 derived。
     derived 只辅助审计，不能单独满足 AC/testcase；证据依赖图存在环 →
     `EVIDENCE_DEPENDENCY_CYCLE`（两份互引汇总不构成独立证据）。
+- `MANIFEST_COMPILATION`: structured
+  - 新 run 从 `verification-spec.json` 编译 manifest；编译器核对 assurance AC、obligation、reuse
+    decision、testcase inventory 和 scenario 双向映射，并冻结 `case_sets.full`。不解析 Markdown
+    猜映射。命令与格式见 `references/evidence-audit-lifecycle.md`。
+- `EVIDENCE_CONTRACT`: per-scenario
+  - compiled workflow 的每个 required scenario 按证明需要声明统一 `evidence_contract`。手工证据通过
+    `attach-evidence/import-evidence --metadata <json>` 提供 provenance；`record-run --exec`
+    自动生成 gate-exec metadata。旧场景无 contract 时保持旧语义。
+- `AUDIT_FINDINGS`: structured-json
+  - JSON auditor output 的 findings 由 `audit` 原子导入；open/deferred P0/P1 为硬门。整改用
+    `list-audit-findings` / `resolve-audit-finding`，闭环后必须重审。
+- `ACTIVE_RUN_BINDING`: compiled-default
+  - `compile-manifest` 对真实交付默认设置 `active_run_required=true`；旧 raw manifest 需显式开启。
+    init 不自动抢占，适合并行 slice。每次 re-attest 后重新 activate。
+- `ARTIFACT_DEDUPE`: logical-sha256
+  - 不移动 evidence 文件；receipt 按现有 SHA-256 区分 record、distinct artifact、distinct root
+    run，并列出共享 artifact hash。
 - `TIMING_HARD_GATE`: on（schema 1.3.0）
   - 真实 run 活动跨度 > 30 分钟而 timing 覆盖 < 20% → `TIMING_MISSING`；记账覆盖区间
     合并后仍有 > 120 分钟空洞 → `TIMING_GAP`。两者均 error；漏记时段用申报模式

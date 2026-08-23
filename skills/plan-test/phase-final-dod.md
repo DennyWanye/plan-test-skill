@@ -22,16 +22,20 @@
    - 输出 `kind=behavioral`（动了代码、提示词、skill、依赖清单等任何行为文本）→
      **每条 required 场景都要重跑并 `record-run`**，否则 `RETEST_REQUIRED_AFTER_CHANGE`。
      注意 `prompts/**`、`skills/**`、`requirements.txt` 一律算行为文本，不算文档。
-3. **重新跑独立 full-audit 并 `audit` 入账**：re-attest 改变了账本 fact，旧审计已 stale
+3. **若启用了 active-run 绑定，重新 activate**：manifest 的 `active_run_required=true` 时执行
+   `python {GATE_SCRIPT} activate-run --run-dir <run-dir>`。registry 绑定候选内容 digest；re-attest
+   后不更新会触发 `ACTIVE_RUN_MISMATCH`。未启用时不创建 registry。
+4. **重新跑独立 full-audit 并 `audit` 入账**：re-attest 改变了账本 fact，旧审计已 stale
    （`AUDITOR_INPUT_STALE`）——**这一步同样不能省**。
-4. **跑机器门**：`finalize` → exit 0 + receipt。
-5. **提交**：内容不变，所以先 finalize 后提交、或先提交后 finalize 都行；重跑 `finalize`
+5. **跑机器门**：`finalize` → exit 0 + receipt。存在 open/deferred P0/P1 时先按
+   `references/evidence-audit-lifecycle.md` 的整改循环处理，不得绕过 `OPEN_AUDIT_FINDINGS`。
+6. **提交**：内容不变，所以先 finalize 后提交、或先提交后 finalize 都行；重跑 `finalize`
    与 `render` 仍然通过（`RealRepoAttestationTestCase` 有回归用例锁住这个行为）。
-6. run-dir 内的产物（`plan-test-run.json` / `artifacts/` / `gate-receipt.json` / `report.md`）
+7. run-dir 内的产物（`plan-test-run.json` / `artifacts/` / `gate-receipt.json` / `report.md`）
    **不参与内容指纹，也不参与 `COMMIT_STATE_GATE`**——提交态检查要写成
    `git status --porcelain -- . ':(exclude)<run-dir>'`，否则刚写完的 receipt 会让提交态门
    自己失败。
-7. 若第 4 步 FAIL 后又改了代码：回到第 1 步重来——**修完代码不能只重跑 finalize，
+8. 若第 5 步 FAIL 后又改了代码：回到第 1 步重来——**修完代码不能只重跑 finalize，
    文档可能又过期了，而且内容指纹已变，相关场景必须重测重记**。
 
 ## ① 机器门（唯一完成 authority——先过这道，再看清单）
@@ -46,6 +50,8 @@ python {GATE_SCRIPT} render   --run-dir <run-dir>
 - `finalize` 会在 auditor 结束后**重新读取并校验所有文件与 hash**（证据、testcase lock、auditor 输入输出、tested HEAD/dirty 指纹）；`render` 重新跑同一 validator 并复验 receipt digest，失效时不渲染 SHIPPABLE。
 - 没有有效 receipt 的手写 `SHIP / 100% COMPLETE` = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。下面的人工清单是对机器门的**补充复核**，不是替代——机器门 FAIL 时任何人工打勾都不算数。
 - full-audit 之后代码、配置、testcase 或结果有任何变化 → 旧 auditor PASS 与 receipt 自动失效（`AUDITOR_INPUT_STALE` / `RECEIPT_STALE`），须重审后重新 finalize。
+- receipt 的 `evidence_summary` 同时给出 evidence record、distinct artifact、distinct root run
+  数量和共享 hash；同一日志复制多份只算一个 distinct artifact，不得用 record 数量冒充独立证据。
 - 用户后续发现生产缺陷 → `invalidate --reason` 使 receipt 失效；修复 + 永久回归 + 受影响 lane 复测完成后才生成新 receipt。
 
 ## DoD 清单（全绿才算完成——每条必须附证据，不许口头打勾）
@@ -65,6 +71,8 @@ python {GATE_SCRIPT} render   --run-dir <run-dir>
 - [ ] 测试已按策略路由完成：UI 走 MCP 真人测试，逻辑走脚本，两者皆有则都做 —— 证据：兑现表**无 ❌、无未经用户批准的降级**
 - [ ] 幂等性审查清单已逐条过 —— 证据：`checklists/idempotency-review.md` 逐条结论
 - [ ] 可追溯矩阵无断点：AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 场景 ↔ root run ↔ 证据 ↔ 终态 —— 证据：终审 auditor VERDICT（含场景计数摘要）
+- [ ] auditor 的 open/deferred P0/P1 为零；历史 FAIL finding 有 resolution、证据和必要的 fresh retest —— 证据：`list-audit-findings`
+- [ ] receipt 中 `distinct_artifacts` / `distinct_root_runs` 与实际独立证据相符，共享 artifact 已解释 —— 证据：`gate-receipt.json.evidence_summary`
 - [ ] testcase 已存盘、index.md 与 README 已同步、脚本已纳入回归套件 —— 证据：文件路径
 
 **正向价值硬门**（输入语义敏感功能，任一不满足 → DoD FAIL）：

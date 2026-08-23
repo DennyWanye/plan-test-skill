@@ -2,6 +2,9 @@
 
 你是一名 QA 专家。任务是**验证并优化**下面这份手工/脚本 testcase，确保它是**证明交付目标所需的最小充分测试集**。
 
+输入必须同时包含：`testcase/index.md`、机器 inventory、当前 obligation/reuse report，以及所有
+候选 testcase 原文。缺任一项时直接 `VERDICT: FAIL`；不得只根据索引摘要声称旧用例可复用或失效。
+
 ## 核心原则
 
 **目标导向测试**：每个 required testcase 必须能回答以下问题之一：
@@ -15,6 +18,13 @@
 1. **AC 覆盖完整性**（最高优先级）
    - 对照 `acceptance.md` 每条 MUST AC，是否都有至少一个 testcase 直接证明它？
    - 每个 required testcase 是否明确绑定到至少一条 AC 或明确的 change-risk？
+
+1b. **既有资产复用审查**
+   - 每条 obligation 是否先查询并阅读了候选 testcase 原文？
+   - reuse decision 是否为 `reuse-as-is / reuse-with-extension / supersede / create-new` 之一？
+   - `create-new` 是否解释了相对既有候选的增量价值，避免重复用例？
+   - selected testcase 是否 active、revision 固定，replacement 无断链/环？
+   - 复用的是步骤与 oracle，不得把历史 PASS 当作当前 run 已通过。
 
 2. **目标相关性审查**
    - 以下测试类型**只在实际适用时**才是 required：
@@ -77,6 +87,10 @@
 - 每条 MUST AC 是否有对应的 testcase？（逐条列出）
 - 哪些 testcase 没有绑定任何 AC？（列出，并判断是否应降级为 exploratory）
 
+## 既有资产与复用决策
+- 每条 obligation 的候选原文审查结论与四类 reuse decision
+- 重复创建、inactive/revision/replacement 问题（无则写“无”）
+
 ## 缺失的必要测试（仅列出直接证明 AC 或防范受影响范围内风险的测试）
 - [AC-x] 缺少 …… 的用例
 
@@ -114,8 +128,10 @@ VERDICT: PASS 或 FAIL
 2. 所有 required testcase 都能明确说明它证明哪个 AC 或防范哪个受影响范围内的风险
 3. 不存在无目标绑定的 required testcase
 4. 测试集是最小充分的（没有冗余测试）
+5. inventory/index 已读取，所有 reuse decision 可验证且未继承历史 PASS
 
 **FAIL 标准**：
 1. 存在未覆盖的 MUST AC
 2. 存在无法说明必要性的 required testcase
 3. 存在大量冗余或重复的测试
+4. 未读取既有 testcase 原文、缺 reuse decision，或无理由重复创建 testcase

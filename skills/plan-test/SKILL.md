@@ -16,6 +16,9 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 - **条件门的适用性判定是 fact，不是口头判断**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 gate manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），由 init 冻结进账本与 receipt。判"不适用"合法，但**理由留痕、事后可追责**；判"适用"则场景矩阵必须真的兑现，否则 `APPLICABILITY_GATE_UNSATISFIED`。此前判一句"这是确定性 UI"就能让四道门合法消失且无人知晓。
 - **机器门要真的被调用才存在**：`hooks/` 提供 Stop hook 与 CI 片段，把"必须跑 finalize"从纪律变成强制。未启用任一种时，交付说明里要如实写"机器门为自愿调用"。
 - **每个声明可验证**：不说"看起来做完了"，而是逐条核对可追溯矩阵。
+- **testcase 是项目资产，不是一次性产物**：设计用例前先读取 `{TESTCASE_DIR}/index.md` 与
+  机器 inventory，再阅读候选用例原文并记录 reuse decision；可直接复用就不重复创建，
+  但复用只复用 oracle，当前 run 仍必须重新执行并取证。
 - **每个失败有出口**：plan challenge 使用 3/5/8 的 scope-audit/user-review/hard-stop；
   其他循环使用 `MAX_ROUNDS`。任何 reset 都不清零历史。
 - **功能只增不减**：遇分歧按最佳实践自决（**自决仅限实现层**——plan 层缺陷走 phase-3 A2 回炉，不许打补丁绕），但绝不少做。
@@ -51,7 +54,7 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 1. **A → 1 → 2 → 用户批准** 必须串行（唯一真相与行为契约没定，后面全是沙上建塔）；
 2. 用户批准后分**双轨并行**：
    - **代码轨**：phase-3 实现 + 完成度审计（A/A2/B/C 节）；
-   - **验证准备轨**：testcase 编写与 challenger 迭代、fixture/种子数据、冒烟脚本、
+   - **验证准备轨**：testcase inventory 读取与候选复用评估、必要用例编写与 challenger 迭代、fixture/种子数据、冒烟脚本、
      测试环境准备脚本、gate manifest 草案（场景矩阵/impact_paths/applicability）——
      见 phase-3 D 节与 `checklists/parallel-verification-track.md`。
      **black-box 纪律**：本轨只准读 acceptance/plan/行为契约，**禁止读实现代码与 diff**

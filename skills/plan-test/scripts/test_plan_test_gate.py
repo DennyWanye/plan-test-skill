@@ -2598,6 +2598,15 @@ class ExecRecordRunTestCase(RealRepoAttestationTestCase):
         log_path = os.path.join(self.run_dir, evs[0]["path"])
         self.assertIn("hello-gate", read_utf8(log_path))
 
+        # A run and its automatic primary log are one atomic ledger write.
+        # The next legitimate CLI write must not be rejected as a truncated
+        # integrity chain merely because that write produced two fact rows.
+        again = run_gate(
+            ["checkpoint", "--run-dir", self.run_dir, "--note", "after exec"],
+            cwd=self.repo,
+        )
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+
     def test_exec_fail_records_fail_and_transparent_exit(self):
         self.init_two_scenarios()
         r = run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-2",

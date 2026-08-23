@@ -31,8 +31,8 @@ import sys
 import tempfile
 import time
 
-SCHEMA_VERSION = "1.4.0"
-VALIDATOR_VERSION = "1.4.0"
+SCHEMA_VERSION = "1.5.0"
+VALIDATOR_VERSION = "1.5.0"
 FIXTURE_EXIT = 3  # fixture-only run 通过：与真实交付的 exit 0 分开，堵"设个字段就绿"
 LEDGER_NAME = "plan-test-run.json"
 RECEIPT_NAME = "gate-receipt.json"
@@ -70,6 +70,10 @@ FINDING_SCOPE_RELATIONS = {"in-scope", "out-of-scope", "scope-change-proposal"}
 FINDING_ORIGINS = {"pre-existing", "patch-induced", "new-external-fact"}
 FINDING_STATUSES = {"open", "resolved", "advisory"}
 CHALLENGE_REVIEW_MODES = {"breadth", "diff", "consolidated"}
+CHALLENGE_SPECIALTIES = {
+    "architecture", "data-state", "failure-recovery", "security-privacy",
+    "testability-evidence", "release-rollback", "performance-third-party",
+}
 BREADTH_COVERAGE_KEYS = {
     "acceptance_coverage",
     "entry_and_trust_chain",
@@ -123,6 +127,8 @@ CANONICAL_ORDER = [
     "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
     "DELIVERY_VERDICT_CONTRADICTS_LEDGER", "UI_EVIDENCE_MISSING",
     "RUN_CREATION_UNVERIFIED", "EVIDENCE_MISSING", "EVIDENCE_HASH_MISMATCH",
+    "PRIMARY_EVIDENCE_MISSING", "EVIDENCE_CONTRACT_UNSATISFIED",
+    "EVIDENCE_PRODUCER_UNTRUSTED",
     "EVIDENCE_DEPENDENCY_CYCLE", "EVIDENCE_PREDATES_LEDGER",
     "DERIVED_EVIDENCE_ONLY", "FROZEN_ORACLE_CHANGED",
     "BEHAVIOR_APPROVAL_REQUIRED", "APPLICABILITY_UNDECLARED",
@@ -136,7 +142,9 @@ CANONICAL_ORDER = [
     "PLAN_UNSTABLE", "LEDGER_STALLED",
     "TESTED_RUNTIME_MISMATCH", "RETEST_REQUIRED_AFTER_CHANGE",
     "AUDITOR_MISSING", "AUDITOR_VERDICT_MISMATCH",
+    "OPEN_AUDIT_FINDINGS",
     "AUDITOR_INPUT_STALE", "RECEIPT_STALE",
+    "ACTIVE_RUN_MISMATCH",
     "TIMING_MISSING", "TIMING_GAP", "PHASE_UNPAIRED",
     "PLAN_SCOPE_EXPANSION",  # advisory
     "AUDITOR_INDEPENDENCE_UNVERIFIED",
@@ -337,6 +345,12 @@ def declared_exclusion_scope(ledger_or_manifest, repo, run_dir):
     共同根因：**判定输入是被测者可写的工作树**。现在改为冻结声明——排除哪些路径在 init 时
     定死、进账本、进 receipt digest、在报告里逐条显形；事后往仓库里塞任何文件都不改变排除范围。
     """
+    # 已初始化账本以冻结值为准；这也保留 active-run opt-in 在 init 时加入的精确 registry
+    # 文件。若后续重新派生，会漏掉该文件并把 activate-run 自己误判成被测内容变化。
+    frozen = ledger_or_manifest.get("exclusion_scope")
+    if isinstance(frozen, list):
+        return sorted({str(rel).replace(os.sep, "/").rstrip("/")
+                       for rel in frozen if str(rel).strip()})
     scope = []
     cur = _rel_exclude(repo, run_dir)
     if cur:
@@ -578,6 +592,11 @@ def structural_check(ledger):
     for i, s in enumerate(scenarios):
         _req(s, "scenario_id", str, "scenarios[%d]" % i, errors)
         _req(s, "required", bool, "scenarios[%d]" % i, errors)
+        if "testcase_ids" in s and not isinstance(s["testcase_ids"], list):
+            errors.append("SCHEMA_INVALID: scenarios[%d].testcase_ids 须为数组" % i)
+        contract = s.get("evidence_contract")
+        if contract is not None and not isinstance(contract, dict):
+            errors.append("SCHEMA_INVALID: scenarios[%d].evidence_contract 须为 object" % i)
     for i, r in enumerate(ledger.get("runs") or []):
         _req(r, "scenario_id", str, "runs[%d]" % i, errors)
         kind = _req(r, "kind", str, "runs[%d]" % i, errors)
@@ -601,6 +620,8 @@ def structural_check(ledger):
         kind = _req(e, "kind", str, "evidence[%d]" % i, errors)
         if kind is not None and kind not in ("primary", "derived"):
             errors.append("SCHEMA_INVALID: evidence[%d].kind=%r 非法" % (i, kind))
+        if "business_facts" in e and not isinstance(e["business_facts"], dict):
+            errors.append("SCHEMA_INVALID: evidence[%d].business_facts 须为 object" % i)
     loops = ledger.get("challenge_loops", [])
     if not isinstance(loops, list):
         errors.append("SCHEMA_INVALID: challenge_loops 须为数组")
@@ -613,6 +634,12 @@ def structural_check(ledger):
         for key, typ in (("loop_id", str), ("loop_type", str), ("target_file", str),
                          ("baseline_hash", str), ("rounds", list)):
             _req(loop, key, typ, where, errors)
+        orchestration = loop.get("orchestration", "legacy")
+        if orchestration not in {"legacy", "clustered"}:
+            errors.append("SCHEMA_INVALID: %s.orchestration=%r 非法" % (where, orchestration))
+        if "specialist_challenges" in loop and not isinstance(
+                loop["specialist_challenges"], list):
+            errors.append("SCHEMA_INVALID: %s.specialist_challenges 须为数组" % where)
         snapshots = loop.get("contract_snapshots") or []
         if not isinstance(snapshots, list):
             errors.append("SCHEMA_INVALID: %s.contract_snapshots 须为数组" % where)
@@ -707,6 +734,60 @@ def compute_scenario_status(scenario, runs):
     return "PARTIAL"
 
 
+def validate_evidence_contract(scenario, evidence):
+    """Validate a scenario's explicit proof contract without content heuristics.
+
+    A contract states which producers and facts are trusted.  It deliberately
+    does not guess whether a JSON document "looks primary"; that is brittle and
+    easy to game.  Legacy scenarios without a contract keep the 1.4 behavior.
+    """
+    contract = scenario.get("evidence_contract")
+    if not isinstance(contract, dict):
+        return []
+    sid = scenario.get("scenario_id")
+    primary = [e for e in evidence if e.get("scenario_id") == sid
+               and e.get("kind") == "primary"]
+    if not primary:
+        return [Diag("PRIMARY_EVIDENCE_MISSING",
+                     "场景 %s 缺少满足 contract 的 primary evidence" % sid, hint=sid)]
+    diags = []
+    allowed_producers = set(contract.get("producer_types") or [])
+    eligible = [e for e in primary if not allowed_producers
+                or e.get("producer_type") in allowed_producers]
+    if allowed_producers and not eligible:
+        diags.append(Diag(
+            "EVIDENCE_PRODUCER_UNTRUSTED",
+            "场景 %s 的 primary producer=%s，不在允许集合 %s" % (
+                sid, sorted({str(e.get("producer_type")) for e in primary}),
+                sorted(allowed_producers)), hint=sid))
+    missing = []
+    required_kinds = set(contract.get("required_artifact_kinds") or [])
+    # 只有可信 producer 的记录能满足 contract 的其余字段；否则一条可信空记录可与
+    # 一条不可信 self-report 拼接，把 producer 门洗白。
+    present_kinds = {e.get("artifact_kind") for e in eligible}
+    if not required_kinds.issubset(present_kinds):
+        missing.append("artifact_kinds=%s" % sorted(required_kinds - present_kinds))
+    for field in contract.get("required_identity") or []:
+        if not any(e.get(field) not in (None, "") for e in eligible):
+            missing.append("identity.%s" % field)
+    if contract.get("required_timestamps") and not any(
+            e.get("generated_at") for e in eligible):
+        missing.append("generated_at")
+    available_facts = set()
+    for e in eligible:
+        facts = e.get("business_facts")
+        if isinstance(facts, dict):
+            available_facts.update(k for k, v in facts.items() if v not in (None, ""))
+    required_facts = set(contract.get("required_business_facts") or [])
+    if not required_facts.issubset(available_facts):
+        missing.append("business_facts=%s" % sorted(required_facts - available_facts))
+    if missing:
+        diags.append(Diag("EVIDENCE_CONTRACT_UNSATISFIED",
+                          "场景 %s evidence contract 缺失: %s" % (
+                              sid, ", ".join(missing)), hint=sid))
+    return diags
+
+
 def auditor_facts_digest(ledger):
     """auditor 冻结输入指纹：除 auditor/delivery/receipt 事件外的全部 fact。"""
     facts = {k: v for k, v in ledger.items()
@@ -758,11 +839,35 @@ def expected_chain_length(ledger):
     for key in ("runs", "evidence", "declared_statuses", "timing", "attestations",
                 "superseded_evidence", "approvals"):
         n += len(ledger.get(key) or [])
+    # ``record-run --exec`` deliberately appends one run and its captured
+    # primary log in the same atomic CLI write.  The chain therefore grows by
+    # one, not two.  Only discount evidence whose generated path exactly
+    # matches the run's immutable 1-based position and scenario slug; ordinary
+    # attach-evidence writes must still contribute their own chain entry.
+    evidence_paths = {
+        str(e.get("path") or "") for e in (ledger.get("evidence") or [])
+    }
+    paired_exec_evidence = 0
+    for seq, run in enumerate(ledger.get("runs") or [], start=1):
+        if "exec_exit_code" not in run:
+            continue
+        safe_scenario = re.sub(
+            r"[^A-Za-z0-9_.-]", "_", str(run.get("scenario_id") or "")
+        )
+        expected_path = "artifacts/exec-%s-%04d.log" % (safe_scenario, seq)
+        if expected_path in evidence_paths:
+            paired_exec_evidence += 1
+    n -= paired_exec_evidence
     n += len(ledger.get("events") or [])
     for loop in ledger.get("challenge_loops") or []:
         n += 1
         n += len(loop.get("rounds") or [])
         n += len(loop.get("control_events") or [])
+        if loop.get("challenge_clusters") is not None:
+            n += 1
+        n += len(loop.get("specialist_challenges") or [])
+        if loop.get("synthesis"):
+            n += 1
     if ledger.get("auditor"):
         n += 1
     if ledger.get("delivery"):
@@ -984,6 +1089,66 @@ def read_output_deferrals(run_dir, output_path):
     return out
 
 
+def read_structured_audit_findings(run_dir, output_path):
+    """Read the optional JSON audit finding envelope; never regex Markdown."""
+    p = os.path.join(run_dir, output_path or "")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if (not isinstance(obj, dict) or "findings" not in obj
+            or not isinstance(obj.get("findings"), list)):
+        return None
+    raw_findings = obj.get("findings") or []
+    # 1.4 的 advisory/deferral envelope 也使用 findings，但字段是
+    # severity=info + text。它继续由 OPEN_DEFERRALS 曝光，不把旧格式强行按 1.5
+    # remediation obligation 解释。出现任一 P0/P1/P2 则视为新格式并严格校验全部项。
+    if raw_findings and not any(isinstance(item, dict) and
+                                item.get("severity") in FINDING_SEVERITIES
+                                for item in raw_findings):
+        return None
+    report = obj.get("report_markdown")
+    if isinstance(report, str):
+        matches = re.findall(r"(?m)^VERDICT:\s*(PASS|FAIL)\s*$", report)
+        if matches and matches[-1] != str(obj.get("verdict") or "").upper():
+            die("AUDITOR_VERDICT_MISMATCH: JSON verdict 与 report_markdown 文末结论不一致")
+    normalized = []
+    seen_ids = set()
+    for i, item in enumerate(raw_findings):
+        if not isinstance(item, dict):
+            die("SCHEMA_INVALID: auditor findings[%d] 须为 object" % i)
+        required = {"id", "severity", "status", "type", "summary"}
+        if not required.issubset(item):
+            die("SCHEMA_INVALID: auditor findings[%d] 缺少 %s" % (
+                i, ", ".join(sorted(required - set(item)))))
+        if item["severity"] not in FINDING_SEVERITIES:
+            die("SCHEMA_INVALID: auditor finding severity=%r" % item["severity"])
+        if item["status"] not in {"open", "resolved", "deferred"}:
+            die("SCHEMA_INVALID: auditor finding status=%r" % item["status"])
+        if str(item["id"]) in seen_ids:
+            die("SCHEMA_INVALID: auditor finding id 重复: %s" % item["id"])
+        seen_ids.add(str(item["id"]))
+        if item["type"] not in {"plan", "code", "testcase", "evidence", "docs", "release"}:
+            die("SCHEMA_INVALID: auditor finding type=%r" % item["type"])
+        if item.get("required_retest") and not item.get("scenario_ids"):
+            die("SCHEMA_INVALID: required_retest=true 必须绑定非空 scenario_ids")
+        if (item["severity"] in {"P0", "P1"}
+                and not (item.get("ac_ids") or item.get("scenario_ids"))):
+            die("SCHEMA_INVALID: P0/P1 finding 必须绑定 ac_ids 或 scenario_ids")
+        normalized.append({
+            "id": str(item["id"]),
+            "severity": item["severity"],
+            "status": item["status"],
+            "type": str(item["type"]),
+            "summary": str(item["summary"]),
+            "ac_ids": list(item.get("ac_ids") or []),
+            "scenario_ids": list(item.get("scenario_ids") or []),
+            "required_retest": bool(item.get("required_retest")),
+        })
+    return normalized
+
+
 def validate(run_dir, ledger, mode="full", fixture=False):
     """核心 validator。mode: check-only | full | render。返回 (diags, computed)。"""
     diags = []
@@ -998,6 +1163,30 @@ def validate(run_dir, ledger, mode="full", fixture=False):
         diags.append(Diag("RUN_ABANDONED",
                           "本 run 已由用户确认放弃（%s）：不再阻断收尾，也不得作为交付证据或继任 run"
                           % (ledger.get("acknowledged_reason") or "未记理由")))
+    if ledger.get("active_run_required"):
+        repo = os.path.abspath(ledger.get("repo_root") or "")
+        registry_path = os.path.join(repo, ".plan-test", "active-run.json")
+        registry = None
+        try:
+            with open(registry_path, "r", encoding="utf-8") as f:
+                registry = json.load(f)
+        except (OSError, ValueError):
+            pass
+        try:
+            expected_rel = os.path.relpath(os.path.realpath(run_dir), os.path.realpath(repo)).replace(
+                os.sep, "/")
+        except ValueError:
+            expected_rel = ""
+        current_att = ledger.get("runtime_attestation") or ledger.get("baseline") or {}
+        if (not isinstance(registry, dict)
+                or registry.get("run_dir") != expected_rel
+                or registry.get("run_id") != ledger.get("run_id")
+                or registry.get("acceptance_sha256") != (ledger.get("acceptance") or {}).get("sha256")
+                or registry.get("candidate_content_digest") != current_att.get("content_digest")):
+            diags.append(Diag(
+                "ACTIVE_RUN_MISMATCH",
+                "本 run 要求 active-run 绑定，但 registry 缺失、指向其他 run，或候选内容已变化；"
+                "完成 re-attest 后重新执行 activate-run"))
     scenarios = ledger.get("scenarios") or []
     runs = ledger.get("runs") or []
     evidence = ledger.get("evidence") or []
@@ -1103,6 +1292,7 @@ def validate(run_dir, ledger, mode="full", fixture=False):
             diags.append(Diag("DERIVED_EVIDENCE_ONLY",
                               "场景 %s 只有 derived report，无 primary 证据" % sid,
                               hint=sid))
+        diags.extend(validate_evidence_contract(s, evidence))
 
     # 4b. 同命令同时间戳扇出曝光（simple_harness 2026-08-18 实测：一条 pytest 跑一遍，
     #     同一秒给 4 条 AC 各记一条 root pass——一次执行伪装成 N 次独立验证，账本上完全
@@ -1313,7 +1503,17 @@ def validate(run_dir, ledger, mode="full", fixture=False):
         diags.append(Diag("TESTED_RUNTIME_MISMATCH",
                           "runtime adapter 返回 UNKNOWN——真实 E2E 只能记 BLOCKED，不得口头确认"))
 
-    # 12. auditor（仅 full/render 模式要求）
+    # 12. structured auditor findings are remediation obligations, not prose.
+    open_audit = [f for f in (ledger.get("audit_findings") or [])
+                  if f.get("severity") in {"P0", "P1"}
+                  and f.get("status") in {"open", "deferred"}]
+    if open_audit:
+        diags.append(Diag(
+            "OPEN_AUDIT_FINDINGS",
+            "存在未闭环 auditor P0/P1: %s" %
+            ", ".join(sorted(str(f.get("id")) for f in open_audit))))
+
+    # 12b. auditor（仅 full/render 模式要求）
     auditor = ledger.get("auditor") or {}
     if mode in ("full", "render"):
         if not auditor:
@@ -1521,6 +1721,27 @@ def compute_state(ledger, statuses, diags, mode):
 RECEIPT_IDENTITY_EXCLUDE = ("finalized_at", "content_digest")
 
 
+def summarize_evidence(ledger):
+    evidence_rows = ledger.get("evidence") or []
+    artifact_to_records = {}
+    for e in evidence_rows:
+        artifact_to_records.setdefault(e.get("sha256"), []).append(e.get("evidence_id"))
+    root_runs = [r for r in (ledger.get("runs") or []) if r.get("kind") == "root"]
+    return {
+        "records": len(evidence_rows),
+        "distinct_artifacts": len({e.get("sha256") for e in evidence_rows if e.get("sha256")}),
+        "distinct_root_runs": len({
+            r.get("run_id_under_test") or canonical_digest({
+                "scenario_id": r.get("scenario_id"), "recorded_at": r.get("recorded_at"),
+                "command": r.get("command"),
+            }) for r in root_runs
+        }),
+        "shared_artifact_sha256": sorted(
+            digest for digest, ids in artifact_to_records.items()
+            if digest and len(ids) > 1),
+    }
+
+
 def build_receipt(run_dir, ledger, computed):
     evidence_manifest = sorted(
         [{"path": e.get("path"), "sha256": e.get("sha256")} for e in ledger.get("evidence") or []],
@@ -1536,6 +1757,7 @@ def build_receipt(run_dir, ledger, computed):
         "state": computed["state"],
         "ledger_sha256": canonical_digest({k: v for k, v in ledger.items() if k != "revision"}),
         "evidence_manifest_sha256": canonical_digest(evidence_manifest),
+        "evidence_summary": summarize_evidence(ledger),
         "acceptance_sha256": (ledger.get("acceptance") or {}).get("sha256"),
         "testcase_lock_sha256": canonical_digest(ledger.get("testcase_lock") or {}),
         "auditor_input_sha256": auditor.get("input_sha256"),
@@ -1592,6 +1814,192 @@ def emit(diags, computed=None, extra=None):
         print(line)
 
 
+def compiled_manifest_seal(manifest):
+    """Bind every compiled verification surface that init consumes."""
+    compiled = dict(manifest.get("compiled_manifest") or {})
+    compiled.pop("seal_sha256", None)
+    return canonical_digest({
+        "compiled_manifest": compiled,
+        "scenarios": manifest.get("scenarios") or [],
+        "testcase_files": sorted(manifest.get("testcase_files") or []),
+        "active_run_required": bool(manifest.get("active_run_required")),
+        "structured_audit_required": bool(manifest.get("structured_audit_required")),
+    })
+
+
+def validate_required_evidence_contract(scenario):
+    contract = scenario.get("evidence_contract")
+    sid = scenario.get("scenario_id")
+    if not isinstance(contract, dict) or not contract:
+        return ["REQUIRED_EVIDENCE_CONTRACT_MISSING: %s" % sid]
+    errors = []
+    arrays = {}
+    for field in ("producer_types", "required_artifact_kinds", "required_identity",
+                  "required_business_facts"):
+        value = contract.get(field, [])
+        if not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value):
+            errors.append("%s %s 必须是字符串数组" % (sid, field))
+            value = []
+        arrays[field] = set(value)
+    producers = arrays["producer_types"]
+    artifact_kinds = arrays["required_artifact_kinds"]
+    identity = arrays["required_identity"]
+    facts = arrays["required_business_facts"]
+    if not producers:
+        errors.append("%s producer_types 不能为空" % sid)
+    if not artifact_kinds:
+        errors.append("%s required_artifact_kinds 不能为空" % sid)
+    if "root_run_id" not in identity:
+        errors.append("%s required_identity 必须含 root_run_id" % sid)
+    if contract.get("required_timestamps") is not True:
+        errors.append("%s required_timestamps 必须为 true" % sid)
+    if scenario.get("gate_type") == "positive-value":
+        if "business-result" not in artifact_kinds:
+            errors.append("%s positive-value 必须要求 business-result artifact" % sid)
+        if "business_terminal" not in facts:
+            errors.append("%s positive-value 必须要求 business_terminal fact" % sid)
+    if scenario.get("ui"):
+        if "ui-capture" not in artifact_kinds:
+            errors.append("%s UI 场景必须要求 ui-capture artifact" % sid)
+        if "session_id" not in identity:
+            errors.append("%s UI 场景 required_identity 必须含 session_id" % sid)
+    if "temporal-fault" in set(scenario.get("required_lanes") or []):
+        if "fault-recovery-log" not in artifact_kinds:
+            errors.append("%s fault/recovery 场景必须要求 fault-recovery-log artifact" % sid)
+        if "recovered_state" not in facts:
+            errors.append("%s fault/recovery 场景必须要求 recovered_state fact" % sid)
+    return errors
+
+
+def cmd_compile_manifest(args):
+    """Compile a frozen gate manifest from structured verification inputs.
+
+    Markdown remains the human view.  The compiler intentionally consumes a
+    small JSON verification spec instead of attempting lossy Markdown parsing.
+    """
+    spec = _read_json_file(args.spec, "verification spec")
+    required = {"acceptance_file", "assurance_contract", "testcase_inventory",
+                "reuse_report", "obligations", "scenarios"}
+    if not isinstance(spec, dict) or not required.issubset(spec):
+        die("SCHEMA_INVALID: verification spec 缺少 %s" %
+            ", ".join(sorted(required - set(spec or {}))))
+    assurance = _read_json_file(spec["assurance_contract"], "assurance contract")
+    inventory = _read_json_file(spec["testcase_inventory"], "testcase inventory")
+    reuse = _read_json_file(spec["reuse_report"], "testcase reuse report")
+    obligations = spec.get("obligations")
+    scenarios = spec.get("scenarios")
+    if not isinstance(obligations, list) or not isinstance(scenarios, list):
+        die("SCHEMA_INVALID: obligations/scenarios 须为数组")
+    testcase_rows = inventory.get("testcases") if isinstance(inventory, dict) else None
+    decisions = reuse.get("decisions") if isinstance(reuse, dict) else None
+    if not isinstance(testcase_rows, list) or not isinstance(decisions, list):
+        die("SCHEMA_INVALID: inventory.testcases/reuse_report.decisions 须为数组")
+    try:
+        from testcase_inventory import validate_inventory, validate_reuse_report
+        inventory_errors = validate_inventory(
+            inventory, os.path.dirname(os.path.abspath(spec["testcase_inventory"])))
+        reuse_errors = validate_reuse_report(
+            inventory, reuse,
+            [row.get("obligation_id") for row in obligations if isinstance(row, dict)])
+    except (ImportError, ValueError) as exc:
+        die("TESTCASE_INVENTORY_INVALID: %s" % exc)
+    if inventory_errors or reuse_errors:
+        die("TESTCASE_INVENTORY_INVALID: %s" % "; ".join(
+            sorted(set(inventory_errors + reuse_errors))))
+    by_tc = {row.get("id"): row for row in testcase_rows if isinstance(row, dict)}
+    if len(by_tc) != len(testcase_rows):
+        die("SCHEMA_INVALID: testcase inventory 含重复或缺失 ID")
+    decision_by_obligation = {
+        row.get("obligation_id"): row for row in decisions if isinstance(row, dict)
+    }
+    covered_ac = set()
+    selected = set()
+    for row in obligations:
+        if not isinstance(row, dict) or not row.get("obligation_id"):
+            die("SCHEMA_INVALID: obligation 须含 obligation_id")
+        oid = row["obligation_id"]
+        decision = decision_by_obligation.get(oid)
+        ids = (decision or {}).get("selected_testcases")
+        if not isinstance(ids, list) or not ids:
+            die("TESTCASE_REUSE_DECISION_MISSING: %s" % oid)
+        for reference in ids:
+            testcase_id = str(reference).split("@rev", 1)[0]
+            tc = by_tc.get(testcase_id)
+            if not tc:
+                die("SELECTED_TESTCASE_MISSING: %s" % testcase_id)
+            if tc.get("status") in {"retired", "superseded"}:
+                die("SELECTED_TESTCASE_INACTIVE: %s status=%s" % (
+                    testcase_id, tc.get("status")))
+            selected.add(testcase_id)
+        covered_ac.update(row.get("ac_ids") or [])
+    required_ac = set(assurance.get("acceptance_ids") or [])
+    unknown_ac = covered_ac - required_ac
+    if unknown_ac:
+        die("OBLIGATION_AC_UNKNOWN: %s" % ", ".join(sorted(unknown_ac)))
+    if not required_ac.issubset(covered_ac):
+        die("AC_COVERAGE_MISSING: %s" % ", ".join(sorted(required_ac - covered_ac)))
+    scenario_testcases = set()
+    scenario_ids = set()
+    for row in scenarios:
+        if not isinstance(row, dict) or not row.get("scenario_id"):
+            die("SCHEMA_INVALID: scenario 须含 scenario_id")
+        if row["scenario_id"] in scenario_ids:
+            die("SCHEMA_INVALID: scenario_id 重复: %s" % row["scenario_id"])
+        scenario_ids.add(row["scenario_id"])
+        testcase_ids = row.get("testcase_ids") or []
+        normalized_ids = {str(value).split("@rev", 1)[0] for value in testcase_ids}
+        unknown_testcases = normalized_ids - set(by_tc)
+        if unknown_testcases:
+            die("SCENARIO_TESTCASE_UNKNOWN: %s" % ", ".join(sorted(unknown_testcases)))
+        if row.get("required", True):
+            if not normalized_ids:
+                die("REQUIRED_SCENARIO_TESTCASE_MISSING: %s" % row["scenario_id"])
+            contract_errors = validate_required_evidence_contract(row)
+            if contract_errors:
+                die("EVIDENCE_CONTRACT_INVALID: %s" % "; ".join(contract_errors))
+        scenario_testcases.update(normalized_ids)
+    if not selected.issubset(scenario_testcases):
+        die("TESTCASE_SCENARIO_MAPPING_MISSING: %s" %
+            ", ".join(sorted(selected - scenario_testcases)))
+    manifest = dict(spec.get("manifest") or {})
+    manifest["acceptance_file"] = spec["acceptance_file"]
+    manifest["scenarios"] = scenarios
+    # 使用 compiler 即选择 1.5 严格工作流；raw 1.x manifest 继续兼容读取。
+    manifest["active_run_required"] = not bool(manifest.get("fixture_only"))
+    manifest["structured_audit_required"] = True
+    inventory_dir = os.path.dirname(os.path.abspath(spec["testcase_inventory"]))
+    manifest["testcase_files"] = sorted({
+        (path if os.path.isabs(path) else os.path.join(inventory_dir, path))
+        for testcase_id in selected
+        for path in [by_tc[testcase_id].get("path")]
+        if path
+    })
+    full = sorted(row["scenario_id"] for row in scenarios if row.get("required", True))
+    manifest["compiled_manifest"] = {
+        "tool_version": VALIDATOR_VERSION,
+        "input_hashes": {
+            "acceptance": sha256_file(spec["acceptance_file"]),
+            "assurance_contract": sha256_file(spec["assurance_contract"]),
+            "testcase_inventory": sha256_file(spec["testcase_inventory"]),
+            "reuse_report": sha256_file(spec["reuse_report"]),
+            "verification_spec": sha256_file(args.spec),
+        },
+        "input_paths": {
+            "acceptance": os.path.abspath(spec["acceptance_file"]),
+            "assurance_contract": os.path.abspath(spec["assurance_contract"]),
+            "testcase_inventory": os.path.abspath(spec["testcase_inventory"]),
+            "reuse_report": os.path.abspath(spec["reuse_report"]),
+            "verification_spec": os.path.abspath(args.spec),
+        },
+        "case_sets": {"full": full},
+        "selected_testcase_ids": sorted(selected),
+    }
+    manifest["compiled_manifest"]["seal_sha256"] = compiled_manifest_seal(manifest)
+    atomic_write_json(args.output, manifest)
+    print("MANIFEST_COMPILED scenarios=%d testcases=%d full=%d" % (
+        len(scenarios), len(selected), len(full)))
+
+
 def cmd_init(args):
     run_dir = args.run_dir
     os.makedirs(os.path.join(run_dir, "artifacts"), exist_ok=True)
@@ -1599,6 +2007,17 @@ def cmd_init(args):
         die("run-dir 已 init（%s 存在）；重开新 run 请换目录" % LEDGER_NAME)
     with open(args.manifest, "r", encoding="utf-8") as f:
         manifest = json.load(f)
+    compiled_input = manifest.get("compiled_manifest") or {}
+    if compiled_input:
+        expected_seal = compiled_input.get("seal_sha256")
+        if not expected_seal or expected_seal != compiled_manifest_seal(manifest):
+            die("COMPILED_MANIFEST_SEAL_MISMATCH: compiled manifest/scenarios/testcase_files 被改动；"
+                "须从原 verification spec 重新 compile-manifest")
+        for name, expected_hash in (compiled_input.get("input_hashes") or {}).items():
+            source_path = (compiled_input.get("input_paths") or {}).get(name)
+            if not source_path or not os.path.isfile(source_path) or sha256_file(
+                    source_path) != expected_hash:
+                die("COMPILED_INPUT_CHANGED: %s 与 compile 时 hash 不一致；须重新编译" % name)
     repo = os.path.abspath(manifest.get("repo_root") or os.getcwd())
     fixture = bool(manifest.get("fixture_only"))
     if not fixture:
@@ -1639,6 +2058,9 @@ def cmd_init(args):
         "runtime_attestation": manifest.get("runtime_attestation") or {},
         "events": [],
         "challenge_loops": [],
+        "compiled_manifest": manifest.get("compiled_manifest"),
+        "active_run_required": bool(manifest.get("active_run_required")),
+        "structured_audit_required": bool(manifest.get("structured_audit_required")),
         "revision": 0,
     }
     # 冻结原始需求
@@ -1664,6 +2086,13 @@ def cmd_init(args):
             die("manifest.scenarios 每项必须有 scenario_id")
         s.setdefault("required", True)
         ledger["scenarios"].append(s)
+    compiled = ledger.get("compiled_manifest") or {}
+    expected_full = set(((compiled.get("case_sets") or {}).get("full") or []))
+    if expected_full:
+        actual_full = {s["scenario_id"] for s in ledger["scenarios"] if s.get("required")}
+        if actual_full != expected_full:
+            die("COMPILED_FULL_SURFACE_MISMATCH: expected=%s actual=%s" % (
+                ",".join(sorted(expected_full)), ",".join(sorted(actual_full))))
     # baseline attestation
     if not fixture:
         head = repo_head(repo)
@@ -1675,6 +2104,10 @@ def cmd_init(args):
                 "不许用它把代码排除掉；非法项：%s" % ", ".join(bad))
         ledger["related_run_dirs"] = manifest.get("related_run_dirs") or []
         scope = declared_exclusion_scope(ledger, repo, run_dir)
+        if ledger.get("active_run_required") and ".plan-test/active-run.json" not in scope:
+            # Exact workflow metadata file only; visible in receipt exclusion_scope.
+            scope.append(".plan-test/active-run.json")
+            scope.sort()
         ledger["exclusion_scope"] = scope
         ledger["baseline"] = attest_runtime(repo, scope)
         ledger["runtime_attestation"] = dict(ledger["baseline"])
@@ -1693,6 +2126,30 @@ def cmd_init(args):
     if undeclared:
         print("提醒：适用性维度未声明 %s——finalize 会以 APPLICABILITY_UNDECLARED 拦截"
               % "/".join(sorted(undeclared)))
+
+
+def cmd_activate_run(args):
+    ledger = load_ledger(args.run_dir)
+    repo = os.path.abspath(ledger.get("repo_root") or "")
+    try:
+        rel = os.path.relpath(os.path.realpath(args.run_dir), os.path.realpath(repo))
+    except ValueError:
+        rel = ".."
+    if rel.startswith(".."):
+        die("ACTIVE_RUN_EXTERNAL: active run 必须位于 repo 内，供 hook/CI 复核")
+    att = ledger.get("runtime_attestation") or ledger.get("baseline") or {}
+    record = {
+        "run_dir": rel.replace(os.sep, "/"),
+        "run_id": ledger.get("run_id"),
+        "acceptance_sha256": (ledger.get("acceptance") or {}).get("sha256"),
+        "candidate_content_digest": att.get("content_digest"),
+        "updated_at": now_iso(),
+    }
+    target_dir = os.path.join(repo, ".plan-test")
+    os.makedirs(target_dir, exist_ok=True)
+    atomic_write_json(os.path.join(target_dir, "active-run.json"), record)
+    print("ACTIVE_RUN_SET: %s content=%s" % (
+        record["run_dir"], str(record["candidate_content_digest"] or "")[:12]))
 
 
 def _append(run_dir, mutate, op="append"):
@@ -1759,6 +2216,14 @@ def cmd_record_run(args):
             "sha256": sha256_file(log_abs),
             "kind": "primary",
             "scenario_id": args.scenario,
+            "producer_type": "gate-exec",
+            "producer_version": VALIDATOR_VERSION,
+            "artifact_kind": "execution-log",
+            "generated_at": ended_at,
+            "root_run_id": args.run_id_under_test,
+            "session_id": args.session_id,
+            "business_facts": ({"business_terminal": args.business_terminal}
+                               if args.business_terminal else {}),
             "file_mtime": _mtime_iso(log_abs),
             "attached_at": now_iso(),
         }
@@ -1808,6 +2273,20 @@ def cmd_attach_evidence(args):
     if not os.path.exists(p):
         die("证据文件不存在: %s（路径须相对 run-dir）" % p)
     imported_from = getattr(args, "from_run", None)
+    metadata = {}
+    if getattr(args, "metadata", None):
+        metadata = _read_json_file(args.metadata, "evidence metadata")
+        if not isinstance(metadata, dict):
+            die("evidence metadata 须为 object")
+        allowed_metadata = {
+            "producer_type", "producer_version", "artifact_kind", "generated_at",
+            "root_run_id", "session_id", "business_facts",
+        }
+        unknown = sorted(set(metadata) - allowed_metadata)
+        if unknown:
+            die("evidence metadata 未知字段: %s" % ", ".join(unknown))
+        if "business_facts" in metadata and not isinstance(metadata["business_facts"], dict):
+            die("evidence metadata.business_facts 须为 object")
     ev = {
         "evidence_id": args.id or ("ev-" + sha256_file(p)[:12]),
         "path": rel_path,
@@ -1824,6 +2303,7 @@ def cmd_attach_evidence(args):
         "imported_from": imported_from,
         "attached_at": now_iso(),
     }
+    ev.update(metadata)
     ev = {k: v for k, v in ev.items() if v not in (None, False, [])}
 
     def mutate(ledger):
@@ -2067,6 +2547,7 @@ def cmd_re_attest(args):
 
 
 def cmd_audit(args):
+    ledger_before = load_ledger(args.run_dir)
     # 引擎身份校验（DeskPet 复盘：engine 填了方法名 fault_seam_analysis，独立性核对失去对象）：
     # --engine 必须是引擎/模型身份（如 opus-4.8、codex-gpt5.5、claude-sonnet-4-6），
     # 不接受含下划线/空格的方法名。启发式规则，挡的是"填错字段"，不是防伪。
@@ -2086,8 +2567,27 @@ def cmd_audit(args):
     if file_verdict != args.verdict.upper():
         die("auditor-output 里 verdict=%s，与 --verdict %s 不符——"
             "以审计产物为准，不许命令行改判" % (file_verdict, args.verdict))
+    findings = read_structured_audit_findings(args.run_dir, args.output)
+    if ledger_before.get("structured_audit_required") and findings is None:
+        die("STRUCTURED_AUDIT_REQUIRED: compiled 1.5 workflow 只接受 JSON findings envelope")
+    if (ledger_before.get("structured_audit_required")
+            and args.verdict.upper() == "FAIL"
+            and not any(f.get("status") in {"open", "deferred"} for f in (findings or []))):
+        die("AUDIT_FAIL_FINDING_REQUIRED: FAIL audit 至少需要一个 open/deferred 结构化 finding")
+    if args.verdict.upper() == "PASS" and findings is not None and any(
+            f["severity"] in {"P0", "P1"} and f["status"] in {"open", "deferred"}
+            for f in findings):
+        die("OPEN_AUDIT_FINDINGS: PASS 产物仍含 open/deferred P0/P1")
 
     def mutate(ledger):
+        if ledger.get("audit_findings"):
+            ledger.setdefault("audit_findings_history", []).append({
+                "superseded_at": now_iso(),
+                "findings": ledger["audit_findings"],
+            })
+        if findings is not None:
+            ledger["audit_findings"] = [dict(f, imported_runs_index=len(
+                ledger.get("runs") or [])) for f in findings]
         ledger["auditor"] = {
             "verdict": args.verdict,
             "engine": args.engine,
@@ -2101,6 +2601,62 @@ def cmd_audit(args):
 
     _append(args.run_dir, mutate, op="audit")
     print("AUDIT RECORDED verdict=%s（facts 已冻结，此后任何 fact 变化审计即 stale）" % args.verdict)
+    if findings is None:
+        print("提醒：auditor output 非结构化 JSON；verdict 已入账，但 findings 无法形成机器 obligation")
+
+
+def cmd_resolve_audit_finding(args):
+    ledger = load_ledger(args.run_dir)
+    finding = next((f for f in (ledger.get("audit_findings") or [])
+                    if f.get("id") == args.finding_id), None)
+    if not finding:
+        die("AUDIT_FINDING_NOT_FOUND: %s" % args.finding_id)
+    if finding.get("status") == "resolved":
+        print("AUDIT_FINDING_ALREADY_RESOLVED: %s" % args.finding_id)
+        return
+    if not args.resolution.strip():
+        die("RESOLUTION_REQUIRED")
+    evidence_ids = set(args.evidence_ids or [])
+    if not evidence_ids:
+        die("RESOLUTION_EVIDENCE_REQUIRED: finding resolution 必须绑定至少一个 evidence ID")
+    known_evidence = {e.get("evidence_id") for e in (ledger.get("evidence") or [])}
+    if not evidence_ids.issubset(known_evidence):
+        die("RESOLUTION_EVIDENCE_MISSING: %s" %
+            ", ".join(sorted(evidence_ids - known_evidence)))
+    if finding.get("required_retest"):
+        after = int(finding.get("imported_runs_index") or 0)
+        later = (ledger.get("runs") or [])[after:]
+        missing = [sid for sid in (finding.get("scenario_ids") or []) if not any(
+            r.get("scenario_id") == sid and r.get("kind") == "root"
+            and r.get("result") == "pass" for r in later)]
+        if missing:
+            die("AUDIT_FINDING_RETEST_REQUIRED: %s" % ", ".join(sorted(missing)))
+
+    def mutate(current):
+        target = next(f for f in current.get("audit_findings") or []
+                      if f.get("id") == args.finding_id)
+        target.update({
+            "status": "resolved",
+            "resolution": args.resolution,
+            "resolution_evidence_ids": sorted(evidence_ids),
+            "resolved_at": now_iso(),
+            "resolved_candidate_content_digest": (
+                current.get("runtime_attestation") or current.get("baseline") or {}
+            ).get("content_digest"),
+        })
+
+    _append(args.run_dir, mutate, op="resolve_audit_finding")
+    print("AUDIT_FINDING_RESOLVED: %s（旧 audit 已 stale，须重新审计）" % args.finding_id)
+
+
+def cmd_list_audit_findings(args):
+    ledger = load_ledger(args.run_dir)
+    rows = ledger.get("audit_findings") or []
+    for finding in rows:
+        print("%s\t%s\t%s\t%s" % (
+            finding.get("id"), finding.get("severity"), finding.get("status"),
+            finding.get("summary")))
+    print("AUDIT_FINDINGS: %d" % len(rows))
 
 
 def cmd_finalize(args):
@@ -2128,6 +2684,19 @@ def cmd_finalize(args):
     if fixture:
         receipt["fixture_only"] = True
     atomic_write_json(os.path.join(args.run_dir, RECEIPT_NAME), receipt)
+    if ledger.get("active_run_required") and not fixture:
+        repo = os.path.abspath(ledger.get("repo_root") or "")
+        registry_path = os.path.join(repo, ".plan-test", "active-run.json")
+        try:
+            with open(registry_path, "r", encoding="utf-8") as f:
+                registry = json.load(f)
+        except (OSError, ValueError):
+            registry = {}
+        registry["latest_valid_receipt_digest"] = receipt["content_digest"]
+        registry["latest_valid_receipt_path"] = os.path.relpath(
+            os.path.join(args.run_dir, RECEIPT_NAME), repo).replace(os.sep, "/")
+        registry["receipt_finalized_at"] = receipt["finalized_at"]
+        atomic_write_json(registry_path, registry)
     emit(diags, computed, ["FINALIZE: PASS%s" % (" (FIXTURE-ONLY)" if fixture else ""),
                            "GATE RECEIPT: %s" % receipt["content_digest"],
                            "RECEIPT FILE: %s" % os.path.join(args.run_dir, RECEIPT_NAME)])
@@ -2230,6 +2799,15 @@ def cmd_render(args):
                 a.get("recorded_at"), a.get("kind"),
                 str(a.get("message_sha256"))[:12], a.get("note") or ""))
         lines.append("")
+    evidence_summary = summarize_evidence(ledger)
+    lines.append("## Evidence 计数（引用不等于独立证明）")
+    lines.append("- evidence records: %d" % evidence_summary["records"])
+    lines.append("- distinct artifacts（按 sha256）: %d" %
+                 evidence_summary["distinct_artifacts"])
+    lines.append("- distinct root runs: %d" % evidence_summary["distinct_root_runs"])
+    lines.append("- shared artifact hashes: %d" %
+                 len(evidence_summary["shared_artifact_sha256"]))
+    lines.append("")
     imported = [e for e in (ledger.get("evidence") or []) if e.get("imported")]
     if imported:
         lines.append("## 导入的历史证据（产生于开账之前，chain of custody 见来源）")
@@ -3256,6 +3834,33 @@ def _challenge_state(loop):
     rounds = loop.get("rounds") or []
     if not rounds:
         return "ACTIVE"
+    if loop.get("orchestration") == "clustered":
+        clusters = loop.get("challenge_clusters")
+        if clusters is None:
+            return "SPECIALIST_CHALLENGE_REQUIRED"
+        specialist_by_cluster = {
+            item.get("cluster_id"): item
+            for item in (loop.get("specialist_challenges") or [])
+        }
+        incomplete = []
+        for cluster in clusters:
+            if not cluster.get("specialist_required", True):
+                continue
+            item = specialist_by_cluster.get(cluster.get("cluster_id"))
+            if not item:
+                incomplete.append(cluster.get("cluster_id"))
+                continue
+            if item.get("status") == "waived" and not item.get("waiver_reason"):
+                incomplete.append(cluster.get("cluster_id"))
+            elif item.get("status") not in {"completed", "waived"}:
+                incomplete.append(cluster.get("cluster_id"))
+        if incomplete:
+            return "SPECIALIST_CHALLENGE_REQUIRED"
+        if not loop.get("synthesis"):
+            return "SYNTHESIS_REQUIRED"
+        synthesis_round = int((loop.get("synthesis") or {}).get("after_round") or 0)
+        if len(rounds) <= synthesis_round:
+            return "CLOSURE_REVIEW_REQUIRED"
     controls = loop.get("control_events") or []
     for event in reversed(controls):
         if event.get("action") in {"scope-audit", "user-review"}:
@@ -3348,6 +3953,8 @@ def cmd_start_challenge_loop(args):
         ],
         "rounds": [],
         "control_events": [],
+        "orchestration": args.orchestration,
+        "specialist_challenges": [],
         "status": "ACTIVE",
     }
 
@@ -3369,7 +3976,8 @@ def cmd_check_loop_limit(args):
     hard = int((loop.get("limits") or {}).get("hard", PLAN_CHALLENGE_HARD_LIMIT))
     print("LOOP_STATE: %s" % state)
     print("  - 当前轮次: %d / %d" % (rounds, hard))
-    if state in {"SCOPE_AUDIT_REQUIRED", "ARCHITECTURE_RESET_REQUIRED",
+    if state in {"SPECIALIST_CHALLENGE_REQUIRED", "SYNTHESIS_REQUIRED",
+                 "CLOSURE_REVIEW_REQUIRED", "SCOPE_AUDIT_REQUIRED", "ARCHITECTURE_RESET_REQUIRED",
                  "USER_REVIEW_REQUIRED", "USER_SCOPE_APPROVAL_REQUIRED", "BLOCKED"}:
         sys.exit(1)
     print("LOOP_LIMIT_OK")
@@ -3384,6 +3992,10 @@ def cmd_record_challenge_round(args):
     expected_round = len(loop.get("rounds") or []) + 1
     if args.round != expected_round:
         die("ROUND_SEQUENCE_INVALID: 期望 round=%d，收到 %d" % (expected_round, args.round))
+    if (args.round > 1 and loop.get("orchestration") == "clustered"
+            and not loop.get("synthesis")):
+        die("CHALLENGE_SYNTHESIS_REQUIRED: clustered loop 必须先完成专项挑战与 synthesis，"
+            "再记录 closure diff round")
     if not os.path.isfile(loop.get("target_file") or ""):
         die("目标文件不存在: %s" % loop.get("target_file"))
     actual_hash = sha256_file(loop["target_file"])
@@ -3406,6 +4018,16 @@ def cmd_record_challenge_round(args):
     normalized, errors = _validate_finding_payload(payload, args.round, loop)
     if errors:
         die("SCHEMA_INVALID: %s" % "; ".join(errors))
+    if args.round > 1 and loop.get("orchestration") == "clustered":
+        synthesis_payload = (loop.get("synthesis") or {}).get("payload") or {}
+        canonical_ids = {f.get("id") for f in synthesis_payload.get("canonical_findings", [])}
+        closure_ids = {f.get("id") for f in normalized.get("findings") or []}
+        if closure_ids != canonical_ids:
+            die("CLOSURE_FINDING_COVERAGE_INVALID: closure 必须逐 ID 复核完整 canonical finding 集")
+        if (any(d.get("action") == "plan-change"
+                for d in synthesis_payload.get("decisions") or [] if isinstance(d, dict))
+                and args.plan_hash == loop["rounds"][-1]["plan_hash"]):
+            die("CLOSURE_PLAN_UNCHANGED: synthesis 声明 plan-change，但 target plan hash 未变化")
     historical_ids = {
         f.get("id") for r in loop.get("rounds") or [] for f in r.get("findings") or []
     }
@@ -3450,6 +4072,344 @@ def cmd_record_challenge_round(args):
                  "USER_REVIEW_REQUIRED", "USER_SCOPE_APPROVAL_REQUIRED", "BLOCKED"}:
         sys.exit(1)
     sys.exit(0)
+
+
+def _validate_challenge_clusters(payload):
+    if not isinstance(payload, dict):
+        return None, ["cluster payload 须为 object"]
+    allowed = {"primary_contradiction", "challenge_clusters"}
+    extra = sorted(set(payload) - allowed)
+    errors = ["cluster payload 未知字段: %s" % ", ".join(extra)] if extra else []
+    contradiction = payload.get("primary_contradiction")
+    if not isinstance(contradiction, dict):
+        errors.append("primary_contradiction 须为 object")
+    else:
+        required_contradiction = {"id", "summary", "acceptance_ids"}
+        missing = sorted(required_contradiction - set(contradiction))
+        if missing:
+            errors.append("primary_contradiction 缺少字段: %s" % ", ".join(missing))
+        if not isinstance(contradiction.get("acceptance_ids"), list):
+            errors.append("primary_contradiction.acceptance_ids 须为数组")
+    clusters = payload.get("challenge_clusters")
+    if not isinstance(clusters, list):
+        errors.append("challenge_clusters 须为数组")
+        return None, errors
+    seen = set()
+    normalized = []
+    for i, item in enumerate(clusters):
+        where = "challenge_clusters[%d]" % i
+        if not isinstance(item, dict):
+            errors.append("%s 须为 object" % where)
+            continue
+        allowed_item = {
+            "cluster_id", "parent_finding_ids", "specialty", "question",
+            "required_evidence", "specialist_required",
+        }
+        unknown = sorted(set(item) - allowed_item)
+        if unknown:
+            errors.append("%s 未知字段: %s" % (where, ", ".join(unknown)))
+        cid = item.get("cluster_id")
+        if not isinstance(cid, str) or not re.match(r"^[a-z][a-z0-9-]{2,63}$", cid):
+            errors.append("%s.cluster_id 格式非法" % where)
+        elif cid in seen:
+            errors.append("cluster_id 重复: %s" % cid)
+        else:
+            seen.add(cid)
+        parents = item.get("parent_finding_ids")
+        if not isinstance(parents, list) or not parents or any(
+                not isinstance(v, str) or not v for v in parents):
+            errors.append("%s.parent_finding_ids 须为非空字符串数组" % where)
+        if item.get("specialty") not in CHALLENGE_SPECIALTIES:
+            errors.append("%s.specialty=%r 非法" % (where, item.get("specialty")))
+        if not isinstance(item.get("question"), str) or not item["question"].strip():
+            errors.append("%s.question 须为非空字符串" % where)
+        required_evidence = item.get("required_evidence")
+        if not isinstance(required_evidence, list) or any(
+                not isinstance(v, str) or not v for v in required_evidence):
+            errors.append("%s.required_evidence 须为字符串数组" % where)
+        normalized.append(dict(item, specialist_required=bool(
+            item.get("specialist_required", True))))
+    return {"primary_contradiction": contradiction, "challenge_clusters": normalized}, errors
+
+
+def cmd_record_challenge_clusters(args):
+    ledger = load_ledger(args.run_dir)
+    loop = _challenge_loop(ledger, args.loop_id)
+    if not loop:
+        die("找不到 loop_id: %s" % args.loop_id)
+    if loop.get("orchestration") != "clustered":
+        die("CLUSTER_ORCHESTRATION_DISABLED: start-challenge-loop 需使用 --orchestration clustered")
+    if len(loop.get("rounds") or []) != 1:
+        die("PRIMARY_CHALLENGE_REQUIRED: clusters 必须紧接第一轮 breadth challenge 记录")
+    if loop.get("challenge_clusters") is not None:
+        die("CHALLENGE_CLUSTERS_ALREADY_RECORDED")
+    payload = _read_json_file(args.input, "challenge clusters")
+    normalized, errors = _validate_challenge_clusters(payload)
+    if errors:
+        die("SCHEMA_INVALID: %s" % "; ".join(errors))
+    contradiction = normalized["primary_contradiction"]
+    if not re.match(r"^[a-z][a-z0-9-]{2,63}$", str(contradiction.get("id") or "")):
+        die("SCHEMA_INVALID: primary_contradiction.id 格式非法")
+    if not str(contradiction.get("summary") or "").strip():
+        die("SCHEMA_INVALID: primary_contradiction.summary 须为非空字符串")
+    known_ac = set((_active_contract_snapshot(loop) or {}).get("acceptance_ids") or [])
+    contradiction_ac = set(contradiction.get("acceptance_ids") or [])
+    if not contradiction_ac or not contradiction_ac.issubset(known_ac):
+        die("SCHEMA_INVALID: primary_contradiction.acceptance_ids 缺失或引用未知 AC")
+    primary_findings = {
+        f.get("id") for f in (loop["rounds"][0].get("findings") or [])
+    }
+    unknown = sorted({fid for c in normalized["challenge_clusters"]
+                      for fid in c.get("parent_finding_ids") or []} - primary_findings)
+    if unknown:
+        die("UNKNOWN_PARENT_FINDING: %s" % ", ".join(unknown))
+    primary_blockers = {
+        f.get("id") for f in (loop["rounds"][0].get("findings") or [])
+        if f.get("severity") in {"P0", "P1"}
+        and f.get("scope_relation") == "in-scope" and f.get("status") == "open"
+    }
+    clustered = {fid for c in normalized["challenge_clusters"]
+                 for fid in c.get("parent_finding_ids") or []}
+    missing = sorted(primary_blockers - clustered)
+    if missing:
+        die("PRIMARY_FINDING_UNCLUSTERED: %s" % ", ".join(missing))
+
+    def mutate(current):
+        target = _challenge_loop(current, args.loop_id)
+        target["primary_contradiction"] = normalized["primary_contradiction"]
+        target["challenge_clusters"] = normalized["challenge_clusters"]
+        target["status"] = _challenge_state(target)
+
+    _append(args.run_dir, mutate, op="record_challenge_clusters")
+    print("CHALLENGE_CLUSTERS_RECORDED: %d" % len(normalized["challenge_clusters"]))
+
+
+def _validate_cluster_finding_items(items, loop, required_ids=None):
+    """Shared semantic checks for specialist and synthesis finding sets."""
+    errors = []
+    if not isinstance(items, list):
+        return ["findings 须为数组"]
+    required_fields = {
+        "id", "severity", "scope_relation", "origin", "violated_acceptance_ids",
+        "assurance_contract_ids", "evidence", "status", "root_cause",
+    }
+    snap = _active_contract_snapshot(loop) or {}
+    known_ac = set(snap.get("acceptance_ids") or [])
+    known_assurance = set(snap.get("assurance_ids") or [])
+    seen = set()
+    for index, item in enumerate(items):
+        where = "findings[%d]" % index
+        if not isinstance(item, dict):
+            errors.append("%s 须为 object" % where)
+            continue
+        missing = sorted(required_fields - set(item))
+        if missing:
+            errors.append("%s 缺少字段: %s" % (where, ", ".join(missing)))
+            continue
+        fid = item.get("id")
+        if not isinstance(fid, str) or not re.match(r"^[a-z][a-z0-9-]{2,63}$", fid):
+            errors.append("%s.id 格式非法" % where)
+        elif fid in seen:
+            errors.append("%s.id 重复: %s" % (where, fid))
+        seen.add(fid)
+        if item.get("severity") not in FINDING_SEVERITIES:
+            errors.append("%s.severity 非法" % where)
+        if item.get("scope_relation") not in FINDING_SCOPE_RELATIONS:
+            errors.append("%s.scope_relation 非法" % where)
+        if item.get("origin") not in FINDING_ORIGINS:
+            errors.append("%s.origin 非法" % where)
+        if item.get("status") not in FINDING_STATUSES:
+            errors.append("%s.status 非法" % where)
+        if item.get("scope_relation") == "out-of-scope" and item.get("status") != "advisory":
+            errors.append("%s out-of-scope finding 必须是 advisory" % where)
+        if item.get("scope_relation") != "out-of-scope" and item.get("status") == "advisory":
+            errors.append("%s in-scope/proposal finding 不能标 advisory" % where)
+        acs = item.get("violated_acceptance_ids")
+        aids = item.get("assurance_contract_ids")
+        if not isinstance(acs, list) or not set(acs).issubset(known_ac):
+            errors.append("%s acceptance binding 非法" % where)
+            acs = []
+        if not isinstance(aids, list) or not set(aids).issubset(known_assurance):
+            errors.append("%s assurance binding 非法" % where)
+            aids = []
+        if (item.get("severity") in {"P0", "P1"}
+                and item.get("scope_relation") in {"in-scope", "scope-change-proposal"}
+                and (not acs or not aids)):
+            errors.append("%s P0/P1 缺少 AC/assurance binding" % where)
+        if not str(item.get("evidence") or "").strip() or not str(
+                item.get("root_cause") or "").strip():
+            errors.append("%s evidence/root_cause 须非空" % where)
+    missing_required = set(required_ids or []) - seen
+    if missing_required:
+        errors.append("缺少 parent findings: %s" % ", ".join(sorted(missing_required)))
+    return errors
+
+
+def cmd_record_specialist_challenge(args):
+    ledger = load_ledger(args.run_dir)
+    loop = _challenge_loop(ledger, args.loop_id)
+    if not loop:
+        die("找不到 loop_id: %s" % args.loop_id)
+    cluster = next((c for c in (loop.get("challenge_clusters") or [])
+                    if c.get("cluster_id") == args.cluster_id), None)
+    if not cluster:
+        die("找不到 cluster_id: %s" % args.cluster_id)
+    if any(i.get("cluster_id") == args.cluster_id
+           for i in (loop.get("specialist_challenges") or [])):
+        die("SPECIALIST_CHALLENGE_ALREADY_RECORDED: %s" % args.cluster_id)
+    if args.status == "waived":
+        if not args.waiver_reason or not args.waiver_reason.strip():
+            die("WAIVER_REASON_REQUIRED")
+        if not re.match(r"^[0-9a-f]{64}$", str(args.approval_hash or "")):
+            die("USER_APPROVAL_REQUIRED: required specialist waiver 需要用户批准消息 SHA-256")
+        output_path = None
+        output_sha = None
+    else:
+        if not args.output or not os.path.isfile(args.output):
+            die("SPECIALIST_OUTPUT_REQUIRED: %s" % args.output)
+        payload = _read_json_file(args.output, "specialist output")
+        if not isinstance(payload, dict) or not isinstance(payload.get("findings"), list):
+            die("SCHEMA_INVALID: specialist output 须为含 findings 数组的 object")
+        if payload.get("cluster_id") != args.cluster_id:
+            die("SCHEMA_INVALID: specialist output.cluster_id 与目标 cluster 不一致")
+        if payload.get("specialty") != cluster.get("specialty"):
+            die("SCHEMA_INVALID: specialist output.specialty 与 cluster 不一致")
+        if set(payload.get("parent_finding_ids") or []) != set(
+                cluster.get("parent_finding_ids") or []):
+            die("SCHEMA_INVALID: specialist output.parent_finding_ids 与 cluster 不一致")
+        finding_errors = _validate_cluster_finding_items(
+            payload.get("findings"), loop, required_ids=set(cluster.get("parent_finding_ids") or []))
+        if finding_errors:
+            die("SCHEMA_INVALID: specialist findings: %s" % "; ".join(finding_errors))
+        if not isinstance(payload.get("cross_cluster_refs"), list):
+            die("SCHEMA_INVALID: specialist output.cross_cluster_refs 须为数组")
+        conclusion = payload.get("conclusion")
+        if (not isinstance(conclusion, dict)
+                or conclusion.get("status") not in {
+                    "confirmed", "refined", "resolved", "needs-spike", "scope-change-proposal"
+                } or not str(conclusion.get("summary") or "").strip()):
+            die("SCHEMA_INVALID: specialist output.conclusion 缺少有效 status/summary")
+        output_path = os.path.abspath(args.output)
+        output_sha = sha256_file(args.output)
+    record = {
+        "cluster_id": args.cluster_id,
+        "specialty": cluster.get("specialty"),
+        "status": args.status,
+        "output_path": output_path,
+        "output_sha256": output_sha,
+        "output": payload if args.status == "completed" else None,
+        "waiver_reason": args.waiver_reason,
+        "approval_hash": args.approval_hash,
+        "recorded_at": now_iso(),
+    }
+    record = {k: v for k, v in record.items() if v is not None}
+
+    def mutate(current):
+        target = _challenge_loop(current, args.loop_id)
+        target.setdefault("specialist_challenges", []).append(record)
+        target["status"] = _challenge_state(target)
+
+    _append(args.run_dir, mutate, op="record_specialist_challenge")
+    print("SPECIALIST_CHALLENGE_RECORDED: %s status=%s" % (args.cluster_id, args.status))
+
+
+def cmd_record_challenge_synthesis(args):
+    ledger = load_ledger(args.run_dir)
+    loop = _challenge_loop(ledger, args.loop_id)
+    if not loop:
+        die("找不到 loop_id: %s" % args.loop_id)
+    if loop.get("synthesis"):
+        die("CHALLENGE_SYNTHESIS_ALREADY_RECORDED")
+    state = _challenge_state(loop)
+    if state == "SPECIALIST_CHALLENGE_REQUIRED":
+        die("SPECIALIST_CHALLENGE_REQUIRED: required cluster 尚未完成或有效豁免")
+    payload = _read_json_file(args.input, "challenge synthesis")
+    required = {"source_cluster_ids", "canonical_findings", "resolved_finding_ids",
+                "open_finding_ids", "decisions", "conflicts", "required_spikes",
+                "plan_actions"}
+    if not isinstance(payload, dict) or not required.issubset(payload):
+        die("SCHEMA_INVALID: synthesis 须包含 %s" % ", ".join(sorted(required)))
+    for key in required:
+        if not isinstance(payload.get(key), list):
+            die("SCHEMA_INVALID: synthesis.%s 须为数组" % key)
+    expected_clusters = {
+        c.get("cluster_id") for c in (loop.get("challenge_clusters") or [])
+        if c.get("specialist_required", True)
+    }
+    if set(payload.get("source_cluster_ids") or []) != expected_clusters:
+        die("SYNTHESIS_CLUSTER_COVERAGE_INVALID: expected=%s actual=%s" % (
+            ",".join(sorted(expected_clusters)),
+            ",".join(sorted(set(payload.get("source_cluster_ids") or [])))))
+    finding_errors = _validate_cluster_finding_items(payload.get("canonical_findings"), loop)
+    if finding_errors:
+        die("SCHEMA_INVALID: synthesis canonical_findings: %s" % "; ".join(finding_errors))
+    canonical_ids = {f.get("id") for f in payload.get("canonical_findings") or []}
+    specialist_ids = {
+        f.get("id") for record in (loop.get("specialist_challenges") or [])
+        for f in ((record.get("output") or {}).get("findings") or [])
+    }
+    if not specialist_ids.issubset(canonical_ids):
+        die("SYNTHESIS_FINDING_COVERAGE_INVALID: missing=%s" %
+            ",".join(sorted(specialist_ids - canonical_ids)))
+    open_ids = set(payload.get("open_finding_ids") or [])
+    resolved_ids = set(payload.get("resolved_finding_ids") or [])
+    status_by_id = {f.get("id"): f.get("status") for f in payload.get("canonical_findings") or []}
+    actionable_ids = {fid for fid, status in status_by_id.items() if status in {"open", "resolved"}}
+    if open_ids & resolved_ids or open_ids | resolved_ids != actionable_ids:
+        die("SYNTHESIS_FINDING_PARTITION_INVALID: open/resolved 必须无交集且覆盖全部 actionable canonical IDs")
+    if any(status_by_id.get(fid) != "open" for fid in open_ids):
+        die("SYNTHESIS_FINDING_STATUS_INVALID: open_finding_ids 与 canonical status 不一致")
+    if any(status_by_id.get(fid) != "resolved" for fid in resolved_ids):
+        die("SYNTHESIS_FINDING_STATUS_INVALID: resolved_finding_ids 与 canonical status 不一致")
+    decision_ids = {d.get("canonical_finding_id") for d in payload.get("decisions") or []
+                    if isinstance(d, dict)}
+    if decision_ids != canonical_ids or len(payload.get("decisions") or []) != len(canonical_ids):
+        die("SYNTHESIS_DECISION_COVERAGE_INVALID: 每个 canonical finding 必须有一个 decision")
+    source_ids = specialist_ids | {
+        f.get("id") for round_record in (loop.get("rounds") or [])
+        for f in round_record.get("findings") or []
+    }
+    spike_ids = {item.get("id") for item in payload.get("required_spikes") or []
+                 if isinstance(item, dict)}
+    for decision in payload.get("decisions") or []:
+        if not isinstance(decision, dict):
+            die("SCHEMA_INVALID: synthesis decision 须为 object")
+        action = decision.get("action")
+        sources = decision.get("source_finding_ids")
+        if (action not in {"plan-change", "evidence", "spike", "scope-change-proposal"}
+                or not isinstance(sources, list) or not sources
+                or not set(sources).issubset(source_ids)
+                or not str(decision.get("rationale") or "").strip()):
+            die("SCHEMA_INVALID: synthesis decision 的 action/source_finding_ids/rationale 非法")
+        if action == "evidence" and not decision.get("evidence_refs"):
+            die("SYNTHESIS_EVIDENCE_REQUIRED: evidence action 必须绑定 evidence_refs")
+        if action == "spike":
+            refs = set(decision.get("spike_ids") or [])
+            if not refs or not refs.issubset(spike_ids):
+                die("SYNTHESIS_SPIKE_REQUIRED: spike action 必须绑定 required_spikes ID")
+        if action == "scope-change-proposal" and status_by_id.get(
+                decision.get("canonical_finding_id")) != "open":
+            die("SYNTHESIS_SCOPE_CHANGE_OPEN_REQUIRED: scope change finding 必须保持 open")
+    for conflict in payload.get("conflicts") or []:
+        if (not isinstance(conflict, dict)
+                or conflict.get("canonical_finding_id") not in canonical_ids
+                or not str(conflict.get("resolution") or "").strip()):
+            die("SYNTHESIS_CONFLICT_UNRESOLVED: conflict 必须绑定 canonical finding 和 resolution")
+    record = {
+        "input_path": os.path.abspath(args.input),
+        "input_sha256": sha256_file(args.input),
+        "payload": payload,
+        "after_round": len(loop.get("rounds") or []),
+        "recorded_at": now_iso(),
+    }
+
+    def mutate(current):
+        target = _challenge_loop(current, args.loop_id)
+        target["synthesis"] = record
+        target["status"] = _challenge_state(target)
+
+    _append(args.run_dir, mutate, op="record_challenge_synthesis")
+    print("CHALLENGE_SYNTHESIS_RECORDED")
 
 
 def cmd_record_challenge_control(args):
@@ -3787,6 +4747,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="plan_test_gate.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    p = sub.add_parser("compile-manifest",
+                       help="从结构化 verification spec 编译并冻结 gate manifest")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--output", required=True)
+    p.set_defaults(fn=cmd_compile_manifest)
+
     p = sub.add_parser("init")
     p.add_argument("--run-dir", required=True)
     p.add_argument("--manifest", required=True)
@@ -3794,6 +4760,11 @@ def main(argv=None):
     p.add_argument("--allow-external-run-dir", action="store_true",
                    help="允许把 run-dir 放到仓库之外（仓里不留痕迹，hook/CI 看不见）；选择会记入账本")
     p.set_defaults(fn=cmd_init)
+
+    p = sub.add_parser("activate-run",
+                       help="显式选择本仓库当前候选 run；并行 slice 不会被 init 自动抢占")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_activate_run)
 
     p = sub.add_parser("record-run")
     p.add_argument("--run-dir", required=True)
@@ -3823,6 +4794,7 @@ def main(argv=None):
     p.add_argument("--replace", action="store_true",
                    help="顶替同路径的旧证据条目（重测后证据文件更新时用；旧条目转入 superseded_evidence）")
     p.add_argument("--depends-on", nargs="*")
+    p.add_argument("--metadata", help="结构化 evidence metadata JSON（producer/artifact/identity/facts）")
     p.set_defaults(fn=cmd_attach_evidence, from_run=None)
 
     p = sub.add_parser("import-evidence",
@@ -3839,6 +4811,7 @@ def main(argv=None):
     p.add_argument("--negative-assertion", action="store_true")
     p.add_argument("--replace", action="store_true")
     p.add_argument("--depends-on", nargs="*")
+    p.add_argument("--metadata", help="结构化 evidence metadata JSON（producer/artifact/identity/facts）")
     p.set_defaults(fn=cmd_attach_evidence)
 
     p = sub.add_parser("declare-status")
@@ -3913,6 +4886,18 @@ def main(argv=None):
     p.add_argument("--input", required=True, help="auditor-input.json（相对 run-dir）")
     p.add_argument("--output", required=True, help="auditor-output.json（相对 run-dir）")
     p.set_defaults(fn=cmd_audit)
+
+    p = sub.add_parser("resolve-audit-finding",
+                       help="用 resolution + evidence + 必要的 fresh retest 闭环结构化 auditor finding")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--finding-id", required=True)
+    p.add_argument("--resolution", required=True)
+    p.add_argument("--evidence-ids", nargs="*")
+    p.set_defaults(fn=cmd_resolve_audit_finding)
+
+    p = sub.add_parser("list-audit-findings")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_list_audit_findings)
 
     p = sub.add_parser("finalize")
     p.add_argument("--run-dir", required=True)
@@ -4029,6 +5014,8 @@ def main(argv=None):
                    help="基线 hash（可选，不提供则自动计算）")
     p.add_argument("--assurance-contract", required=True,
                    help="结构化 assurance-contract.json；启动时冻结 scope/threat hashes")
+    p.add_argument("--orchestration", choices=["legacy", "clustered"], default="legacy",
+                   help="clustered=primary→专项 fan-out→synthesis→closure；legacy 仅用于旧调用兼容")
     p.set_defaults(fn=cmd_start_challenge_loop)
 
     p = sub.add_parser("check-loop-limit",
@@ -4050,6 +5037,31 @@ def main(argv=None):
     p.add_argument("--verdict", choices=["PASS", "FAIL"],
                    help="兼容旧 challenger 输出；只记为事实，不参与 gate 状态推导")
     p.set_defaults(fn=cmd_record_challenge_round)
+
+    p = sub.add_parser("record-challenge-clusters",
+                       help="记录 primary breadth 发现的主要矛盾与专项挑战 cluster")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-id", required=True)
+    p.add_argument("--input", required=True, help="primary_contradiction/challenge_clusters JSON")
+    p.set_defaults(fn=cmd_record_challenge_clusters)
+
+    p = sub.add_parser("record-specialist-challenge",
+                       help="记录一个 root-cause cluster 的专项挑战或显式豁免")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-id", required=True)
+    p.add_argument("--cluster-id", required=True)
+    p.add_argument("--status", required=True, choices=["completed", "waived"])
+    p.add_argument("--output", help="completed 时必填：含 findings 数组的 JSON")
+    p.add_argument("--waiver-reason", help="waived 时必填")
+    p.add_argument("--approval-hash", help="waived 时必填：用户批准消息 SHA-256")
+    p.set_defaults(fn=cmd_record_specialist_challenge)
+
+    p = sub.add_parser("record-challenge-synthesis",
+                       help="合并专项输出并冻结 closure review 的输入")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--loop-id", required=True)
+    p.add_argument("--input", required=True)
+    p.set_defaults(fn=cmd_record_challenge_synthesis)
 
     p = sub.add_parser("record-challenge-control",
                        help="记录 scope audit、architecture reset、用户 review/scope 批准事件")
