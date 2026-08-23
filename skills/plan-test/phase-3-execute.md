@@ -114,13 +114,20 @@
 与 A 节实现并行，派独立子代理（或主编排者在实现子代理跑批时自己做）完成
 `checklists/parallel-verification-track.md` 清单：
 
-1. **black-box testcase 编写 + challenger 迭代定稿**（用 `prompts/testcase-iterator.md`，
-   最少 `{TESTCASE_ITERATIONS}` 轮）——冻结动作仍在 phase-4 昂贵层前置执行，这里只把
-   "能冻结的东西"提前做出来；
+1. **testcase 资产发现、复用决策、必要用例编写 + challenger 迭代定稿**：
+   先完整读取 `references/testcase-lifecycle.md`，再执行：
+   - 先运行 `scripts/testcase_inventory.py build`（已有 inventory 则先 `validate`），读取
+     `{TESTCASE_DIR}/index.md` 与 `index.json`；
+   - 按 obligation 查询候选，并读取候选 testcase **全文**，核对入口、fixture、步骤与预期；
+   - 为每条 obligation 记录 `reuse-as-is | reuse-with-extension | supersede | create-new`，只有找不到
+     合格候选时才能 `create-new`；
+   - 用 `prompts/testcase-iterator.md` 最少 `{TESTCASE_ITERATIONS}` 轮迭代所选集合。
+   冻结动作仍在 phase-4 昂贵层前置执行，这里只把能冻结的资产提前准备好；
 2. **fixture / 种子数据 / 测试环境准备脚本**（起服务、造数据、清理脚本）；
 3. **全表面冒烟脚本**（`FULL_SURFACE_SMOKE`）与核心价值 smoke 的输入清单；
-4. **gate manifest 草案**：场景矩阵（required/ui/gate_type/lanes/min_root_runs/
-   input_class/cold_start）、`impact_paths` 映射、`applicability` 三维判定与理由。
+4. **verification spec + gate manifest 草案**：把 acceptance、assurance、obligation、testcase
+   inventory/reuse report 与场景矩阵写入结构化 spec，用 `compile-manifest` 生成 manifest；
+   不手抄 required 场景集合，不解析 Markdown。
 
 **black-box 纪律（本轨铁律）**：本轨只准读 `{ACCEPTANCE_FILE}`、plan、行为契约与既有
 公开接口文档，**禁止读实现代码、diff、执行子代理的中间产物**。oracle 必须在见到实现之前

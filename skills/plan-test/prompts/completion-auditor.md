@@ -47,9 +47,33 @@ AC-x → plan 任务 → 代码改动(文件:行) → testcase → distinct scen
 
 **证据绑定校验**：每份 UI 证据必须能对上 testcase ID、输入文本、run/session ID、截图中可见的关键结果、时间、文件 hash、对应 DB/log 记录。多份截图 hash 相同或内容对不上输入 → 判无效证据（缓存旧帧病灶）。
 
-## 输出格式
+## 唯一输出格式
 
+只输出一个 JSON object。`report_markdown` 保留完整人读报告；`findings` 是机器回炉 obligation，
+不得只把缺口藏在 Markdown。示例：
+
+```json
+{
+  "verdict": "FAIL",
+  "findings": [
+    {
+      "id": "audit-evidence-s1",
+      "severity": "P1",
+      "status": "open",
+      "type": "evidence",
+      "summary": "S-1 缺少真实业务结果证据",
+      "ac_ids": ["AC-1"],
+      "scenario_ids": ["S-1"],
+      "required_retest": true
+    }
+  ],
+  "report_markdown": "## 逐条核对\n...\n\nVERDICT: FAIL"
+}
 ```
+
+`report_markdown` 必须包含以下结构：
+
+```markdown
 ## 逐条核对
 | AC | 覆盖任务 | 代码证据(file:line) | testcase | scenario | root run 证据 | 终态 | 状态 |
 |----|---------|--------------------|----------|----------|---------------|------|------|
@@ -83,11 +107,23 @@ AC-x → plan 任务 → 代码改动(文件:行) → testcase → distinct scen
 VERDICT: PASS 或 FAIL
 ```
 
+Finding 规则：
+
+- `id` 稳定且可复用；复审同一问题不得换 ID；
+- `severity` 只允许 P0/P1/P2；
+- `status` 只允许 open/resolved/deferred；
+- `type` 使用 plan/code/testcase/evidence/docs/release 之一；
+- `summary` 必须具体说明断点；
+- `ac_ids`、`scenario_ids` 使用真实 ID，无绑定时为空数组；
+- 修复后必须重新跑场景的 finding 设 `required_retest=true`；
+- PASS 时不得包含 open/deferred P0/P1；无 finding 时输出空数组。
+
 ## 汇总硬规则（防"稀释"）
 
 - **任一"必须" AC 为 FAIL / PENDING / 无合格证据 → 总体只能是 FAIL/BLOCKED**，没有中间态。
 - 局部 PASS 必须**明确标注作用域**（如"安装链路 PASS""持久化 PASS"），**禁止用多个基础设施 PASS 稀释一个核心产品 FAIL**——"安装✅、durable✅、fail-closed✅、检索质量❌"的正确总结是"核心产品质量 FAIL"，不是"核心功能完成、剩少量待办"。
 
-**结论行铁律**：输出的最后一行必须是且只能是 `VERDICT: PASS` 或 `VERDICT: FAIL`。
+**结论铁律**：JSON 顶层 `verdict` 与 `report_markdown` 文末独立一行
+`VERDICT: PASS|FAIL` 必须一致；不一致时 gate 拒绝入账。
 - code-audit：所有"必须" AC 的前半链（AC→任务→代码）闭环、主要矛盾在方案+代码层面已解决、无 plan 层缺陷 → 才可 PASS。
 - full-audit：所有"必须" AC 的**全链条**（代码证据 + 场景执行 + 运行证据 + **业务终态达质量线**）闭环、无 required 场景 PENDING、状态文档一致 → 才可 PASS。

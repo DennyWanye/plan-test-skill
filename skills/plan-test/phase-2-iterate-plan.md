@@ -11,6 +11,7 @@ contract、scope hash、threat-model hash 和 plan baseline：
 loop_id=$(python3 skills/plan-test/scripts/plan_test_gate.py start-challenge-loop \
   --run-dir <run-dir> \
   --loop-type plan-iteration \
+  --orchestration clustered \
   --target-file <plan.md> \
   --assurance-contract <assurance-contract.json> \
   --baseline-hash $(sha256sum <plan.md> | cut -d' ' -f1))
@@ -25,18 +26,81 @@ python3 skills/plan-test/scripts/plan_test_gate.py check-loop-limit \
 ```
 
 - exit 0：允许进入下一轮；
-- exit 1：按输出状态执行控制动作，不得继续派 challenger。
+- exit 1：按输出状态完成 specialist、synthesis、closure 或控制动作；不得跳过状态直接推进。
 
-### Review 模式
+### 四阶段挑战编排
 
-1. 第一轮 `breadth`：完成固定 coverage matrix，并批量报告当前输入可推导的全部 P0/P1；
-2. 第二轮起 `diff`：只复核 open findings、本轮 diff 和第一轮不可知的新外部事实；
-3. architecture/scope/trust-boundary/high-risk-entry 变化后使用 `consolidated`，但不清零历史 ID/轮次。
+开始本节前完整读取 `references/challenge-orchestration.md`。派发时把该 reference、对应 role prompt
+和最小上下文包一起交给子代理，不把规则复制进多份临时 prompt。
 
-同一根因合并为一个 stable ID；第二轮后新增 `pre-existing` finding 必须解释第一轮为何不可发现。
-Challenger 只输出 `prompts/plan-challenger.md` 定义的 JSON；不再自报可信 verdict 或新增数量。
+#### Stage 1：Primary breadth challenge
 
-### 每轮记录
+派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-primary-challenger.md`。它必须在一轮内完成固定
+八维 coverage、报告当前可发现的全部范围内 P0/P1、指出主要矛盾，并按结构根因输出 clusters。
+主 agent 将其唯一 JSON 输出中的 `round` 与 `clusters` 原样拆成两个文件，先后入账：
+
+```bash
+python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
+  --run-dir <run-dir> \
+  --loop-id $loop_id \
+  --round 1 \
+  --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) \
+  --findings primary-round.json
+
+python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-clusters \
+  --run-dir <run-dir> \
+  --loop-id $loop_id \
+  --input primary-clusters.json
+```
+
+Gate 校验 coverage、finding ID、AC/assurance binding、parent finding、plan/contract hash，并拒绝
+漏聚类的范围内 P0/P1。Primary 不得把预设修法写成 cluster 问题来要求专项代理背书。
+
+#### Stage 2：Specialist fan-out
+
+为每个 `specialist_required=true` 的 cluster 分别派一个 `{CHALLENGER_ENGINE}`，使用
+`prompts/plan-specialist-challenger.md`。每个代理只获得该 cluster、parent findings、相关 contract 原文
+和 `required_evidence`；最多同时运行 4 个，超出时分批。每项完成后立即入账：
+
+```bash
+python3 skills/plan-test/scripts/plan_test_gate.py record-specialist-challenge \
+  --run-dir <run-dir> \
+  --loop-id $loop_id \
+  --cluster-id <cluster-id> \
+  --status completed \
+  --output specialist-<cluster-id>.json
+```
+
+已被 primary 标成 `specialist_required=false` 的 cluster 不派子代理。不得事后自行降级 required cluster；
+确需跳过时必须取得用户明确批准并记录原始消息 hash：
+
+```bash
+python3 skills/plan-test/scripts/plan_test_gate.py record-specialist-challenge \
+  --run-dir <run-dir> --loop-id $loop_id \
+  --cluster-id <cluster-id> --status waived \
+  --waiver-reason "<reason>" --approval-hash <64-char-message-sha256>
+```
+
+#### Stage 3：Synthesis
+
+主 agent 按 `prompts/plan-synthesis-reviewer.md` 合并 primary 与全部 specialist 结果；这一步不是再派一个
+reviewer 投票。按 stable ID/结构根因去重，裁决冲突，并把结论分类为 plan 修改、补证据、required
+spike 或 scope-change proposal。生成 synthesis JSON 后入账：
+
+```bash
+python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-synthesis \
+  --run-dir <run-dir> \
+  --loop-id $loop_id \
+  --input challenge-synthesis.json
+```
+
+Synthesis 入账前不得修改 plan 后直接进入 closure。入账后完成 plan 修订；关键技术假设先运行真代码
+spike，并把命令与实际输出回写 plan。意见冲突未解决时 canonical finding 保持 open。
+
+#### Stage 4：Closure diff review
+
+修订后派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-closure-challenger.md`。它只复核 open findings、
+当前 diff、专项冲突、patch-induced 风险和 primary 不可知的新事实；不得无理由重做全量 breadth。
 
 ```bash
 python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
@@ -45,16 +109,21 @@ python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
   --round $N \
   --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) \
   --based-on-plan-hash <上一轮-plan-hash> \
-  --findings findings-round-$N.json
+  --findings closure-round-$N.json
 ```
 
-第一轮没有上一轮 hash，省略 `--based-on-plan-hash`。Gate 校验真实 finding ID、AC/assurance binding、
-round 连续性、plan base hash 和 contract hash，并自行输出 `NEW_CRITICAL_FINDINGS` 与 `LOOP_STATE`。
+通常使用 `review_mode=diff`。architecture/scope/trust-boundary/high-risk-entry 重大变化并已记录对应
+control 后使用 `consolidated`；仍保留历史 finding ID 与轮次。Closure 仍有 open P0/P1 时修订 plan
+并继续 closure round，不重跑无关 specialist；若暴露新的主要结构根因，按 gate 状态做 scope audit 或
+architecture reset，不用局部补丁强行收敛。
 
 ### 控制状态
 
 - `CONTINUE`：修订 plan 后进入下一轮；
 - `CONVERGED`：无 open in-scope P0/P1，进入用户 review；
+- `SPECIALIST_CHALLENGE_REQUIRED`：完成所有 required cluster 的专项挑战；
+- `SYNTHESIS_REQUIRED`：完成并记录统一 synthesis；
+- `CLOSURE_REVIEW_REQUIRED`：修订 plan 后执行统一 closure diff review；
 - `SCOPE_AUDIT_REQUIRED`：第 3 轮仍有新增关键问题，先审计范围/根因；
 - `ARCHITECTURE_RESET_REQUIRED`：连续两轮 patch-induced P0 或 scope audit 判定结构重置；
 - `USER_REVIEW_REQUIRED`：第 5 轮仍有新增问题，向用户报告原因；
@@ -77,14 +146,22 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
 
 ### 收敛判据（全部满足才定稿）
 
-1. **相对于已批准范围的 100% 代码可执行** —— 即：
+1. Primary breadth coverage 完整，且其所有范围内 P0/P1 已进入 root-cause cluster。
+2. 所有 required cluster 已完成专项挑战，或有理由与用户批准 hash 的显式 waiver。
+3. Synthesis 已记录，冲突已裁决，required spike 已成为显式动作。
+4. **关键技术假设已用真代码验证**：凡“决定方案成败、静态阅读无法确认”的假设（三方库/API
+   真实能力、LLM 输出契约、性能可达性、关键链路运行时行为），必须有**可运行 spike 真跑过的证据**
+   （命令 + 实际输出）回写在 plan 里。“读过源码应该支持 / 理论上可行”不算闭环；spike 代码即弃，
+   不滚成实现。
+5. Closure review 已完成，且 open in-scope P0/P1 为零。
+6. **相对于已批准范围的 100% 代码可执行** —— 即：
    - 已**认真调研过当前代码层**：相关文件、函数、调用链、依赖、现有实现方式都已读过并写进 plan；
    - 已**确认代码级别的修改方式**：每个改动点明确到"改哪个文件/哪段/怎么改/改成什么样"，不是假设；
    - 若调研中发现问题/不确定项（接口不清、改动牵连别处、最佳实践存疑），**不允许带着模糊收尾**——必须**继续调研该如何解决**，把结论补回 plan，直到该问题闭环。
-2. 功能可达预期，且 `FEATURE_POLICY = only-add`（只增不减）。
-3. plan 含实现细节调研结论（"怎么做、为什么这样做"）。
-4. **无"绕过真架构问题的补丁式收尾"**（见下方强约束）。
-5. **关键技术假设已用真代码验证**：凡"决定方案成败、静态阅读无法确认"的假设（三方库/API 真实能力、LLM 输出契约、性能可达性、关键链路运行时行为），必须有**可运行 spike 真跑过的证据**（命令 + 实际输出）回写在 plan 里。"读过源码应该支持 / 理论上可行"不算闭环——这类假设留到执行期才发现不成立，返工代价最大。spike 代码即弃，不滚成实现。
+7. 功能可达预期，且 `FEATURE_POLICY = only-add`（只增不减）。
+8. plan 含实现细节调研结论（"怎么做、为什么这样做"）。
+9. **无"绕过真架构问题的补丁式收尾"**（见下方强约束）。
+10. acceptance/assurance contract 没有未经批准的变化。
 
 > 收敛不是 reviewer 写 PASS，也不是迭代满 N 轮；它是 gate 从 finding ledger 推导出的
 > `CONVERGED`。第 8 轮仍有范围内阻断项则当前 plan loop `BLOCKED`。

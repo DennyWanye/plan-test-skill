@@ -19,6 +19,9 @@
   report.md                # render 从 ledger + receipt 生成的人读视图
 ```
 
+候选指针位于仓库根 `.plan-test/active-run.json`，不在 run-dir 内。compiled 真实交付默认启用；
+旧 raw manifest 仅在声明 `active_run_required=true` 时生效，并且只由 `activate-run` 显式更新。
+
 ## 2. canonical command（唯一判定入口）
 
 ```bash
@@ -48,6 +51,17 @@ python skills/plan-test/scripts/plan_test_gate.py finalize --run-dir <run-dir>
   `record-challenge-round` 只接收结构化 finding envelope 并按真实 ID 推导状态；
   `record-challenge-control` 记录 scope audit、architecture reset、user review/scope approval。
   Reviewer 自报 verdict 不参与收敛。
+- `compile-manifest --spec verification-spec.json --output manifest.json`：从结构化 AC/obligation/
+  testcase/scenario 映射编译 manifest，冻结输入 hash 与完整 required case set；不解析 Markdown。
+- `attach-evidence` / `import-evidence --metadata <json>`：给场景级 `evidence_contract` 提供
+  producer、artifact kind、identity、生成时间和 business facts。`record-run --exec` 自动生成
+  gate-exec provenance；单独声明 `kind=primary` 不足以满足 contract。
+- `audit`：JSON output 中的 findings 与 verdict 原子入账。用 `list-audit-findings` 查看 obligation，
+  用 `resolve-audit-finding` 绑定 resolution、证据和必要的 fresh retest；闭环后必须重新审计。
+- `activate-run`：仅供 `active_run_required=true` 的 run 显式绑定候选内容；init 不自动抢占，
+  re-attest 后需重新执行。
+
+以上输入格式与完整示例见 `../references/evidence-audit-lifecycle.md`。
 
 ### exit code（交付判定只看这个）
 
@@ -92,6 +106,9 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 7 | `RUN_CREATION_UNVERIFIED` | error | expected_run_created 声明未被正/负向证据兑现 |
 | 8 | `EVIDENCE_MISSING` | error | 证据文件不存在 / 依赖不存在 |
 | 9 | `EVIDENCE_HASH_MISMATCH` | error | 证据文件被改动 |
+| 9b | `PRIMARY_EVIDENCE_MISSING` | error | 声明 evidence contract 的场景缺少 primary evidence |
+| 9c | `EVIDENCE_CONTRACT_UNSATISFIED` | error | primary evidence 未满足 contract 的 artifact/identity/time/business facts |
+| 9d | `EVIDENCE_PRODUCER_UNTRUSTED` | error | primary evidence producer 不在场景 contract 允许集合 |
 | 10 | `EVIDENCE_DEPENDENCY_CYCLE` | error | 证据循环引用（互引的两个汇总不能构成独立证据） |
 | 10b | `EVIDENCE_PREDATES_LEDGER` | error | 证据文件 mtime 早于开账时刻且未经 import-evidence 导入——先测后补账 |
 | 11 | `DERIVED_EVIDENCE_ONLY` | error | required 场景只有 derived report，无 primary 证据 |
@@ -108,7 +125,9 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 20 | `AUDITOR_MISSING` | error | full-audit 未执行或 verdict 非 PASS |
 | 21 | `AUDITOR_VERDICT_MISMATCH` | error | auditor 产物里的 verdict 与入账 verdict 不符（命令行改判） |
 | 22 | `AUDITOR_INPUT_STALE` | error | audit 后账本 fact 又变化——旧 PASS 失效 |
+| 22b | `OPEN_AUDIT_FINDINGS` | error | 结构化 auditor findings 中仍有 open/deferred P0/P1 |
 | 23 | `RECEIPT_STALE` | error | receipt digest 与当前输入不符 / 已 invalidate / 缺失 |
+| 23b | `ACTIVE_RUN_MISMATCH` | error | opt-in active-run registry 缺失、指向其他 run，或候选内容已变化 |
 | 24 | `TIMING_MISSING` | error | 真实 run 活动跨度 > 30 分钟而 timing 覆盖 < 20%（1.3.0 起；fixture 免检时钟门） |
 | 25 | `TIMING_GAP` | error | 记账覆盖区间合并后仍有 > 120 分钟空洞（1.3.0 起升 error；申报 timing 可补覆盖） |
 | 26 | `PHASE_UNPAIRED` | error | phase-start 无配对 phase-end（或反之）；check-only 不查，full/render 查 |
@@ -138,12 +157,19 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
    并升级给用户，不要用机器 blocked 当逃生口。
 3. **证据分级**：截图、原始日志、命令回执、DB 记录是 primary；auditor 报告、delivery
    汇总是 derived。derived 只辅助审计，不能单独满足 AC/testcase。
+   场景声明 `evidence_contract` 后，还须满足 producer/artifact/identity/time/business facts；
+   统一结构与 metadata 格式见 `../references/evidence-audit-lifecycle.md`。
+   Artifact 去重采用已有 `sha256` 的逻辑统计，不移动原文件：receipt 分别给出 evidence record、
+   distinct artifact、distinct root run 与共享 hash；同一内容的多个路径不算多份独立 artifact。
 4. **engine 终态 ≠ 业务成功**：positive-value 场景的 root run 业务终态为空/insufficient/
    partial → 场景只能 PARTIAL。
 5. **冻结 oracle**：实现前 init 冻结 black-box testcase 逐文件 hash；任何 byte 变化默认
    FAIL；唯一例外是绑定 exact old/new + 用户消息 hash + scope/expiry 的批准 artifact。
 6. **audit 冻结 facts_digest**：审计后代码、配置、testcase 或结果有任何变化，旧 auditor
    PASS 与 receipt 自动失效（AUDITOR_INPUT_STALE / RECEIPT_STALE）。
+   JSON findings 会随 audit 原子入账；open/deferred P0/P1 是硬门。`resolve-audit-finding` 要求
+   resolution、已存在 evidence ID，以及 `required_retest=true` 时导入后的 fresh root PASS；
+   resolution 本身会令旧 audit stale。
 7. **运行时身份按「被测内容」判定，不按提交身份**（schema 1.2.0 起）：`content_digest` =
    工作树全部 tracked + 未忽略 untracked 文件的逐文件内容 hash 与可执行位。
    `git add`/`git commit` 不改内容 → 指纹不变 → 门不拦；改一个字节 → `TESTED_RUNTIME_MISMATCH`。

@@ -68,13 +68,22 @@
 5. **独立 full-audit（时序：本阶段最后一步——结果回写、状态一致性修正、证据冻结全部完成之后）**
    - 先把审计输入冻结进 run-dir：`auditor-input.json`（acceptance/testcase/账本摘要与 hash）；
    - 派 `{AUDITOR_ENGINE}`，用 `prompts/completion-auditor.md` 声明 `MODE: full-audit`：每条 AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 场景 ↔ root run ↔ 证据 ↔ 业务终态逐条闭环，含场景计数、状态一致性、整体可用性、"是否真按 testcase 跑全"核查；同时确认 testcase 覆盖 `{ACCEPTANCE_FILE}` 全部条款。auditor 原始输出存 `auditor-output.json`。
-   - 结果入账（此后任何 fact 变化审计即 stale，须重审）：
+   - compiled 1.5 workflow 的 auditor **必须**输出结构化 JSON：顶层含 `verdict` 与 `findings`；每条 finding 至少有
+     `id/severity/status/type/summary`，需要重测时再带 `scenario_ids` 与 `required_retest=true`。
+     完整格式见 `references/evidence-audit-lifecycle.md`。Markdown + 末行 VERDICT 仅为旧 raw ledger
+     保留兼容读取，不能用于新的 compiled 交付。
+   - 结果入账；JSON findings 会在同一次 `audit` 中原子导入（此后任何 fact 变化审计即 stale）：
 
      ```bash
      python {GATE_SCRIPT} audit --run-dir <run-dir> --verdict PASS|FAIL --engine {AUDITOR_ENGINE} --input auditor-input.json --output auditor-output.json
      ```
 
-   - 以末行 `VERDICT` 判定，缺结论行按 FAIL 处理。有断点 → 补完 → 复审（复审只核上轮断点与新改动；**补完动了任何输入就必须重新 audit**）。超 `{MAX_ROUNDS}` → BLOCKED 升级。
+   - FAIL 后先跑 `list-audit-findings`。修复、补证据，并在 `required_retest=true` 时给绑定 scenario
+     追加 fresh root PASS，然后用 `resolve-audit-finding --finding-id ... --resolution ...
+     --evidence-ids ...` 闭环。resolution 会使旧 audit stale，必须重新生成审计产物并再次 audit。
+     open/deferred P0/P1 会触发 `OPEN_AUDIT_FINDINGS`；PASS 产物不能同时保留这类 finding。
+   - 缺 verdict 按 FAIL 处理。有断点 → 补完 → 复审（只核上轮断点与新改动）；超
+     `{MAX_ROUNDS}` → BLOCKED 升级。
    - auditor 是 qualitative reviewer，负责发现未知问题；它的 PASS **不能替代**机器 validator——final DoD 只认 `finalize` 的 receipt。
 
 ## 测试目标
@@ -83,4 +92,5 @@
 
 ## 出口
 
-- testcase 定稿、index.md/README 已同步、回归套件已登记、**full-audit PASS 且已 `audit` 入账** → 进入收尾 DoD。
+- testcase 定稿、index.md/README 已同步、回归套件已登记、**结构化 P0/P1 findings 全部闭环，
+  full-audit PASS 且已 `audit` 入账** → 进入收尾 DoD。
