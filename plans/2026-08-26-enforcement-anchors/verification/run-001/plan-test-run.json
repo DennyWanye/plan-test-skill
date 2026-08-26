@@ -1,0 +1,1115 @@
+{
+  "acceptance": {
+    "path": "plans/2026-08-26-enforcement-anchors/acceptance.md",
+    "sha256": "98abefe4b9140e11f010b05e9a3e629153bc16d217be9cf627ee4fefa6ebfeeb"
+  },
+  "active_run_required": false,
+  "applicability": {
+    "input_sensitive": {
+      "decided_by": "agent",
+      "rationale": "被测对象是确定性 CLI 与 shell hook，输出不随输入语义变化，无 LLM 生成路径",
+      "value": false
+    },
+    "llm_payload_driven": {
+      "decided_by": "agent",
+      "rationale": "不存在 LLM 结构化载荷驱动端侧状态机或卡片渲染的路径",
+      "value": false
+    },
+    "stateful_init": {
+      "decided_by": "agent",
+      "rationale": "纯 stdlib 脚本与 git 钩子，无异步注册服务、远程配置或登录态依赖",
+      "value": false
+    }
+  },
+  "audit_findings": [
+    {
+      "ac_ids": [
+        "AC-6"
+      ],
+      "id": "F-001",
+      "imported_runs_index": 6,
+      "required_retest": false,
+      "scenario_ids": [
+        "S-AC6-stop-hook-e2e"
+      ],
+      "severity": "P2",
+      "status": "open",
+      "summary": "acceptance.md 判档依据声称改动'全部为纯新增（git diff 无删改 hunk）'，与事实不符：commit 147980c 实有 40 行删除、分布在 9 个文件，其中含门禁组件 hooks/stop-gate-check.sh 的 3 行删改（gate/scanner 路径解析候选列表重写）。缓解：该文件的拦/放两条路径已被 AC-6 E2E 端到端覆盖，其余删改均为文档与版本号元数据（README/SKILL/config/PROTOCOL/phase-*/plugin.json），不动摇任何 AC 证据；但 LEAN 判档理由的这半句表述失实，下次判档应改为'删改面已被回归覆盖'而非'无删改 hunk'。",
+      "type": "docs"
+    },
+    {
+      "ac_ids": [
+        "AC-5",
+        "AC-6"
+      ],
+      "id": "F-002",
+      "imported_runs_index": 6,
+      "required_retest": false,
+      "scenario_ids": [
+        "S-AC5-pre-push-e2e",
+        "S-AC6-stop-hook-e2e"
+      ],
+      "severity": "P2",
+      "status": "open",
+      "summary": "pre-push 与 stop-gate-check 新增的插件 cache 兜底解析分支（~/.claude/plugins/cache/*/plan-test/*/… 按版本取最新）无任何证据覆盖：两个 E2E 均经 PLAN_TEST_GATE 显式注入或仓库相对路径命中，cache 分支从未走到。鉴于实际部署为 WSL 纯插件安装，该分支恰是生产解析路径，建议后续补一条覆盖或在 install 脚本自检中验证。",
+      "type": "testcase"
+    },
+    {
+      "ac_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6"
+      ],
+      "id": "F-003",
+      "imported_runs_index": 6,
+      "required_retest": false,
+      "scenario_ids": [
+        "S-AC1-gate-selftest",
+        "S-AC2-stats",
+        "S-AC3-tier-check",
+        "S-AC4-phase-cost",
+        "S-AC5-pre-push-e2e",
+        "S-AC6-stop-hook-e2e"
+      ],
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "核验通过项记录：6 条 evidence sha256 独立重算全部吻合；6 个 exec log 的 command/exit_code/elapsed_ms 与账本 runs 逐一致，时间戳首尾相接（10:46:02→10:47:17Z）且与 frozen_at 一致；AC-1 含 'Ran 215 tests'+OK 且 68841ms 与日志内 68.782s 自洽（215 用例约 69 秒，非毫秒级）；AC-2/3/4 分别含 'Ran 5/11/5 tests' OK；AC-5 含三 case OK 行与 E2E-PRE-PUSH: PASS；AC-6 含两 case OK 行与 E2E-STOP-HOOK: PASS。6 条 MUST AC 与 manifest/账本 6 个 required 场景一一对应，无悬空无多余。抽查：pre-push 检查顺序 ack→fixture_only 直查→check-only→retire-status 与声明一致，且 E2E case2 grep 'fixture-only' 专门钉住直查分支；cmd_stats 在 docstring 与渲染输出（'各账本当前状态按 check-only 重算，诊断无历史留痕'）双处如实声明口径，窗口不足不出退休结论、零触发全史清单均有实现与测试对应。E2E 断言强度足够：退出码精确断言（rc=2/0）+ 特征诊断串 grep，非宽松匹配。工作区 tracked 文件干净，证据确实测的是 147980c 内容。",
+      "type": "evidence"
+    }
+  ],
+  "auditor": {
+    "audited_at": "2026-08-26T18:52:40+0800",
+    "engine": "claude-fable-5-subagent",
+    "facts_digest": "d49d68673b093792f9116d1948fff008d848df1e4b1a2c180e29d827c95d4856",
+    "input_path": "auditor-input.json",
+    "input_sha256": "2475cb1a7d651f70f3407eb6bbf03ff81590490981975b6d8538b52a60027031",
+    "output_path": "auditor-output.json",
+    "output_sha256": "af666bd711ee6f4f518c0a022b2241b0378dfeb0b86fa07ca56fb9744139c750",
+    "verdict": "PASS"
+  },
+  "auditor_engine": "claude-fable-5(subagent-auditor)",
+  "baseline": {
+    "content_digest": "40e5b9c9d48e2ada5f15bb7781e45fb79731633ef66838d0c3fa2ff8d8f4fdb0",
+    "dirty_patch_sha256": "2021c92d8c9e5526b315a07deda556bab8e35009d79d7521dfb9117fe695a092",
+    "exclusion_count": 1,
+    "exclusion_scope": [
+      "plans/2026-08-26-enforcement-anchors/verification/run-001"
+    ],
+    "exclusions": [
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/manifest.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ]
+    ],
+    "head": "147980cce6ed08cbed0b4b50f3ca4e6856b417c0",
+    "recorded_at": "2026-08-26T18:46:02+0800"
+  },
+  "behavior_changes": [],
+  "behavior_contract": {},
+  "challenge_loops": [],
+  "challenger_engine": null,
+  "compiled_manifest": null,
+  "created_at": "2026-08-26T18:46:02+0800",
+  "declared_statuses": [],
+  "delivery": {},
+  "doc_only_globs": null,
+  "events": [
+    {
+      "action": "start",
+      "at": "2026-08-26T10:46:02Z",
+      "note": "LEAN 验证：4 个自测套件 + 2 个 E2E（pre-push / Stop hook）",
+      "phase": "phase-4-stage-gate",
+      "type": "phase"
+    },
+    {
+      "action": "end",
+      "at": "2026-08-26T10:47:18Z",
+      "phase": "phase-4-stage-gate",
+      "rounds": 1,
+      "status": "ok",
+      "subagents": 0,
+      "type": "phase"
+    },
+    {
+      "action": "start",
+      "at": "2026-08-26T10:47:52Z",
+      "note": "独立审计：子代理（separate context）对照 acceptance 与证据",
+      "phase": "audit",
+      "type": "phase"
+    },
+    {
+      "action": "end",
+      "at": "2026-08-26T10:51:41Z",
+      "phase": "audit",
+      "rounds": 1,
+      "status": "ok",
+      "subagents": 1,
+      "type": "phase"
+    }
+  ],
+  "evidence": [
+    {
+      "artifact_kind": "execution-log",
+      "attached_at": "2026-08-26T18:47:13+0800",
+      "business_facts": {},
+      "evidence_id": "ev-8fc510450948",
+      "file_mtime": "2026-08-26T10:47:13Z",
+      "generated_at": "2026-08-26T10:47:13Z",
+      "kind": "primary",
+      "path": "artifacts/exec-S-AC1-gate-selftest-0001.log",
+      "producer_type": "gate-exec",
+      "producer_version": "1.5.0",
+      "root_run_id": null,
+      "scenario_id": "S-AC1-gate-selftest",
+      "session_id": null,
+      "sha256": "8fc5104509486cbd2936a8ad62721c7b4b172db54c52ab2c7c8800e2a60ae7fa"
+    },
+    {
+      "artifact_kind": "execution-log",
+      "attached_at": "2026-08-26T18:47:14+0800",
+      "business_facts": {},
+      "evidence_id": "ev-f4f0498e7927",
+      "file_mtime": "2026-08-26T10:47:14Z",
+      "generated_at": "2026-08-26T10:47:14Z",
+      "kind": "primary",
+      "path": "artifacts/exec-S-AC2-stats-0002.log",
+      "producer_type": "gate-exec",
+      "producer_version": "1.5.0",
+      "root_run_id": null,
+      "scenario_id": "S-AC2-stats",
+      "session_id": null,
+      "sha256": "f4f0498e79275726402a17f327837b1999c1e7fb65c738d3e4cb7cf1da8be3c5"
+    },
+    {
+      "artifact_kind": "execution-log",
+      "attached_at": "2026-08-26T18:47:15+0800",
+      "business_facts": {},
+      "evidence_id": "ev-dba94dab29c4",
+      "file_mtime": "2026-08-26T10:47:15Z",
+      "generated_at": "2026-08-26T10:47:15Z",
+      "kind": "primary",
+      "path": "artifacts/exec-S-AC3-tier-check-0003.log",
+      "producer_type": "gate-exec",
+      "producer_version": "1.5.0",
+      "root_run_id": null,
+      "scenario_id": "S-AC3-tier-check",
+      "session_id": null,
+      "sha256": "dba94dab29c49ff7bd99bd2fd1e98b1ed91c1aa862bb7b256bb706729fda8eec"
+    },
+    {
+      "artifact_kind": "execution-log",
+      "attached_at": "2026-08-26T18:47:16+0800",
+      "business_facts": {},
+      "evidence_id": "ev-e1cb5f1f25ec",
+      "file_mtime": "2026-08-26T10:47:16Z",
+      "generated_at": "2026-08-26T10:47:16Z",
+      "kind": "primary",
+      "path": "artifacts/exec-S-AC4-phase-cost-0004.log",
+      "producer_type": "gate-exec",
+      "producer_version": "1.5.0",
+      "root_run_id": null,
+      "scenario_id": "S-AC4-phase-cost",
+      "session_id": null,
+      "sha256": "e1cb5f1f25ecb9b5fca9ef0ac28e18a5dcc6d8de81509fb99f2a6240f7f32b2f"
+    },
+    {
+      "artifact_kind": "execution-log",
+      "attached_at": "2026-08-26T18:47:17+0800",
+      "business_facts": {},
+      "evidence_id": "ev-ec0fc9e940ad",
+      "file_mtime": "2026-08-26T10:47:17Z",
+      "generated_at": "2026-08-26T10:47:17Z",
+      "kind": "primary",
+      "path": "artifacts/exec-S-AC5-pre-push-e2e-0005.log",
+      "producer_type": "gate-exec",
+      "producer_version": "1.5.0",
+      "root_run_id": null,
+      "scenario_id": "S-AC5-pre-push-e2e",
+      "session_id": null,
+      "sha256": "ec0fc9e940ad2501578f7ef3688a4bb62914c7f7723f6224b2638a2b218c609e"
+    },
+    {
+      "artifact_kind": "execution-log",
+      "attached_at": "2026-08-26T18:47:17+0800",
+      "business_facts": {},
+      "evidence_id": "ev-463083265580",
+      "file_mtime": "2026-08-26T10:47:17Z",
+      "generated_at": "2026-08-26T10:47:17Z",
+      "kind": "primary",
+      "path": "artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
+      "producer_type": "gate-exec",
+      "producer_version": "1.5.0",
+      "root_run_id": null,
+      "scenario_id": "S-AC6-stop-hook-e2e",
+      "session_id": null,
+      "sha256": "4630832655804fa9400a2e3411e1b7cc13df452f06b3c77978abf0ce58ce40d5"
+    }
+  ],
+  "exclusion_scope": [
+    "plans/2026-08-26-enforcement-anchors/verification/run-001"
+  ],
+  "executor_engine": "claude-fable-5(main-loop)",
+  "external_run_dir": false,
+  "fixture_only": false,
+  "integrity": {
+    "chain": "c45e0f305d43a38ef186cf7ca18c1b8f3ea12d5e053a9268da6fc49f9539fef6",
+    "genesis": "68dbfe8582848008a8c7193b620143fc9d11e0c7ad04a011d91ae6d47bb6758a",
+    "log": [
+      {
+        "at": "2026-08-26T18:46:02+0800",
+        "chain": "6f835b32aa03f13dbf4d6b41b5b6ef3ee26ca8970c2f51f95f20dcd0c43ded20",
+        "facts_digest": "f11eefe32636c43d347a5f3e84cd102899ac4eaf03ee58a9e83548cef65ccd20",
+        "op": "init",
+        "seq": 1
+      },
+      {
+        "at": "2026-08-26T18:46:02+0800",
+        "chain": "12b7c2fde3fd2c43041e8962154b1d64f82285d81b2c4397f9cc51c01187c602",
+        "facts_digest": "fc1cfe987edb7a8e841a50153f6358ff68a41eb8db05f44b54e938887578ab72",
+        "op": "phase-start",
+        "seq": 2
+      },
+      {
+        "at": "2026-08-26T18:47:13+0800",
+        "chain": "cdd9582bfc9fdff651e8eb263977e3f9bddb6111054922a6b57381ccfda56ad7",
+        "facts_digest": "32251de10f0d4ea82081c94500ed3b2dc5ea5922a37f00871f6b057b6a4da997",
+        "op": "record-run",
+        "seq": 3
+      },
+      {
+        "at": "2026-08-26T18:47:14+0800",
+        "chain": "65a48c9780169af0648fd9a3471c53dfd7f2f9583e00bfef0e714995950ac2f5",
+        "facts_digest": "f51e14cfa9f76d2c3c2a1366222e6f96131df05ad988f330cbe5c8aa32280b91",
+        "op": "record-run",
+        "seq": 4
+      },
+      {
+        "at": "2026-08-26T18:47:15+0800",
+        "chain": "a627e325f91469734c81d80dc6f96a32a5d015721cbea5e4046d6241d6249917",
+        "facts_digest": "c66761bb06dae6b3faa04f0f79955aff1ae75813c073e45a86075965c6f9f6bb",
+        "op": "record-run",
+        "seq": 5
+      },
+      {
+        "at": "2026-08-26T18:47:16+0800",
+        "chain": "39ed24188dffb727880b3208301024a536f621aae0b7457588e511fa7f35e1fa",
+        "facts_digest": "23a9a72d78a03216ee05b7f1ff8bcb8800a0298c13c2ff8c10d5b01bfa358b5a",
+        "op": "record-run",
+        "seq": 6
+      },
+      {
+        "at": "2026-08-26T18:47:17+0800",
+        "chain": "4c345b5172272154fcedd38fab0478c1bddfbaa02d1a487a9e3f4e91e1a377e5",
+        "facts_digest": "10a8e35d5ca30ed3b2a473350b2768cd82e5d66c35208b22b544dec200be427e",
+        "op": "record-run",
+        "seq": 7
+      },
+      {
+        "at": "2026-08-26T18:47:17+0800",
+        "chain": "2a0ca3b4d3d8cd10d6e0043a4d23685ffb447a3e31cc866fc887e697be05b1eb",
+        "facts_digest": "201b1a513fba6e31d72ee8ee76be7150d9aa4920c7e196b531c71a2b9a77b95d",
+        "op": "record-run",
+        "seq": 8
+      },
+      {
+        "at": "2026-08-26T18:47:18+0800",
+        "chain": "b94caaff035db86ec93c5049ec4c33e6542227ec6a09dd3443ffa4b64a75f4ed",
+        "facts_digest": "990b0c446de91b0c68ee6519bb17cb460c57d46a11d9c99d634bdb8cbacb894e",
+        "op": "phase-end",
+        "seq": 9
+      },
+      {
+        "at": "2026-08-26T18:47:52+0800",
+        "chain": "ce588f98bc695858ba9bb97a91853540b5ef6343606cc484011d61bf7f5360e9",
+        "facts_digest": "8509349e2444a0f03069fe5f950370bced6614a7bfc0027faa9fb86e209c15ba",
+        "op": "phase-start",
+        "seq": 10
+      },
+      {
+        "at": "2026-08-26T18:51:41+0800",
+        "chain": "0f9fb82e46954c051ae22098f53a495ad84f8a87d4831b1f32ad72c0f9b90967",
+        "facts_digest": "5ad5f84314733812fdd5e7b710e6ff0443b0029724304618bcc87f67ba053f4b",
+        "op": "phase-end",
+        "seq": 11
+      },
+      {
+        "at": "2026-08-26T18:52:40+0800",
+        "chain": "c45e0f305d43a38ef186cf7ca18c1b8f3ea12d5e053a9268da6fc49f9539fef6",
+        "facts_digest": "9139cad82ff55218b348d7c604abf846e05cbf92106031d8f3b1ef615d290506",
+        "op": "audit",
+        "seq": 12
+      }
+    ]
+  },
+  "related_run_dirs": [],
+  "release_unit": {
+    "must_ac_count": 6,
+    "plan_lines": 17,
+    "task_count": 6
+  },
+  "repo_root": "/home/denny/projects/plan-test-skill",
+  "revision": 12,
+  "run_id": "enforcement-anchors-001",
+  "runs": [
+    {
+      "command": "python3 skills/plan-test/scripts/test_plan_test_gate.py",
+      "driver": "ai",
+      "elapsed_ms": 68841,
+      "ended_at": "2026-08-26T10:47:13Z",
+      "exec_exit_code": 0,
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-08-26T18:47:13+0800",
+      "result": "pass",
+      "scenario_id": "S-AC1-gate-selftest",
+      "started_at": "2026-08-26T10:46:02Z"
+    },
+    {
+      "command": "python3 skills/plan-test/scripts/test_gate_stats.py",
+      "driver": "ai",
+      "elapsed_ms": 1192,
+      "ended_at": "2026-08-26T10:47:14Z",
+      "exec_exit_code": 0,
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-08-26T18:47:14+0800",
+      "result": "pass",
+      "scenario_id": "S-AC2-stats",
+      "started_at": "2026-08-26T10:47:13Z"
+    },
+    {
+      "command": "python3 skills/plan-test/scripts/test_tier_check.py",
+      "driver": "ai",
+      "elapsed_ms": 581,
+      "ended_at": "2026-08-26T10:47:15Z",
+      "exec_exit_code": 0,
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-08-26T18:47:15+0800",
+      "result": "pass",
+      "scenario_id": "S-AC3-tier-check",
+      "started_at": "2026-08-26T10:47:14Z"
+    },
+    {
+      "command": "python3 skills/plan-test/scripts/test_phase_cost.py",
+      "driver": "ai",
+      "elapsed_ms": 1096,
+      "ended_at": "2026-08-26T10:47:16Z",
+      "exec_exit_code": 0,
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-08-26T18:47:16+0800",
+      "result": "pass",
+      "scenario_id": "S-AC4-phase-cost",
+      "started_at": "2026-08-26T10:47:15Z"
+    },
+    {
+      "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-pre-push.sh",
+      "driver": "ai",
+      "elapsed_ms": 715,
+      "ended_at": "2026-08-26T10:47:17Z",
+      "exec_exit_code": 0,
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-08-26T18:47:17+0800",
+      "result": "pass",
+      "scenario_id": "S-AC5-pre-push-e2e",
+      "started_at": "2026-08-26T10:47:16Z"
+    },
+    {
+      "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-stop-hook.sh",
+      "driver": "ai",
+      "elapsed_ms": 411,
+      "ended_at": "2026-08-26T10:47:17Z",
+      "exec_exit_code": 0,
+      "kind": "root",
+      "lane": "fresh",
+      "recorded_at": "2026-08-26T18:47:17+0800",
+      "result": "pass",
+      "scenario_id": "S-AC6-stop-hook-e2e",
+      "started_at": "2026-08-26T10:47:17Z"
+    }
+  ],
+  "runtime_attestation": {
+    "content_digest": "40e5b9c9d48e2ada5f15bb7781e45fb79731633ef66838d0c3fa2ff8d8f4fdb0",
+    "content_entries": [
+      [
+        ".claude-plugin/marketplace.json",
+        "-:f1c053ed26c7c1f9c44e8491a68a0f842c84de20d694de233c7b7b9be582b541"
+      ],
+      [
+        ".claude-plugin/plugin.json",
+        "-:3a9a33d8e61f7fc0f763cbdec1970765ecf0543c687290b7c2d1b7250defe410"
+      ],
+      [
+        ".gitignore",
+        "-:1f398327758bed124c02230b02344a5bd7a043a707b8270b4a939997a6edf488"
+      ],
+      [
+        "CLAUDE.md",
+        "-:f3df30800afb199e62c5eba1d0c8457e8f08b319196b59825edc364a59b897da"
+      ],
+      [
+        "EXECUTIVE_SUMMARY.md",
+        "-:9e765499298af8340d0d9e0c7d6baa7010ed31686f9bc9c9baa8a4411a071769"
+      ],
+      [
+        "FINAL_REPORT.md",
+        "-:10d1e67be92848e60e0b2f1ed4ed017da108965c4c78d03492e51267774bed0f"
+      ],
+      [
+        "HANDOFF.md",
+        "-:3020e9b91c0a71bf07e9e2ff218967266a05bec9583705c0f3f8938b6569292a"
+      ],
+      [
+        "IMPLEMENTATION_COMPLETE.md",
+        "-:43adee734c1ecdfd6493959b7a62f014451fab37557d648e94da91f0db791747"
+      ],
+      [
+        "IMPLEMENTATION_SUMMARY.md",
+        "-:b600848411b3a6d6f9e1c544405d79f73a9654be6559d508e8f4010effa12142"
+      ],
+      [
+        "LICENSE",
+        "-:93c786a01519595799e6d15989c0f180229203e012396b73728ddb917dfdeae8"
+      ],
+      [
+        "OPTIMIZATION_2026-08-16.md",
+        "-:c735401b8679e979fcaf63ca5c5291169d9d9f21592ff5509a43b6f9e45fae72"
+      ],
+      [
+        "OPTIMIZATION_RECOMMENDATIONS.md",
+        "-:8cf8bba462b00f1c689843c2d1be4d07e34e360f46f2c3e4ae98d1328371f7d6"
+      ],
+      [
+        "OPTIMIZATION_SUMMARY.md",
+        "-:ace8edebd119cc6216e53b8a786010424613fa0ed4521b5eaa73de0da46ed3d0"
+      ],
+      [
+        "P0-3-DESIGN.md",
+        "-:2cd6a0c1a001d3609ba49e6d6f2b32b1f1de419b8afe81a30f259a79a2bb32ea"
+      ],
+      [
+        "P0-4-DESIGN.md",
+        "-:bf5f95963788d6fe0676863382aa7dcfa4240f1c706c3f06645e295af4e9c5da"
+      ],
+      [
+        "P1-3-AND-P2-DESIGNS.md",
+        "-:a3c7ef768a7130f1cacbfcfb861bb65a682d1ac40ed416a4f20c683331ba73fe"
+      ],
+      [
+        "README.md",
+        "-:5d22356a061b4d9c8a921ae4050d155957fe00e5805f4a1ce968dbd3da703628"
+      ],
+      [
+        "STATUS.md",
+        "-:b3f414c246aef27ddd64f90b823e5c49b22fa40a53ec01a836d020074e966abf"
+      ],
+      [
+        "examples/eagle-map/INSTALL.md",
+        "-:ec5cce24b3f6575559456c29bd5ebc38673985d17f59f7d9d191d366f28a1c56"
+      ],
+      [
+        "examples/eagle-map/plan-test-gate.yml",
+        "-:aa2073e6df9d8b1e2efedae44906501b21a13c87889f61dca5da5c2bd24221ca"
+      ],
+      [
+        "examples/eagle-map/plan-test-risk.globs",
+        "-:1a4fbdfca1f0910cf251a999c2000c1885b28fd3bf45e79852fc2c0f03556236"
+      ],
+      [
+        "examples/plan-test.config.md",
+        "-:5b732a53cd5b0707f5b0df1b944686513cf9c9d1ad5b480fc5056c4f923dc6f5"
+      ],
+      [
+        "hooks/README.md",
+        "-:835891bf9f7cd97113b2982f1920773211091b63303031006732a2c94f783ac8"
+      ],
+      [
+        "hooks/adapters/git/install-pre-push.sh",
+        "x:fdfff0311298497138582296efc81d52aa5ae3236826b2bd477d8a11881cec85"
+      ],
+      [
+        "hooks/adapters/git/pre-push",
+        "x:36867da52cf949f5e3f12e0322e1a03829618ab6af268d6508bb4b7121dce62d"
+      ],
+      [
+        "hooks/gate_scan.py",
+        "x:debf05ab81bb27fdbfb633a8443cef28e69903c2d875c1462e0a93db6884503e"
+      ],
+      [
+        "hooks/hooks.json",
+        "-:2ca8741cff9cbafa32a0d904426ee4fed543a203a122011723b98a3a673cb832"
+      ],
+      [
+        "hooks/stop-gate-check.sh",
+        "x:e9c0a290227b27049b86024334f2314521304fc1a526178d5e2fb4e7bae21f7e"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/acceptance.md",
+        "-:d5052fe2f2d98a1f2a877bcd3ddeeab9981468f319a820d733c165cf26a7e5f8"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/README.md",
+        "-:787f8c4e71d0126ea3fc28f3cbee871ca1270dab98fa947ee279f91f4efb07a8"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac1-applicability.log",
+        "-:e519689bb5108f8053f6ac1e0dec431bc090a13a57fda007f0f7f1f6d6b5b6f0"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac2-integrity.log",
+        "-:5fec99407d2b1b194e8d6a81d3f0b030b026ecb260ff0ba972dc20d07ca8cfc3"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac3-auditor.log",
+        "-:0338e7fe37e7b0ab3a30835d678bbd3abb0f9bf37e67d74489f7865379f5093b"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac4-fixture-exit3.log",
+        "-:4ec9adde544e1ac79aca8dcf9013e50dec06c84817be02deb892cb34ace65e86"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac5-full-suite.log",
+        "-:7f5cbce78621db9478630070ad12e8d1757d653262c932feacc6a6494f537b4f"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac5-no-regression.log",
+        "-:1f0b1b7f61840461d6c40db94b5d773e3fe1938120aaea441f8971c3d36e4e2c"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/artifacts/ac7-hook-enforcement.log",
+        "-:dd51286aee861eba40384633e31cf350a95f64794268849e93020381febe0d9f"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-input.archived.json",
+        "-:e6175ab8ce6d1ec05e05ef13fa6a918fd3c4b84ef374a9c17f8f5347042bb3ce"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-1/audit-report.archived.json",
+        "-:ed43b029992f016b0a2ab141e713f03c628e479e3519457f8b1dd69253fd45ef"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac1-applicability.log",
+        "-:37d5a1123d1b437e450349b3781ce53d9d4fd94f10743d427f74312a9bf5ddc1"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac2-integrity.log",
+        "-:5d273a6c56c9284750e0a832e02d446b5bb1ddb129824961cfb30ad62d24001d"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac3-auditor.log",
+        "-:8f41eaa2a31ff49f262efc409e23ba89f422006f74101e70c2443498113a09ad"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac4-fixture-exit3.log",
+        "-:9803da07678ca08a7622cb848c0b0efd9e0a118ff4724fa00099ab692a308cba"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac5-full-suite.log",
+        "-:d0445085a6bdc27d6dca36e43b0651dbb66a83d413cdb6ccc962c9b52d52a68c"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac5-no-regression.log",
+        "-:537d26478c0a76dcd712fcd779a1091ca0278beac2d4c8b0903183a8d3cf4234"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac7-hook-enforcement.log",
+        "-:ad7c4a8858b2ab2aecc2eb03e13b821010b7c9f730a5963c45e3d12bdd88f865"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac8-content-attestation.log",
+        "-:8350fb012bb3fbe3d4e100f71d1fc890e05b997826e3ff5b614757cac33ff12a"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/artifacts/ac9-auditor-artifact.log",
+        "-:2b3413bad1f8e1f96d2ad106364d2d542cf4b4ac3b25daf91a542489e796e6e5"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-input.archived.json",
+        "-:9421585b98fadfa58f50031fc23f22b0cb5d774773bb551029dd117ee62342cd"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-2/audit-report.archived.json",
+        "-:355b0fb9f51f56cb7e1a8fe7c96a1d1ad39e3ba37671582692138bee79b22142"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac1.log",
+        "-:325204122aee0452756b4b3bbf0ddd8fd56adccb4c3e9ce119ab00fd34d2d16c"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac10.log",
+        "-:212f03a13d8098e3b55a8bdaea9e42486405e760bc6eccca85498a4b9ca5e990"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac11.log",
+        "-:17b238acbcec25a32f60cefd91084e363c5bda1b628513fbc3a22aeb08672586"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac2.log",
+        "-:783c16eaf2c3e5338d1f6f871bba8c0d95bb956fe4c26d79e0b45b8a9a60dd53"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac3.log",
+        "-:f8866fcd09a392accbbf776993b56c7306ac3e270d78d8a85909e24947b2f87c"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac4.log",
+        "-:353a27e66cb0893d510eb12f4f325c88948ba5601e5af907dd4727a367c44d59"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac5-full.log",
+        "-:c1e68fff4c73ba1f457c24067b9f03f4cca624cf0bddc00d5577e4c17547ce9a"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac5.log",
+        "-:c5e25a4f7d9d5da1795caa4b8d073a77b245b97a3a0a42e0365e560494d03cc4"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac7.log",
+        "-:ad7c4a8858b2ab2aecc2eb03e13b821010b7c9f730a5963c45e3d12bdd88f865"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac8.log",
+        "-:8eaa3aa33d08b88865eeb856377e086d4eb99f82ece88ebf2d11b7eaa21a0e8e"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/artifacts/ac9.log",
+        "-:9d4cd631a91dc4c93f6a0ef669d95b60afe3e9f9465f2169745a17798693ea54"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/audit-history/run-3/gate-report.archived.md",
+        "-:be9543729a4fdc319de6da18e3086aafba41e69a85385caf4392fe2f14e371b6"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac1.log",
+        "-:b168290e9f32d488bf99e0937c557816ab814b67613bce7cfd5c0b359520d4b4"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac2.log",
+        "-:b8a9dfb66077719ecb12d02bed659d74875f4b327af6f703ef69a201d2e9a151"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac3.log",
+        "-:841cd86a0229f2320878b136f7ae26d7491ad8963312efe26cb8281481d8afa5"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac4.log",
+        "-:42efbcbc130eb5a430ff14e51cb3614dfaeb581414fb5659429e06b64f8a18b0"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/ac9.log",
+        "-:dc0ae826d688b370b5747776b20600adc26922c233c510c2511e45eb312809cc"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/artifacts/full-suite.log",
+        "-:551ea2dc332907fe4524a2885d02aa04b500a0f2bff75479756dcc35aa4e1a4b"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/auditor-input.json",
+        "-:04b045fa41a9de5f86c1d798034736b0296956cfb830f2b7fdcb709d3193ce86"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/auditor-output.json",
+        "-:6a481684c199242c2551ea0e7e9a24f7f0b6e7edb0efb5cc119d6b29b99f9bee"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/manifest.json",
+        "-:2dcbe60f70c215120f42a9835feaa7a7562c3c6d8c35523daecf9e4dc98485ae"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-a/plan-test-run.json",
+        "-:37c941de197d5792dad6cc70b3d58485835b4fdca368a35ae4f474ab026ab241"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac10.log",
+        "-:5ec4b5a5607142b3ac39e8115148717d6c37b0fec35f7af34eaee14fbe47f1fd"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac11.log",
+        "-:010bd18f590da243230cbe84e686ca0b39a7c0d2637b3db13ad0e598ca245437"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac12.log",
+        "-:5ec4b5a5607142b3ac39e8115148717d6c37b0fec35f7af34eaee14fbe47f1fd"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac13.log",
+        "-:1660bd5bf49cc26c4673980a74c997c6e9be72c56ab702f0c0907373a2af025d"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac14.log",
+        "-:9b0b2f1557265663124667233fd47941ca9a61c68f2959148807e76a867720dd"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac5.log",
+        "-:01a55e8da344496d9b4cc96e8439d08094be5c0df6c71f96ec6aa917d45afc73"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac6.log",
+        "-:6d74bef594f8855614e254c14d45cf7436d4e77378202f0b69704d4a02bb8112"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac7.log",
+        "-:eb14722a6ba04155950b4192b9903900fd445a93e8ac0efb564faa2d7a52e624"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/artifacts/ac8.log",
+        "-:8bde13955c01527fa5ab8ae653a5793b2a24f4c45c8bd50b821f2725c264637f"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/auditor-input.json",
+        "-:acb2f6d44388db219d797843a00feacd6e80fc77e5ff3f44a293ca561d6c44b6"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/auditor-output.json",
+        "-:e79b20268dca7050e790160389d65cd31f7ba851a2989721610d9d97b8adcbf8"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/manifest.json",
+        "-:c7c320ce8c01dd047ccb516fea1c16add83614e0532504a6820361818f4118c4"
+      ],
+      [
+        "plans/2026-07-27-gate-hardening/verification/slice-b/plan-test-run.json",
+        "-:5204ed4a60ac69b58ce9ac3cd74c36374dcad3d93958bcc587b8ca2407cfc274"
+      ],
+      [
+        "plans/2026-07-27-plan-test-gate-slice-1a/acceptance.md",
+        "-:7446d9fad40630e2a4f42bc075eaa535da16ace36ae20d8b122d9df81b5794ec"
+      ],
+      [
+        "plans/2026-07-27-plan-test-gate-slice-1a/evidence/challenger.md",
+        "-:ae0f6da3fb4520401d1184e697d327527a6a67de8cbc76e86411d0c94c592330"
+      ],
+      [
+        "plans/2026-07-27-plan-test-gate-slice-1a/fixture-contract.md",
+        "-:ebed252279fdfe3c0e7f929fb461a6ae6c85e219a53cdc66b62fae1b67603388"
+      ],
+      [
+        "plans/2026-07-27-plan-test-gate-slice-1a/plan.md",
+        "-:ec346b65f82f4b6996490912eb0a00321ba34e03fa798e200636fefc83d22d29"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/acceptance.md",
+        "-:98abefe4b9140e11f010b05e9a3e629153bc16d217be9cf627ee4fefa6ebfeeb"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/scripts/e2e-pre-push.sh",
+        "x:aa95fe5ea1b13ccf1d298c5a8176d8bb0433cce90f59b6f571a22db14f253465"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/scripts/e2e-stop-hook.sh",
+        "x:365eda378138b82326fcede2046a38cbf42cfb2b0e3ca4544b14487ebe6aa097"
+      ],
+      [
+        "skills/plan-bs/SKILL.md",
+        "-:2d4d0f5eadfe1e63fe3a75dd30a48f2ec7d86aca56c4dba27d47665f76408dd7"
+      ],
+      [
+        "skills/plan-task/SKILL.md",
+        "-:8ade7f708320bb78dc5dcc7eeec456a053607b3f81a0a3653646b8b3a0ce7eb1"
+      ],
+      [
+        "skills/plan-test/SKILL.md",
+        "-:2000e38b7e12d0e5f6c7b7f544b38ced77bbaf35f98b201dc4a6d9a51116436a"
+      ],
+      [
+        "skills/plan-test/checklists/idempotency-review.md",
+        "-:449db4cd6c3e247689e3c5c04a5c4e936e4546db55347396ea912336d9286727"
+      ],
+      [
+        "skills/plan-test/checklists/manual-test-mcp.md",
+        "-:548318ebca79c0bed6ce40f2d1e8d79bfc3b1e1563e84c37e2ef91e01d323be2"
+      ],
+      [
+        "skills/plan-test/checklists/parallel-verification-track.md",
+        "-:14135d54f29591a263990a843e98a307b2ac1abe27274df60cef6e5712d395ed"
+      ],
+      [
+        "skills/plan-test/checklists/test-obligation-matrix.md",
+        "-:0fdf417845bc181c4ddda005b518987d8cfb953faa661cb118f8d54ef63b0826"
+      ],
+      [
+        "skills/plan-test/config.md",
+        "-:ce91190c5d0045e3d2d0ca2d7920c1ec8aa41254eea935b34df86d1c60fee7e4"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/acceptance.md",
+        "-:dbc47c7228f4df9bf884583e4a9610de962800a14101937d6e51dcb13ab15956"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/artifacts/manual-results.md",
+        "-:0e22bd6df405646efa444af3b60dfb0597053446a97e59fcd03f472c0c4d0aa3"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/artifacts/task16-delivery-audit.md",
+        "-:e7dfef39d2bf65890dc530a10048a6d2a170b29b98f70b2c8e04a70ad99d447c"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/expected-diagnostics.txt",
+        "-:1c2b976f79467710b39dc9c04bc95b2eed9d5ff480a55188c73902c195e52504"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/expected-state.txt",
+        "-:95e97847164a28655c6cbd790dadd07587c5c5f3028a89f659d7df5f9680c0b1"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/manifest.json",
+        "-:b505219fe986d17fa18f84c3602989ed7f322d0ffd4d8a9e99fdb0eb7212528a"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/provenance.json",
+        "-:cf5e440b574cd0669dbb3092a6bde74b06c45778b6ccfe439de0c0316b0abe89"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/fail-companion-conflict/steps.jsonl",
+        "-:6fc31ef1d08f9ac91d62f0b17e9d539eef7bc59e3e2f52185e1727c98a73786e"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/acceptance.md",
+        "-:5c47bc0c0cfb38dcb1935dc2a979b8d7177f06e58388639c29286509dea9249f"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/artifacts/s1-click.png",
+        "-:ca00fe585aad83cc96e1774b11766153916a497d82059e4cc45451f8d8ad98fb"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/auditor-input.json",
+        "-:0a588a041764ec71766d03f07a0a0591cf2a0ba4379af9161d319cd3c11d9ab3"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/auditor-output.json",
+        "-:a0fabfde3ee2ced9df13145ef50653658c7a9b7d3726241f9f7edb09a78dc886"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/expected-diagnostics.txt",
+        "-:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/expected-state.txt",
+        "-:462183d556872b81af7e8449ed0e4b98be265524949abe3601c752201a4fc462"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/manifest.json",
+        "-:eea6c24b9cca1f555a5a3181932e3f62240f5e703537e1f34eca15d2c5ef41c9"
+      ],
+      [
+        "skills/plan-test/fixtures/gate/pass-minimal/steps.jsonl",
+        "-:b8a1230a20633bf44870619c85fd325f89afe807ff24786ed2e0c72e9fa60abe"
+      ],
+      [
+        "skills/plan-test/gate/PROTOCOL.md",
+        "-:abaf4dcdfb2051735620efd8a910de893399d830ced4ac031f0518d6bb2623a0"
+      ],
+      [
+        "skills/plan-test/gate/ROADMAP.md",
+        "-:915879ee5b150c32f17109b942480670c25baeb80a8dabc77f1860b9cdbf739c"
+      ],
+      [
+        "skills/plan-test/methods/research-method.md",
+        "-:0d2a8d46271971a261b0f57d7f6dbbbd88493a1855b0443417d489a952441772"
+      ],
+      [
+        "skills/plan-test/phase-0-architecture.md",
+        "-:dc76886763f54bb93acd642ff9a6ec500b2bca078d78b1e09e013b6dafd3662a"
+      ],
+      [
+        "skills/plan-test/phase-1-plan.md",
+        "-:bb74b2d490345b498a03755292791691519110b505d962fc2256cf5469a35f19"
+      ],
+      [
+        "skills/plan-test/phase-2-iterate-plan.md",
+        "-:b1c12310c60fbf2209774f4084225955018d2550169b86aeb45e74bb175bccf1"
+      ],
+      [
+        "skills/plan-test/phase-3-execute.md",
+        "-:6142c8c709d5a6653758585e7630f050adfb7e6ed8c0d3cd1b03d0e8ffb8c7e6"
+      ],
+      [
+        "skills/plan-test/phase-4-stage-gate.md",
+        "-:7f7c549a3d0cae50270edf33a0a2b33fcdf044d21718e0469809bc0ab55a3995"
+      ],
+      [
+        "skills/plan-test/phase-5-testcase.md",
+        "-:13476ed08ae151e149179dd97d300d2ab942ae5be77b9b1078e1a7d530a56aff"
+      ],
+      [
+        "skills/plan-test/phase-A-acceptance.md",
+        "-:42e01cf0bfa265c5e7d30025010f240bfb2461537fbdcce5f7b6764a6e11231f"
+      ],
+      [
+        "skills/plan-test/phase-final-dod.md",
+        "-:69cd51ba5bd380cbcc3e1f3a83f00215f9c8b907b932e0026fed4383b58ce244"
+      ],
+      [
+        "skills/plan-test/policies/acceptance-preserving-ponytail.md",
+        "-:671430d5520c1618a2ecc9fc524f69d8af710695a9a018ba025a630545ebead5"
+      ],
+      [
+        "skills/plan-test/prompts/acceptance-challenger.md",
+        "-:b608d13159e463d59c8677d88f432b314865cd9a2093758c83fdfccb2133c0f4"
+      ],
+      [
+        "skills/plan-test/prompts/architecture-challenger.md",
+        "-:b8b3c9fbc269a52c9f68b78601adb897599dda896a611f1c0ca121f826102c04"
+      ],
+      [
+        "skills/plan-test/prompts/completion-auditor.md",
+        "-:1f3d759abc8199db44abc95d857d89074980dfdb28b47ed703262e8d3d300ebc"
+      ],
+      [
+        "skills/plan-test/prompts/minimality-reviewer.md",
+        "-:106dad105938c034ed3fd2377fcc0b2c55c726447394270c9790869c316c6fd2"
+      ],
+      [
+        "skills/plan-test/prompts/plan-challenger.md",
+        "-:85a9857b94e8d888798214b0f4a90557a9709672cb82f03c2d338332cd4665ea"
+      ],
+      [
+        "skills/plan-test/prompts/plan-closure-challenger.md",
+        "-:cefd62d4f9bf05c1ea08cd06a551c61314532f45dc0dc626f3203d499d131bb2"
+      ],
+      [
+        "skills/plan-test/prompts/plan-primary-challenger.md",
+        "-:7dcd90d76e4941bb6b38f2da307f896529697c2d580aa11b76e77e8ad02343c1"
+      ],
+      [
+        "skills/plan-test/prompts/plan-specialist-challenger.md",
+        "-:f44ea9f8ee7b21358fbf3ec9853cdba5a0b5abd65e2f2a6529e039049d35285b"
+      ],
+      [
+        "skills/plan-test/prompts/plan-synthesis-reviewer.md",
+        "-:42a1e08c04692c6c9057b426a74533fb0e295a215223e9be9be15886712edff3"
+      ],
+      [
+        "skills/plan-test/prompts/testcase-iterator.md",
+        "-:16120b8a8e757b7bdae42125a15a85ae0fe427f71eefa657708b9dc3b92bf01d"
+      ],
+      [
+        "skills/plan-test/rationale.md",
+        "-:e36015cde9108eb11e1764a5490761bfaf84fbb77824554344e3c2484043325e"
+      ],
+      [
+        "skills/plan-test/references/challenge-orchestration.md",
+        "-:dfe664a12b862e4dfa82bfe56e589930784b590d0094edac08a9123552e4330f"
+      ],
+      [
+        "skills/plan-test/references/evidence-audit-lifecycle.md",
+        "-:1ed86a867273e49bdf0399baad05d2d7029d5466852933aeb7fa0de75e946696"
+      ],
+      [
+        "skills/plan-test/references/testcase-lifecycle.md",
+        "-:cb1ba416c619a63657bef901dbdc5ff1d43532132eb8de7ea2143cbbe89f19f1"
+      ],
+      [
+        "skills/plan-test/schemas/plan-test-run.schema.json",
+        "-:4f9bea560e6df1e0d9af669f270487309c685029f782863addf375680b7943bf"
+      ],
+      [
+        "skills/plan-test/scripts/baseline_runner.py",
+        "-:e3f8a2aafebc582e7786302b7c1ae9bac5205bcb453140e75053398b1442ba74"
+      ],
+      [
+        "skills/plan-test/scripts/gate_usage_report.py",
+        "-:c2382d18a4bfe12ba1d62ea09d2084a5a81f628393558081f86617713d821a98"
+      ],
+      [
+        "skills/plan-test/scripts/plan_test_gate.py",
+        "-:f1f46c1affb285e23dc8f849ce9cad76d80aa9b039439a3d0384d8ea0bf964e4"
+      ],
+      [
+        "skills/plan-test/scripts/test_gate_stats.py",
+        "-:732519f35cbd3e36627bf90bccb53f1a421b3b007582a0b935df8f5de6a11cb4"
+      ],
+      [
+        "skills/plan-test/scripts/test_gate_usage_report.py",
+        "-:e441aa2b343633bf3055b577f09579805d53f9564c9f82044a33a6aa705bb59d"
+      ],
+      [
+        "skills/plan-test/scripts/test_phase_cost.py",
+        "-:1c5a2d13a72edd12c0d12f11f1a06a8f1e28750c699368188cffde69283f0044"
+      ],
+      [
+        "skills/plan-test/scripts/test_plan_test_gate.py",
+        "-:8c7d1e594baf6fff9f0ffd655bbb36509c8f90f816fa387804c28cb9c0202ac8"
+      ],
+      [
+        "skills/plan-test/scripts/test_testcase_inventory.py",
+        "-:075740faccba44afd173105da9310699d812c96d7a4d90b955947b94851bb925"
+      ],
+      [
+        "skills/plan-test/scripts/test_tier_check.py",
+        "-:0318931d121e22cc6e1f831b675630aace4e5a63e92476a39d23db68c3927736"
+      ],
+      [
+        "skills/plan-test/scripts/test_workflow_v2.py",
+        "-:a6d15c213c5e48cc39643b82aa367d11afffa00357d712fb2ec124e4f04064a6"
+      ],
+      [
+        "skills/plan-test/scripts/testcase_inventory.py",
+        "-:7bfd37fd17e21ae804092ea7c797631a4f1350093c450bde57755364a071abe2"
+      ],
+      [
+        "skills/plan-test/scripts/tier_check.py",
+        "x:05064fc9e6955a93bcda09bc0822c9c58cd7d8967bbbbd94b254a554f0ca7bcf"
+      ],
+      [
+        "test_new_commands.sh",
+        "x:827d167fd2731a64f60b8283b513f418d93f54d5cdf1336be1cb7f80e088f0d9"
+      ]
+    ],
+    "dirty_patch_sha256": "2021c92d8c9e5526b315a07deda556bab8e35009d79d7521dfb9117fe695a092",
+    "exclusion_count": 1,
+    "exclusion_scope": [
+      "plans/2026-08-26-enforcement-anchors/verification/run-001"
+    ],
+    "exclusions": [
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/manifest.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ]
+    ],
+    "head": "147980cce6ed08cbed0b4b50f3ca4e6856b417c0",
+    "recorded_at": "2026-08-26T18:46:02+0800"
+  },
+  "scenarios": [
+    {
+      "required": true,
+      "scenario_id": "S-AC1-gate-selftest"
+    },
+    {
+      "required": true,
+      "scenario_id": "S-AC2-stats"
+    },
+    {
+      "required": true,
+      "scenario_id": "S-AC3-tier-check"
+    },
+    {
+      "required": true,
+      "scenario_id": "S-AC4-phase-cost"
+    },
+    {
+      "required": true,
+      "scenario_id": "S-AC5-pre-push-e2e"
+    },
+    {
+      "required": true,
+      "scenario_id": "S-AC6-stop-hook-e2e"
+    }
+  ],
+  "schema_version": "1.5.0",
+  "source_request": {
+    "inline": true,
+    "sha256": "e5836693a24322bb620f8ce5d22a5789711d07d39aa2e27c04cf71baae1ba0c9"
+  },
+  "structured_audit_required": false,
+  "testcase_lock": {
+    "files": [],
+    "locked_at": null
+  },
+  "thresholds": {}
+}

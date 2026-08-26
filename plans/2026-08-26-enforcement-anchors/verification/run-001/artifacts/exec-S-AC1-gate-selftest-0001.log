@@ -1,0 +1,360 @@
+command: python3 skills/plan-test/scripts/test_plan_test_gate.py
+exit_code: 0
+started_at: 2026-08-26T10:46:02Z
+ended_at: 2026-08-26T10:47:13Z
+elapsed_ms: 68841
+---- stdout ----
+PROVENANCE: VERIFIED (fail-companion-conflict)
+
+---- stderr ----
+test_acknowledge_requires_user_approval_hash (__main__.AcknowledgeTestCase.test_acknowledge_requires_user_approval_hash) ... ok
+test_acknowledged_run_cannot_be_a_successor (__main__.AcknowledgeTestCase.test_acknowledged_run_cannot_be_a_successor)
+放弃的 run 不能反过来给别人背书——它永远没有 receipt。 ... ok
+test_acknowledged_run_stops_blocking_but_never_ships (__main__.AcknowledgeTestCase.test_acknowledged_run_stops_blocking_but_never_ships) ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.AcknowledgeTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.AcknowledgeTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.AcknowledgeTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.AcknowledgeTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.AcknowledgeTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_handwritten_acknowledged_flag_is_invalid (__main__.AcknowledgeTestCase.test_handwritten_acknowledged_flag_is_invalid)
+手写 `"acknowledged": true`（不经 CLI）不得生效——链对不上。 ... ok
+test_new_untracked_file_is_content_change (__main__.AcknowledgeTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_decided_by_must_be_agent_or_user (__main__.ApplicabilityTestCase.test_decided_by_must_be_agent_or_user) ... ok
+test_declaration_lands_in_report (__main__.ApplicabilityTestCase.test_declaration_lands_in_report)
+判定必须在人读报告里可见，否则等于没入账。 ... ok
+test_false_declaration_needs_rationale (__main__.ApplicabilityTestCase.test_false_declaration_needs_rationale)
+判「不适用」必须写理由——理由本身进 receipt digest，事后可追责。 ... ok
+test_init_warns_when_undeclared (__main__.ApplicabilityTestCase.test_init_warns_when_undeclared) ... ok
+test_input_sensitive_needs_distinct_classes (__main__.ApplicabilityTestCase.test_input_sensitive_needs_distinct_classes)
+判「适用」就必须真的兑现：语义不等价输入类别 <3 → FAIL。 ... ok
+test_input_sensitive_needs_positive_value_scenario (__main__.ApplicabilityTestCase.test_input_sensitive_needs_positive_value_scenario)
+全是负向安全场景 → 「诚实降级成功」不等于产品质量 PASS。 ... ok
+test_llm_payload_driven_needs_sampling (__main__.ApplicabilityTestCase.test_llm_payload_driven_needs_sampling) ... ok
+test_satisfied_matrix_passes (__main__.ApplicabilityTestCase.test_satisfied_matrix_passes)
+正样本：判「适用」且矩阵真的兑现 → 不产生适用性诊断（防门只会拒绝）。 ... ok
+test_stateful_init_needs_cold_start (__main__.ApplicabilityTestCase.test_stateful_init_needs_cold_start) ... ok
+test_undeclared_blocks (__main__.ApplicabilityTestCase.test_undeclared_blocks)
+完全不声明适用性 → 拦截（此前是默认状态，无人可查）。 ... ok
+test_method_name_as_engine_rejected (__main__.AuditorEngineIdentityTestCase.test_method_name_as_engine_rejected) ... ok
+test_real_engine_id_accepted (__main__.AuditorEngineIdentityTestCase.test_real_engine_id_accepted) ... ok
+test_cli_cannot_overrule_audit_artifact (__main__.AuditorIndependenceTestCase.test_cli_cannot_overrule_audit_artifact)
+审计报告写 FAIL、命令行敲 PASS → 直接拒绝（exit 2）。 ... ok
+test_self_audit_exposed_as_advisory (__main__.AuditorIndependenceTestCase.test_self_audit_exposed_as_advisory)
+自审自判不拦截，但必须在输出与报告里曝光。 ... ok
+test_verdict_line_form_also_checked (__main__.AuditorIndependenceTestCase.test_verdict_line_form_also_checked)
+非 JSON 的审计产物按末行 VERDICT: X 解析（与子代理结论行契约一致）。 ... ok
+test_unparseable_output_rejected (__main__.AuditorVerdictSourceTestCase.test_unparseable_output_rejected) ... ok
+test_blocked_after_pass_still_blocks (__main__.BlockedNonStickyTestCase.test_blocked_after_pass_still_blocks)
+顺序有意义：pass 之后又出现 blocked（回归/环境掉了）仍然是 BLOCKED。 ... ok
+test_blocked_then_pass_clears_the_scenario (__main__.BlockedNonStickyTestCase.test_blocked_then_pass_clears_the_scenario) ... ok
+test_fail_is_still_sticky (__main__.BlockedNonStickyTestCase.test_fail_is_still_sticky)
+fail 依旧粘性——root 一旦红这一轮就是红的，改完代码本就该开新 run。 ... ok
+test_acceptance_hash_change_requires_user_approval (__main__.ChallengeLoopAssuranceTestCase.test_acceptance_hash_change_requires_user_approval) ... ok
+test_approved_scope_change_can_replace_acceptance_snapshot (__main__.ChallengeLoopAssuranceTestCase.test_approved_scope_change_can_replace_acceptance_snapshot) ... ok
+test_architecture_reset_requires_changed_plan_and_consolidated_review (__main__.ChallengeLoopAssuranceTestCase.test_architecture_reset_requires_changed_plan_and_consolidated_review) ... ok
+test_breadth_coverage_is_required_in_round_one (__main__.ChallengeLoopAssuranceTestCase.test_breadth_coverage_is_required_in_round_one) ... ok
+test_contract_hash_change_requires_user_approval (__main__.ChallengeLoopAssuranceTestCase.test_contract_hash_change_requires_user_approval) ... ok
+test_control_events_cannot_be_pre_authorized (__main__.ChallengeLoopAssuranceTestCase.test_control_events_cannot_be_pre_authorized) ... ok
+test_hard_limit_blocks_without_resetting_history (__main__.ChallengeLoopAssuranceTestCase.test_hard_limit_blocks_without_resetting_history) ... ok
+test_in_scope_p0_without_acceptance_binding_fails_closed (__main__.ChallengeLoopAssuranceTestCase.test_in_scope_p0_without_acceptance_binding_fails_closed) ... ok
+test_malformed_findings_fail_closed_stably (__main__.ChallengeLoopAssuranceTestCase.test_malformed_findings_fail_closed_stably) ... ok
+test_out_of_scope_hostile_host_is_advisory (__main__.ChallengeLoopAssuranceTestCase.test_out_of_scope_hostile_host_is_advisory) ... ok
+test_preexisting_finding_after_round_one_explains_late_discovery (__main__.ChallengeLoopAssuranceTestCase.test_preexisting_finding_after_round_one_explains_late_discovery) ... ok
+test_reviewer_pass_cannot_override_open_blocker (__main__.ChallengeLoopAssuranceTestCase.test_reviewer_pass_cannot_override_open_blocker) ... ok
+test_round_sequence_and_base_hash_are_fail_closed (__main__.ChallengeLoopAssuranceTestCase.test_round_sequence_and_base_hash_are_fail_closed) ... ok
+test_round_three_new_critical_requires_scope_audit (__main__.ChallengeLoopAssuranceTestCase.test_round_three_new_critical_requires_scope_audit) ... ok
+test_same_count_different_ids_is_new (__main__.ChallengeLoopAssuranceTestCase.test_same_count_different_ids_is_new) ... ok
+test_same_finding_id_reworded_is_not_new (__main__.ChallengeLoopAssuranceTestCase.test_same_finding_id_reworded_is_not_new) ... ok
+test_schema_13_legacy_loop_remains_readable (__main__.ChallengeLoopAssuranceTestCase.test_schema_13_legacy_loop_remains_readable) ... ok
+test_scope_change_can_only_resume_with_user_approval (__main__.ChallengeLoopAssuranceTestCase.test_scope_change_can_only_resume_with_user_approval) ... ok
+test_standard_profile_keeps_aiphone_host_owner_risks_advisory (__main__.ChallengeLoopAssuranceTestCase.test_standard_profile_keeps_aiphone_host_owner_risks_advisory) ... ok
+test_two_consecutive_patch_induced_p0_require_architecture_reset (__main__.ChallengeLoopAssuranceTestCase.test_two_consecutive_patch_induced_p0_require_architecture_reset) ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.ClosingWorkflowTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_closing_four_steps_actually_work (__main__.ClosingWorkflowTestCase.test_closing_four_steps_actually_work) ... ok
+test_code_change_at_closing_forces_retest (__main__.ClosingWorkflowTestCase.test_code_change_at_closing_forces_retest)
+收尾期改代码 → re-attest 判 behavioral → 必须重跑，不能靠 re-attest 洗白。 ... ok
+test_commit_without_content_change_still_passes (__main__.ClosingWorkflowTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.ClosingWorkflowTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.ClosingWorkflowTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.ClosingWorkflowTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_new_untracked_file_is_content_change (__main__.ClosingWorkflowTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_all_ai_driving_without_approval_blocks (__main__.DriverApprovalTestCase.test_all_ai_driving_without_approval_blocks) ... ok
+test_bogus_message_hash_rejected (__main__.DriverApprovalTestCase.test_bogus_message_hash_rejected) ... ok
+test_human_driven_run_needs_no_approval (__main__.DriverApprovalTestCase.test_human_driven_run_needs_no_approval) ... ok
+test_recorded_approval_unblocks (__main__.DriverApprovalTestCase.test_recorded_approval_unblocks) ... ok
+test_replace_is_recorded_in_integrity_chain (__main__.EvidenceRefreshTestCase.test_replace_is_recorded_in_integrity_chain) ... ok
+test_stale_evidence_blocks_until_replaced (__main__.EvidenceRefreshTestCase.test_stale_evidence_blocks_until_replaced) ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.ExecRecordRunTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.ExecRecordRunTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.ExecRecordRunTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.ExecRecordRunTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.ExecRecordRunTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_exec_fail_records_fail_and_transparent_exit (__main__.ExecRecordRunTestCase.test_exec_fail_records_fail_and_transparent_exit) ... ok
+test_exec_pass_records_result_and_primary_evidence (__main__.ExecRecordRunTestCase.test_exec_pass_records_result_and_primary_evidence) ... ok
+test_exec_rejects_self_reported_result (__main__.ExecRecordRunTestCase.test_exec_rejects_self_reported_result) ... ok
+test_exec_unknown_scenario_rejected_before_running (__main__.ExecRecordRunTestCase.test_exec_unknown_scenario_rejected_before_running) ... ok
+test_new_untracked_file_is_content_change (__main__.ExecRecordRunTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_no_result_no_exec_is_usage_error (__main__.ExecRecordRunTestCase.test_no_result_no_exec_is_usage_error) ... ok
+test_auditor_engine_mismatch_exposed (__main__.ExposureAdvisoryTestCase.test_auditor_engine_mismatch_exposed) ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.ExposureAdvisoryTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.ExposureAdvisoryTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.ExposureAdvisoryTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.ExposureAdvisoryTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.ExposureAdvisoryTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_evidence_free_finalize_exposed_but_not_blocking (__main__.ExposureAdvisoryTestCase.test_evidence_free_finalize_exposed_but_not_blocking)
+required 全 PASS 但零 primary 证据 → advisory 曝光，不拦截交付。 ... ok
+test_executor_engine_undeclared_exposed (__main__.ExposureAdvisoryTestCase.test_executor_engine_undeclared_exposed) ... ok
+test_fanout_requires_independent_primary_evidence (__main__.ExposureAdvisoryTestCase.test_fanout_requires_independent_primary_evidence)
+required 场景扇出缺独立证据时拦截；每场景有证据时放行。 ... ok
+test_new_untracked_file_is_content_change (__main__.ExposureAdvisoryTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_open_deferrals_exposed (__main__.ExposureAdvisoryTestCase.test_open_deferrals_exposed) ... ok
+test_primary_evidence_silences_evidence_free (__main__.ExposureAdvisoryTestCase.test_primary_evidence_silences_evidence_free) ... ok
+test_fail_companion_conflict (__main__.FixtureReplayTestCase.test_fail_companion_conflict) ... ok
+test_pass_minimal (__main__.FixtureReplayTestCase.test_pass_minimal) ... ok
+test_adapter_unknown_blocks (__main__.GateTestCase.test_adapter_unknown_blocks)
+运行旧 binary/身份无法闭环（adapter UNKNOWN）→ FAIL。 ... ok
+test_audit_stale_after_fact_change (__main__.GateTestCase.test_audit_stale_after_fact_change)
+full-audit 后结果变更 → 旧审计 PASS 失效。 ... ok
+test_behavior_change_without_approval_artifact (__main__.GateTestCase.test_behavior_change_without_approval_artifact) ... ok
+test_check_only_ready_without_audit (__main__.GateTestCase.test_check_only_ready_without_audit)
+预检不因'审计尚未执行'而无法进入审计阶段。 ... ok
+test_companion_history_dogfood_three_conflicts (__main__.GateTestCase.test_companion_history_dogfood_three_conflicts)
+normalized fixture 复刻 2026-07-24 Companion 计划的真实矛盾： ... ok
+test_delivery_ship_with_partial_manual_test (__main__.GateTestCase.test_delivery_ship_with_partial_manual_test)
+delivery=SHIP + manual-test=PARTIAL → FAIL。 ... ok
+test_derived_only_evidence_rejected (__main__.GateTestCase.test_derived_only_evidence_rejected) ... ok
+test_evidence_dependency_cycle (__main__.GateTestCase.test_evidence_dependency_cycle)
+manual-results 与 delivery-audit 互相引用 → 拒绝环。 ... ok
+test_evidence_missing_and_hash_mismatch (__main__.GateTestCase.test_evidence_missing_and_hash_mismatch) ... ok
+test_expected_run_created_unverified (__main__.GateTestCase.test_expected_run_created_unverified)
+多阶段场景缺 Session/Run ID → FAIL。 ... ok
+test_frozen_oracle_mutation_without_approval (__main__.GateTestCase.test_frozen_oracle_mutation_without_approval)
+既有测试 oracle 被放宽/反转但无 behavior_change_id → FAIL。 ... ok
+test_full_pass_path_and_receipt_idempotent (__main__.GateTestCase.test_full_pass_path_and_receipt_idempotent) ... ok
+test_invalidate_receipt (__main__.GateTestCase.test_invalidate_receipt) ... ok
+test_positive_value_needs_business_terminal (__main__.GateTestCase.test_positive_value_needs_business_terminal)
+engine completed 但业务终态 insufficient → 不算正向 PASS。 ... ok
+test_record_run_rejects_unknown_scenario (__main__.GateTestCase.test_record_run_rejects_unknown_scenario)
+不许测后补场景。 ... ok
+test_release_unit_counts_only_formal_ac_table_rows (__main__.GateTestCase.test_release_unit_counts_only_formal_ac_table_rows) ... ok
+test_release_unit_too_large (__main__.GateTestCase.test_release_unit_too_large)
+计划超复杂度预算未拆 slice → FAIL（Companion: 16 MUST AC / 17 Task / 4676 行）。 ... ok
+test_required_lane_closure (__main__.GateTestCase.test_required_lane_closure)
+fresh lane PASS、history lane 未执行 → FAIL。 ... ok
+test_required_scenario_not_run (__main__.GateTestCase.test_required_scenario_not_run) ... ok
+test_retry_does_not_count_as_root (__main__.GateTestCase.test_retry_does_not_count_as_root)
+retry/continuation 不能冒充独立场景执行。 ... ok
+test_status_conflict_declared_pass_vs_ledger (__main__.GateTestCase.test_status_conflict_declared_pass_vs_ledger)
+RESULTS 声称 PASS 而账本 NOT_RUN → STATUS_CONFLICT。 ... ok
+test_stochastic_sampling (__main__.GateTestCase.test_stochastic_sampling)
+高风险非确定性场景 1/3 成功 → 采样不足，不得 SHIP。 ... ok
+test_stochastic_single_run_insufficient (__main__.GateTestCase.test_stochastic_single_run_insufficient) ... ok
+test_ui_scenario_needs_ui_action_evidence (__main__.GateTestCase.test_ui_scenario_needs_ui_action_evidence) ... ok
+test_acknowledged_run_no_longer_blocks_the_hook (__main__.HookOutputBudgetTestCase.test_acknowledged_run_no_longer_blocks_the_hook) ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.HookOutputBudgetTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_circuit_breaker_releases_after_repeats (__main__.HookOutputBudgetTestCase.test_circuit_breaker_releases_after_repeats)
+连续 N 次结论一字未变 → 放行一次，但大声说明账本仍然是红的。 ... ok
+test_commit_without_content_change_still_passes (__main__.HookOutputBudgetTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.HookOutputBudgetTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.HookOutputBudgetTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.HookOutputBudgetTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_hook_blocks_unclosed_ledger_anywhere (__main__.HookOutputBudgetTestCase.test_hook_blocks_unclosed_ledger_anywhere)
+run-dir 不在 verification/ 下也必须被发现（第八轮打穿点）。 ... ok
+test_hook_ignores_business_json_and_gitignored_files (__main__.HookOutputBudgetTestCase.test_hook_ignores_business_json_and_gitignored_files)
+业务 JSON 与被 .gitignore 忽略的文件都不参与识别（误报方向）。 ... ok
+test_hook_passes_when_no_ledger (__main__.HookOutputBudgetTestCase.test_hook_passes_when_no_ledger) ... ok
+test_identical_report_is_not_repeated (__main__.HookOutputBudgetTestCase.test_identical_report_is_not_repeated) ... ok
+test_new_untracked_file_is_content_change (__main__.HookOutputBudgetTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_only_active_run_gets_full_diagnostics (__main__.HookOutputBudgetTestCase.test_only_active_run_gets_full_diagnostics) ... ok
+test_renaming_ledger_does_not_hide_it (__main__.HookOutputBudgetTestCase.test_renaming_ledger_does_not_hide_it)
+把账本改名同样藏不住（第九轮打穿点：按文件名识别仍是按名字识别）。 ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.ImpactScopedRetestTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.ImpactScopedRetestTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.ImpactScopedRetestTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.ImpactScopedRetestTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.ImpactScopedRetestTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_new_untracked_file_is_content_change (__main__.ImpactScopedRetestTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_no_mapping_keeps_full_retest (__main__.ImpactScopedRetestTestCase.test_no_mapping_keeps_full_retest)
+没有任何场景声明 impact_paths → 维持 1.2.0 全量复测行为（已有用例锁住，这里锁语义）。 ... ok
+test_scoped_change_spares_unrelated_scenario (__main__.ImpactScopedRetestTestCase.test_scoped_change_spares_unrelated_scenario)
+只改 backend → 只有 S-A 需要重测，S-B 沿用既有结论并能解释原因。 ... ok
+test_uncovered_change_fails_closed (__main__.ImpactScopedRetestTestCase.test_uncovered_change_fails_closed)
+改一个未被任何映射覆盖的文件 → 全量复测（映射是被测者自写的，证明不了无关就全测）。 ... ok
+test_cli_writes_keep_chain_valid (__main__.IntegrityTestCase.test_cli_writes_keep_chain_valid)
+正样本：全程走 CLI 的账本链必须自洽。 ... ok
+test_deleting_chain_is_not_an_escape_hatch (__main__.IntegrityTestCase.test_deleting_chain_is_not_an_escape_hatch)
+删掉 integrity 键再写一条命令，不能重建出一条自洽的新链。 ... ok
+test_dropped_chain_entry_detected (__main__.IntegrityTestCase.test_dropped_chain_entry_detected) ... ok
+test_handedited_result_detected (__main__.IntegrityTestCase.test_handedited_result_detected)
+把 fail 手改成 pass（不经 CLI）→ LEDGER_TAMPERED。 ... ok
+test_rebuilt_chain_without_init_is_rejected (__main__.IntegrityTestCase.test_rebuilt_chain_without_init_is_rejected)
+即便手工造出一条自洽的链，首条不是 init（或 genesis 不符）也不作数。 ... ok
+test_tamper_detection_survives_further_writes (__main__.IntegrityTestCase.test_tamper_detection_survives_further_writes)
+篡改检测不是一次性的：改完再敲一条无害命令，不能把痕迹盖过去。 ... ok
+test_truncated_chain_is_rejected (__main__.IntegrityTestCase.test_truncated_chain_is_rejected)
+把链压成一条 init 同样不作数——链长必须对得上账本里的事实条数。 ... ok
+test_end_without_start_blocks (__main__.PhasePairingTestCase.test_end_without_start_blocks) ... ok
+test_unpaired_phase_blocks_full_finalize_only (__main__.PhasePairingTestCase.test_unpaired_phase_blocks_full_finalize_only) ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.ReAttestTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_behavioral_change_requires_retest (__main__.ReAttestTestCase.test_behavioral_change_requires_retest)
+改代码 → re-attest 判 behavioral → 旧 PASS 不再作数，必须重跑。 ... ok
+test_behavioral_text_is_never_doc_only (__main__.ReAttestTestCase.test_behavioral_text_is_never_doc_only)
+提示词、skill、依赖清单不算文档——独立审计实测过这两个反例。 ... ok
+test_business_dir_named_verification_is_not_excluded (__main__.ReAttestTestCase.test_business_dir_named_verification_is_not_excluded)
+项目里真有一个叫 `verification/` 的业务目录时，它的代码**不得**被排除。 ... ok
+test_business_file_named_manifest_is_still_content (__main__.ReAttestTestCase.test_business_file_named_manifest_is_still_content)
+业务文件哪怕取名 manifest.json / report.md，也不得因文件名被排除。 ... ok
+test_commit_without_content_change_still_passes (__main__.ReAttestTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.ReAttestTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.ReAttestTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_custom_doc_globs_can_only_narrow (__main__.ReAttestTestCase.test_custom_doc_globs_can_only_narrow)
+manifest 里的 doc_only_globs 是被测者自写的，只能收窄，不能把 src/** 说成文档。 ... ok
+test_deletion_digest_is_index_independent (__main__.ReAttestTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_doc_only_change_can_re_attest_and_pass (__main__.ReAttestTestCase.test_doc_only_change_can_re_attest_and_pass)
+文档回写 → re-attest 判 doc-only → 既有测试结论继续有效，门恢复绿。 ... ok
+test_doc_only_claim_is_machine_decided (__main__.ReAttestTestCase.test_doc_only_claim_is_machine_decided)
+混合变更不能被说成 doc-only——判定看路径，不看申报。 ... ok
+test_exclusion_is_init_order_independent (__main__.ReAttestTestCase.test_exclusion_is_init_order_independent)
+先 init 的 slice 不能被后 init 的 slice 弄红。 ... ok
+test_fake_manifest_cannot_hide_a_directory (__main__.ReAttestTestCase.test_fake_manifest_cannot_hide_a_directory)
+在 `.../verification/<x>/` 放一个假 manifest，不能把该目录的真实代码藏掉。 ... ok
+test_ledger_planted_before_init_cannot_hide_changes (__main__.ReAttestTestCase.test_ledger_planted_before_init_cannot_hide_changes)
+在 init **之前**往 src/ 塞账本同样藏不住——排除范围只认 init 时冻结的显式声明。 ... ok
+test_mode_change_counts_as_content_change (__main__.ReAttestTestCase.test_mode_change_counts_as_content_change)
+可执行位变化也是交付差异（独立审计点名的缺口）。 ... ok
+test_new_untracked_file_is_content_change (__main__.ReAttestTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_no_change_is_noop (__main__.ReAttestTestCase.test_no_change_is_noop) ... ok
+test_planted_ledger_cannot_hide_changes (__main__.ReAttestTestCase.test_planted_ledger_cannot_hide_changes)
+不能靠"在某目录塞一个账本文件"把它排除掉来藏改动。 ... ok
+test_planted_run_dir_after_receipt_cannot_hide_backdoor (__main__.ReAttestTestCase.test_planted_run_dir_after_receipt_cannot_hide_backdoor)
+拿到 receipt 之后现造一个 run 目录塞后门，必须被发现（无需事前埋设的攻击）。 ... ok
+test_real_docs_still_doc_only (__main__.ReAttestTestCase.test_real_docs_still_doc_only)
+正样本：README/docs 下的叙述性文档仍应免重测，否则这个出口就没用了。 ... ok
+test_related_run_dirs_cannot_exclude_code (__main__.ReAttestTestCase.test_related_run_dirs_cannot_exclude_code)
+related_run_dirs 只能声明 `.../verification/<单层>` 形态的既有目录。 ... ok
+test_run_dir_excluded_with_relative_path (__main__.ReAttestTestCase.test_run_dir_excluded_with_relative_path)
+run-dir 用相对路径传入时也必须被排除。 ... ok
+test_sibling_slice_run_dir_does_not_invalidate (__main__.ReAttestTestCase.test_sibling_slice_run_dir_does_not_invalidate)
+一次交付拆成多个 slice 时，兄弟 run-dir 的记账不得算成交付内容变化。 ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.RealRepoAttestationTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.RealRepoAttestationTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.RealRepoAttestationTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.RealRepoAttestationTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.RealRepoAttestationTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_new_untracked_file_is_content_change (__main__.RealRepoAttestationTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.RetireTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.RetireTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.RetireTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.RetireTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.RetireTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_fixture_run_cannot_retire_out (__main__.RetireTestCase.test_fixture_run_cannot_retire_out)
+fixture-only 账本不得靠退役退出阻断——retire 命令当场拒绝，不是事后判无效。 ... ok
+test_handwritten_retired_flag_is_invalid (__main__.RetireTestCase.test_handwritten_retired_flag_is_invalid)
+手写 `"retired": true`（不经 CLI）不得生效——链对不上。 ... ok
+test_new_untracked_file_is_content_change (__main__.RetireTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_retire_does_not_make_run_shippable (__main__.RetireTestCase.test_retire_does_not_make_run_shippable)
+退役不等于通过——账本仍如实是未闭环状态。 ... ok
+test_retire_requires_a_passing_successor (__main__.RetireTestCase.test_retire_requires_a_passing_successor)
+没有通过的继任者 → 拒绝退役（这正是"这个先不做了"式绕过）。 ... ok
+test_retire_with_valid_successor_is_accepted (__main__.RetireTestCase.test_retire_with_valid_successor_is_accepted) ... ok
+test_successor_must_be_in_same_repo (__main__.RetireTestCase.test_successor_must_be_in_same_repo)
+继任者不能指向别的仓库——那等于"借"一张无关的 receipt 给本次失败背书。 ... ok
+test_successor_must_cover_required_scenarios (__main__.RetireTestCase.test_successor_must_cover_required_scenarios)
+继任者必须真的承接工作：覆盖被退役 run 的 required 场景，且同一份 acceptance。 ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.StopHookTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.StopHookTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.StopHookTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.StopHookTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.StopHookTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_hook_blocks_unclosed_ledger_anywhere (__main__.StopHookTestCase.test_hook_blocks_unclosed_ledger_anywhere)
+run-dir 不在 verification/ 下也必须被发现（第八轮打穿点）。 ... ok
+test_hook_ignores_business_json_and_gitignored_files (__main__.StopHookTestCase.test_hook_ignores_business_json_and_gitignored_files)
+业务 JSON 与被 .gitignore 忽略的文件都不参与识别（误报方向）。 ... ok
+test_hook_passes_when_no_ledger (__main__.StopHookTestCase.test_hook_passes_when_no_ledger) ... ok
+test_new_untracked_file_is_content_change (__main__.StopHookTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_renaming_ledger_does_not_hide_it (__main__.StopHookTestCase.test_renaming_ledger_does_not_hide_it)
+把账本改名同样藏不住（第九轮打穿点：按文件名识别仍是按名字识别）。 ... ok
+test_baseline_is_summary_and_runtime_holds_content_entries (__main__.TimingHardGateTestCase.test_baseline_is_summary_and_runtime_holds_content_entries) ... ok
+test_commit_without_content_change_still_passes (__main__.TimingHardGateTestCase.test_commit_without_content_change_still_passes)
+测完之后把改动提交（内容一字未改）→ 门必须仍然绿。 ... ok
+test_committing_run_dir_does_not_invalidate (__main__.TimingHardGateTestCase.test_committing_run_dir_does_not_invalidate)
+把 run-dir 自身提交进仓库 → 不算内容变化（否则 receipt 会自己打脸自己）。 ... ok
+test_content_change_after_test_is_blocked (__main__.TimingHardGateTestCase.test_content_change_after_test_is_blocked)
+测完之后改一个字节 → 必须拦（严格性不能因为解死结而丢掉）。 ... ok
+test_deletion_digest_is_index_independent (__main__.TimingHardGateTestCase.test_deletion_digest_is_index_independent)
+删文件后，"未 git add"与"已提交"必须算出同一个指纹。 ... ok
+test_gap_between_anchors_blocks_until_covered (__main__.TimingHardGateTestCase.test_gap_between_anchors_blocks_until_covered)
+锚点之间超过 120 分钟的空洞 → TIMING_GAP（error）；申报补覆盖后放行。 ... ok
+test_long_span_without_timing_blocks (__main__.TimingHardGateTestCase.test_long_span_without_timing_blocks)
+活动跨度超 30 分钟而 timing 覆盖不足 → TIMING_MISSING（error）。 ... ok
+test_new_untracked_file_is_content_change (__main__.TimingHardGateTestCase.test_new_untracked_file_is_content_change)
+新增未跟踪文件也算内容变化——半截提交/漏跟踪的路由文件正是这样漏的。 ... ok
+test_predated_evidence_via_plain_attach_blocks (__main__.TimingHardGateTestCase.test_predated_evidence_via_plain_attach_blocks)
+普通 attach 一份开账前生成的证据 → EVIDENCE_PREDATES_LEDGER（先测后补账）。 ... ok
+test_activity_class_and_wait_reason_enforced (__main__.TimingTestCase.test_activity_class_and_wait_reason_enforced) ... ok
+test_checkpoint_recorded (__main__.TimingTestCase.test_checkpoint_recorded) ... ok
+test_declared_mode_forced_unmeasured (__main__.TimingTestCase.test_declared_mode_forced_unmeasured) ... ok
+test_declared_rejects_bad_rfc3339_and_negative (__main__.TimingTestCase.test_declared_rejects_bad_rfc3339_and_negative) ... ok
+test_diag_order_canonical_and_idempotent (__main__.TimingTestCase.test_diag_order_canonical_and_idempotent)
+Companion 组合下 DIAG 顺序 = canonical 序，且两次重跑逐字节相同。 ... ok
+test_exec_failure_propagates_exit_code (__main__.TimingTestCase.test_exec_failure_propagates_exit_code) ... ok
+test_exec_mode_measures_monotonic (__main__.TimingTestCase.test_exec_mode_measures_monotonic) ... ok
+test_fixture_run_skips_clock_gates_but_renders_breakdown (__main__.TimingTestCase.test_fixture_run_skips_clock_gates_but_renders_breakdown)
+fixture 回放的时钟天然双峰（历史申报时间 vs 回放时刻）——时钟类硬门只对真实 run ... ok
+test_schema_major_mismatch_rejected (__main__.TimingTestCase.test_schema_major_mismatch_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 215 tests in 68.782s
+
+OK
+
