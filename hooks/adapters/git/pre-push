@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# plan-test git pre-push 适配器：push 前核对工作区里每个 run 账本的机器门状态。
+#
+# 定位（hooks/README.md 锚点 × harness 矩阵）：harness 无关的第二硬锚点。本项目纪律是
+# "代理只 commit、push 由业主亲手执行"，所以本钩子跑在代理循环之外，外部性接近 CI；
+# 任何 harness（Claude Code / Codex / 手工）产生的失败账本都推不出去。
+#
+# 检查逻辑与 stop-gate-check.sh 同构（判定一律交给 gate 脚本，钩子不解读账本字段）：
+#   - 无 gate 记账物 → 秒放行（DIRECT、纯问答仓库不受影响）
+#   - 账本识别按**内容形状**（gate_scan.py），不靠文件名/目录名——两者各被独立审计打穿过一次
+#   - 用户已 acknowledge（绑定批准原话 hash、写入 integrity 链）→ 放行该 run
+#   - fixture_only 账本 → 直接 FAIL：check-only 对它同样返回 0，只看退出码会被
+#     "给 manifest 加一个字段"整个绕过（独立审计实测），必须直查字段
+#   - finalize --check-only FAIL 且非正当退役（retire-status 由 gate 判）→ FAIL
+#   - 任一 FAIL → 非零退出，git 中止 push
+#
+# 与 Stop hook 的差异（有意为之）：
+#   - 无输出预算/指纹去重/死循环断路器——push 由人手动执行、频率低，每次都值得看全量结论；
+#     也**没有**"连按 N 次放行"的口子，这里放行只有 retire / acknowledge 两条正路。
+#   - 不查 HALVES（有 manifest 没账本的半截 init）——那属于"压根不建账本"一列的变体，
+#     由 CI 按改动面反查（tier_check.py）兜，见 hooks/README.md 能力矩阵。
+#
+# 已知残余（如实声明）：`git push --no-verify` 可整体跳过本钩子。pre-push 挡的是
+# "顺手推出去"，不是存心绕过——后者只有 CI 能挡。
+#
+# 安装：同目录 install-pre-push.sh <目标仓库路径>。退出码：0 放行 / 1 阻止。
+
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+# gate 脚本查找：候选列表与 stop-gate-check.sh 保持一致（改这里请两边同步）。
+# 插件 cache 兜底：git 钩子上下文没人注入 CLAUDE_PLUGIN_ROOT，skill 只以插件安装时全靠它。
+PLUGIN_CACHE_GATE="$(ls -1d "$HOME"/.claude/plugins/cache/*/plan-test/*/skills/plan-test/scripts/plan_test_gate.py 2>/dev/null | sort -V | tail -1)"
+GATE=""
+for cand in \
+  "${CLAUDE_PLUGIN_ROOT:-}/skills/plan-test/scripts/plan_test_gate.py" \
+  "skills/plan-test/scripts/plan_test_gate.py" \
+  ".claude/plugins/plan-test/skills/plan-test/scripts/plan_test_gate.py" \
+  "${PLAN_TEST_GATE:-}" \
+  "$HOME/.claude/skills/plan-test/scripts/plan_test_gate.py" \
+  "$HOME/.claude/plugins/plan-test/skills/plan-test/scripts/plan_test_gate.py" \
+  "${PLUGIN_CACHE_GATE:-}"
+do
+  [ -n "$cand" ] && [ -f "$cand" ] && GATE="$cand" && break
+done
+[ -z "$GATE" ] && exit 0   # 哪里都没装 gate 脚本：不是本钩子的管辖范围
+
+PY="$(command -v python3 || command -v python)"
+[ -z "$PY" ] && exit 0
+
+# 扫描器查找：install-pre-push.sh 会把 gate_scan.py 复制到本脚本同目录（.git/hooks/）
+PLUGIN_CACHE_SCAN="$(ls -1d "$HOME"/.claude/plugins/cache/*/plan-test/*/hooks/gate_scan.py 2>/dev/null | sort -V | tail -1)"
+SCANNER=""
+for cand in "$(dirname "$0")/gate_scan.py" "hooks/gate_scan.py" ".claude/hooks/gate_scan.py" \
+            "$HOME/.claude/hooks/gate_scan.py" "${PLUGIN_CACHE_SCAN:-}"
+do
+  [ -f "$cand" ] && SCANNER="$cand" && break
+done
+[ -z "$SCANNER" ] && exit 0
+
+LEDGERS="$("$PY" "$SCANNER" 2>/dev/null | sed -n '/^LEDGERS$/,/^HALVES$/p' | sed '1d;$d')"
+
+FAILED=0
+BRIEF=""
+
+while IFS= read -r led; do
+  [ -z "$led" ] && continue
+  dir="$(dirname "$led")"
+
+  # 用户已显式放弃这一轮（acknowledge，判定交给 gate）：不拦。
+  if "$PY" "$GATE" ack-status --run-dir "$dir" >/dev/null 2>&1; then
+    continue
+  fi
+
+  # fixture-only 账本不能被推上交付路径（直查字段，理由见文件头）。
+  if "$PY" -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1],encoding='utf-8')).get('fixture_only') else 1)" "$led" 2>/dev/null; then
+    FAILED=1
+    BRIEF="$BRIEF
+  · $dir —— fixture-only（合成数据），不能作为交付证据推送：确属演练请移出工作区，真实交付请用 fixture_only=false 重新 init。"
+    continue
+  fi
+
+  if "$PY" "$GATE" finalize --run-dir "$dir" --check-only >/dev/null 2>&1; then
+    continue
+  fi
+  # 经 CLI 正当退役（继任 run 已 SHIPPABLE 且覆盖 required 场景）→ 放行；判定交给 gate。
+  if "$PY" "$GATE" retire-status --run-dir "$dir" >/dev/null 2>&1; then
+    continue
+  fi
+  FAILED=1
+  line="$("$PY" "$GATE" summary --run-dir "$dir" 2>&1 | head -n 1)"
+  BRIEF="$BRIEF
+  · $dir —— $line"
+done <<EOF
+$LEDGERS
+EOF
+
+[ "$FAILED" -eq 0 ] && exit 0
+
+{
+  echo "plan-test 机器门（pre-push）：存在未闭环的 run 账本，push 已中止。"
+  echo "$BRIEF"
+  echo ""
+  echo "怎么处理："
+  echo "  1) 活动轮：按诊断补测/补证据（全文：$PY $GATE finalize --run-dir <run-dir> --check-only）。"
+  echo "  2) 历史轮：retire --superseded-by <已 SHIPPABLE 的继任轮>；或用户拍板后"
+  echo "     acknowledge --run-dir <run-dir> --reason \"…\" --approval-hash <用户批准原话的 sha256>。"
+} >&2
+exit 1

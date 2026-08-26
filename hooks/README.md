@@ -3,8 +3,11 @@
 `gate/PROTOCOL.md` 的 validator 只在**被调用时**才存在。Markdown 里写一百遍"必须跑
 finalize"，也挡不住一个想尽快收尾的代理直接不跑——这是整套门禁最大的单点缺口。
 
-本目录提供两种把调用变成强制的方式。**至少启用一种**，否则请在交付说明里如实写明
-"机器门为自愿调用"。
+本目录提供三种把调用变成强制的方式（锚点）。**至少启用一种**，否则请在交付说明里如实写明
+"机器门为自愿调用"。裁决层（账本 + gate 脚本）本身 harness 中立；三个锚点按外部性排序：
+**CI（最硬，跑在代理够不着的地方）> git pre-push（harness 无关；本项目纪律是"代理只 commit、
+push 由业主亲手执行"，所以它跑在代理循环外，外部性接近 CI）> harness 原生钩子（每家一个
+适配器，进程内，最弱）**。
 
 ## 方式 A：Claude Code Stop hook（本地开发时）
 
@@ -137,20 +140,49 @@ jobs:
 在 CI 的干净 checkout 上会因 `TESTED_RUNTIME_MISMATCH` 而失败，那是预期行为，不是 bug。
 要在 CI 校验完整交付，改为核对提交进仓库的 `gate-receipt.json` 的 `head` 是否等于该次提交。
 
-## 这两种方式各自堵住什么
+## 方式 C：git pre-push（harness 无关，`adapters/git/`）
+
+`adapters/git/pre-push`：push 前对工作区每个 run 账本跑 `finalize --check-only`，任一 FAIL
+（且非正当 retire / acknowledge）即中止 push；`fixture_only` 字段额外直查（理由同 Stop hook）。
+识别复用 `gate_scan.py`（按内容形状），gate 脚本查找候选列表与 `stop-gate-check.sh` 一致。
+没有输出预算与死循环断路器——push 由人手动执行、频率低，放行只有 retire / acknowledge 两条正路。
+
+安装（先确认目标仓库全部账本能过 check-only，否则装上即堵死自己的 push）：
+
+```bash
+hooks/adapters/git/install-pre-push.sh <目标仓库路径>   # 尊重 core.hooksPath 与 worktree
+git push --dry-run                                      # 验证（不真推）
+```
+
+已知残余：`git push --no-verify` 可整体跳过。pre-push 挡"顺手推出去"，不挡存心绕过——
+后者只有 CI 能挡。
+
+## 各锚点堵住什么
 
 | | 建了账本却不闭环 | 压根不建账本 | 账本自相矛盾 | fixture 冒充交付 | 伪造证据 |
 |---|---|---|---|---|---|
 | 只有 Markdown 规则 | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Stop hook | ✓（除非经守卫校验的正当退役） | **✗** | ✓ | ✓ | ✗ |
-| CI | ✓ | **✗** | ✓ | ✓ | ✗ |
+| git pre-push | ✓（同上；`--no-verify` 是已知残余） | **✗**（tier_check 例外，见下） | ✓ | ✓ | ✗ |
+| CI | ✓ | ✓（需项目配 `plan-test-risk.globs`，由 `tier_check.py` 按改动面反查） | ✓ | ✓ | ✗ |
 
-两列必须如实标 ✗：
+## 锚点 × harness
 
-- **压根不建账本**：hook 只在仓库里存在 gate 记账物时才生效（全仓按内容查找，不限目录）。代理若判成
-  DIRECT（或干脆不开账本）直接收尾，hook 无感。要堵这一列，只能在项目侧规定"什么改动必须开账本"
-  并由 CI 按改动面反查（例如：diff 命中 `src/routes/**` 却没有新 run 账本即 FAIL）——
-  本目录不提供该规则，因为它依赖项目结构。
+规则正文只在 skill 目录一份；每个 harness 只接强制层适配器，不复制规则。
+
+| 锚点 | Claude Code | Codex | 任意 harness / 手工 |
+|---|---|---|---|
+| CI（方式 B + tier_check） | ✓ | ✓ | ✓ |
+| git pre-push（方式 C） | ✓ | ✓ | ✓（`--no-verify` 残余） |
+| harness 原生钩子（方式 A） | ✓ 阻断式 Stop hook | **✗** 只有通知型 `notify`，装不上——不影响门的成立，靠上面两行兜 | 视各家能力 |
+
+"压根不建账本"一列必须如实说明：
+
+- hook 与 pre-push 只在仓库里存在 gate 记账物时才生效（全仓按内容查找，不限目录）。代理若判成
+  DIRECT（或干脆不开账本）直接收尾，两者无感。堵法是在项目侧声明"什么改动必须开账本"
+  （项目根 `.claude/plan-test-risk.globs`），由 CI 用 `skills/plan-test/scripts/tier_check.py`
+  按改动面反查：diff 命中高风险 glob 却没有新建/更新的 run 账本即 FAIL。glob 内容依赖
+  项目结构，本目录只提供机制不提供规则。
 - **伪造证据**：截图/日志由代理自己生产，门只能校验它没被事后改动。
 
 **已退役的历史 run 会被跳过，但退役本身有守卫**：hook 先跑 `finalize --check-only`，失败后才

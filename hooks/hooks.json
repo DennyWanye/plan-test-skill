@@ -1,0 +1,16 @@
+{
+  "description": "plan-test 机器门的 Claude Code 强制层：装插件即挂 Stop hook（无 gate 记账物的会话实测 0.04s 放行）。gate 脚本经 ${CLAUDE_PLUGIN_ROOT} 候选路径解析，见 stop-gate-check.sh 头注释。",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-gate-check.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

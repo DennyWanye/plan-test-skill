@@ -10,7 +10,7 @@
 
 1. **Release Unit 体量检查（P0-1）**：
    ```bash
-   python skills/plan-test/scripts/plan_test_gate.py check-release-unit \
+   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-release-unit \
      --acceptance <acceptance.md 路径> \
      --plan <plan.md 或 implementation-tasks.md 路径>
    ```
@@ -21,7 +21,7 @@
 
 2. **记录 Phase 转移事件**（可追溯性）：
    ```bash
-   python skills/plan-test/scripts/plan_test_gate.py phase-start \
+   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" phase-start \
      --run-dir <run-dir> \
      --phase phase-3 \
      --note "Phase 2 收敛于第 N 轮，plan hash: <hash 前 8 位>"
@@ -48,7 +48,7 @@
    - **接线与服务层同 commit（防半截提交）**：把服务层能力接到用户入口上的改动——路由文件、index 挂载、入参透传、运行时白名单——必须和服务层实现进**同一个 commit**。合并各 worktree 产出后，`git status --porcelain -- . ':(exclude)<run-dir>'` 必须为空再继续：只 `git add` 服务层、把未跟踪的路由文件留在工作树里，随后 worktree 清理/回退就会把它抹掉——留下能编译、能过类型检查、但用户路径根本没接通的"半截健康"状态。
 5. **WIP 累积检查点（P0-5 新增，每个子任务完成后必做）**：
    ```bash
-   python skills/plan-test/scripts/plan_test_gate.py check-wip-limit \
+   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-wip-limit \
      --repo-dir <仓库目录>
    ```
    - exit 0 → 继续下一个任务；
@@ -75,7 +75,7 @@
    - **立即停止受影响的执行线**（其余独立任务可继续）；
    - **记录 A2 事件（P0-4 新增，强制）**：
      ```bash
-     python skills/plan-test/scripts/plan_test_gate.py record-plan-defect \
+     python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-plan-defect \
        --run-dir <run-dir> \
        --affected-tasks <任务 ID 列表，逗号分隔> \
        --defect-type <owner-missing|contract-conflict|scope-drift|假设失败|方案方向错误> \
@@ -83,7 +83,7 @@
      ```
    - **检查 A2 累计数（强制）**：
      ```bash
-     python skills/plan-test/scripts/plan_test_gate.py check-plan-stability \
+     python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-plan-stability \
        --run-dir <run-dir>
      ```
      - A2 事件 >= 3 → exit 1，输出 `PLAN_UNSTABLE`；

@@ -1,0 +1,13 @@
+{
+  "name": "plan-test-skill",
+  "owner": {
+    "name": "DennyWanye"
+  },
+  "plugins": [
+    {
+      "name": "plan-test",
+      "source": "./",
+      "description": "plan-bs / plan-task / plan-test 三个 skill 的工作流插件，含机器门禁（唯一状态账本 + deterministic validator + gate receipt）与强制层锚点（Stop hook 随插件自动挂载；git pre-push 与 CI 锚点见 hooks/README.md）。"
+    }
+  ]
+}

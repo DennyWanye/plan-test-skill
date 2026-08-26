@@ -163,7 +163,10 @@
 > `PARTIAL/BLOCKED/NOT RUN` 时手工写出 `100% COMPLETE / SHIP`。Markdown 从此只是
 > 给人读的视图；状态 authority 是结构化账本 + deterministic validator。
 
-- `GATE_SCRIPT`: `skills/plan-test/scripts/plan_test_gate.py`
+- `GATE_SCRIPT`: `${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py`
+  - 路径解析：装为插件时 `${CLAUDE_PLUGIN_ROOT}` 由 harness 注入；在源码仓库内开发或
+    手工复制安装（未装插件）时，依次退回仓库相对路径 `skills/plan-test/scripts/plan_test_gate.py`
+    与 `~/.claude/skills/plan-test/scripts/plan_test_gate.py`。
   - canonical gate command。plan-task/plan-test 的**最终交付判定只接受**
     `python {GATE_SCRIPT} finalize --run-dir <run-dir>` 的 exit code 与结构化 stdout，
     不接受代理手写结论。没有有效 `gate-receipt.json` 的手写 SHIP/100% COMPLETE 一律视为
@@ -259,6 +262,13 @@
   - 输入语义敏感 + required UI 场景全 AI 驾驶时，须至少 1 次 `--driver human` root run，
     或 `record-approval --kind all-ai-driving --message-hash <用户批准消息 sha256>`；
     否则 `DRIVER_APPROVAL_MISSING`。`audit --engine` 必须是引擎身份（拒绝方法名）。
+- `GATE_REGISTRY_DISCIPLINE`: required（2026-08-26）
+  - 规则集只进不出是本套流程的病。**新增任何门（诊断码/检查项）必须在提交说明或
+    `gate/PROTOCOL.md` 里声明：它防的诊断码是什么、防的是哪条实测逃逸、复审日期是哪天。**
+    没有这三样的新门不许合入。
+  - 退休的数据来源：`python {GATE_SCRIPT} stats --root <repo> [--window N]`——按诊断码
+    统计全部 run 账本的触发情况，连续 N 个 run 零触发的门列为退休候选。候选只是候选：
+    退门是设计决定，须对照该门当初防的逃逸再拍板。
 
 ## 行为开关
 

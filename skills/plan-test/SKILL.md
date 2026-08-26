@@ -16,7 +16,8 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
   后者冻结保障等级、可信假设、范围内失败/对手和最大影响；challenger 不得自行扩大。
 - **机器门是唯一完成 authority**（见 `gate/PROTOCOL.md` + `config.md`"机器门禁"）：Markdown 是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `scripts/plan_test_gate.py` 重算；**最终交付判定只接受 `finalize` 的 exit code**，没有有效 `gate-receipt.json` 的手写 SHIP/100% 一律无效。qualitative auditor 负责发现未知问题，deterministic validator 负责阻止已知违规，两者不可互替。
 - **条件门的适用性判定是 fact，不是口头判断**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 gate manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），由 init 冻结进账本与 receipt。判"不适用"合法，但**理由留痕、事后可追责**；判"适用"则场景矩阵必须真的兑现，否则 `APPLICABILITY_GATE_UNSATISFIED`。此前判一句"这是确定性 UI"就能让四道门合法消失且无人知晓。
-- **机器门要真的被调用才存在**：`hooks/` 提供 Stop hook 与 CI 片段，把"必须跑 finalize"从纪律变成强制。未启用任一种时，交付说明里要如实写"机器门为自愿调用"。
+- **机器门要真的被调用才存在**：`hooks/` 提供 Stop hook、git pre-push 适配器与 CI 片段（三个锚点按外部性排序，见 `hooks/README.md`），把"必须跑 finalize"从纪律变成强制。未启用任一种时，交付说明里要如实写"机器门为自愿调用"。
+- **门禁登记纪律（防规则集只进不出）**：新增任何门必须声明它防的诊断码、防的实测逃逸和复审日期（见 `config.md` `GATE_REGISTRY_DISCIPLINE`）；退休评审的数据来源是 `plan_test_gate.py stats`。
 - **每个声明可验证**：不说"看起来做完了"，而是逐条核对可追溯矩阵。
 - **testcase 是项目资产，不是一次性产物**：设计用例前先读取 `{TESTCASE_DIR}/index.md` 与
   机器 inventory，再阅读候选用例原文并记录 reuse decision；可直接复用就不重复创建，

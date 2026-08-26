@@ -31,6 +31,15 @@ import sys
 import tempfile
 import time
 
+# Windows 中文系统 console 默认 GBK，中文诊断输出会乱码（无害但难读）。guarded：
+# reconfigure 是 3.7+ 的 TextIOWrapper 方法，stdout 被替换/捕获时可能没有——失败就算了，
+# 门的判定从不依赖 console 编码。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 SCHEMA_VERSION = "1.5.0"
 VALIDATOR_VERSION = "1.5.0"
 FIXTURE_EXIT = 3  # fixture-only run 通过：与真实交付的 exit 0 分开，堵"设个字段就绿"
@@ -2450,6 +2459,12 @@ def cmd_phase_event(args, action):
               "at": _utc_iso(time.time())}
         if action == "end":
             ev["status"] = args.status
+            # T6 遥测（自报，不参与任何门判定）：本阶段派发的子代理数与轮次数。
+            # 目的：给 LEAN 档的压缩效果攒实测数据，render 的"本 run 开销表"聚合它们。
+            if getattr(args, "subagents", None) is not None:
+                ev["subagents"] = int(args.subagents)
+            if getattr(args, "rounds", None) is not None:
+                ev["rounds"] = int(args.rounds)
         if getattr(args, "note", None):
             ev["note"] = args.note
         ledger.setdefault("events", []).append(ev)
@@ -2716,6 +2731,52 @@ def cmd_finalize(args):
     sys.exit(0)
 
 
+def _parse_iso_ts(s):
+    """容错解析账本时间戳（Z / +0800 / +08:00 都可能出现）；解析不动返回 None。"""
+    if not s:
+        return None
+    s2 = str(s).replace("Z", "+00:00")
+    m = re.match(r"^(.*[+-]\d{2})(\d{2})$", s2)
+    if m:
+        s2 = m.group(1) + ":" + m.group(2)
+    try:
+        from datetime import datetime as _dt
+        return _dt.fromisoformat(s2).timestamp()
+    except ValueError:
+        return None
+
+
+def _phase_cost_rows(ledger):
+    """T6 遥测聚合：阶段 × 事件跨度 × timing 实测 × 子代理派发数 × 轮次数。
+
+    数据全部来自账本已有事实：phase-start/end 配对给跨度，timing 的 phase 字段给实测耗时，
+    phase-end 的 subagents/rounds 是自报遥测。只读聚合，不参与任何门判定。
+    """
+    spans, opens, order = {}, {}, []
+    for e in ledger.get("events") or []:
+        if e.get("type") != "phase":
+            continue
+        ph = e.get("phase") or "?"
+        if ph not in spans:
+            spans[ph] = {"span_ms": 0, "subagents": 0, "rounds": 0}
+            order.append(ph)
+        if e.get("action") == "start":
+            opens[ph] = e.get("at")
+        elif e.get("action") == "end":
+            t0 = _parse_iso_ts(opens.pop(ph, None))
+            t1 = _parse_iso_ts(e.get("at"))
+            if t0 is not None and t1 is not None and t1 >= t0:
+                spans[ph]["span_ms"] += int((t1 - t0) * 1000)
+            spans[ph]["subagents"] += int(e.get("subagents") or 0)
+            spans[ph]["rounds"] += int(e.get("rounds") or 0)
+    timing = {}
+    for t in ledger.get("timing") or []:
+        if t.get("measured"):
+            ph = t.get("phase") or "?"
+            timing[ph] = timing.get(ph, 0) + int(t.get("elapsed_ms") or 0)
+    return order, spans, timing
+
+
 def cmd_render(args):
     ledger = load_ledger(args.run_dir)
     fixture = bool(ledger.get("fixture_only"))
@@ -2876,6 +2937,22 @@ def cmd_render(args):
         for d in diags:
             tag = "" if d.severity == "error" else "（advisory，不拦截）"
             lines.append("- %s%s: %s" % (d.code, tag, d.detail))
+    order, spans, timing_by_phase = _phase_cost_rows(ledger)
+    if order:
+        lines.append("")
+        lines.append("## 本 run 开销表（阶段 × 耗时 × 子代理数）")
+        lines.append("")
+        lines.append("| 阶段 | 事件跨度(min) | timing 实测(min) | 子代理派发 | 轮次 |")
+        lines.append("|---|---|---|---|---|")
+        for ph in order:
+            s = spans[ph]
+            lines.append("| %s | %.1f | %.1f | %d | %d |" % (
+                ph, s["span_ms"] / 60000.0, timing_by_phase.get(ph, 0) / 60000.0,
+                s["subagents"], s["rounds"]))
+        lines.append("")
+        lines.append("> 遥测口径：跨度=配对 phase-start/end 时间差合计；实测=该阶段 measured "
+                     "timing；子代理/轮次=phase-end --subagents/--rounds 自报（未报=0）。"
+                     "供 LEAN 档压缩效果比对，不参与门判定。")
     if fixture:
         lines.append("")
         lines.append("> FIXTURE-ONLY run：本报告不可作为真实交付证据。")
@@ -3131,6 +3208,143 @@ def cmd_summary(args):
         parts.append("已确认放弃")
     print(" | ".join(parts))
     sys.exit(0 if not blockers else 1)
+
+
+def _stats_scan_ledgers(root):
+    """按内容形状全仓找账本（判据与 hooks/gate_scan.py 一致：四键 JSON）。
+
+    stats 是只读报表，不需要 ACTIVE/HALVES 段，所以不依赖 hooks/ 目录——skill 目录
+    被单独复制安装（无 hooks/）时 stats 也要能跑。
+    """
+    def git_lines(extra):
+        try:
+            out = subprocess.run(["git", "-C", root, "ls-files"] + extra,
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        return out.stdout.splitlines() if out.returncode == 0 else []
+
+    cands = [p for p in git_lines(["-c", "-o", "--exclude-standard"]) if p.endswith(".json")]
+    for p in git_lines(["-o", "-i", "--exclude-standard", "--", "plans/"]):
+        if p.endswith(".json") and "/verification/" in p.replace(os.sep, "/"):
+            cands.append(p)
+    seen, found = set(), []
+    for rel in cands:
+        norm = rel.replace(os.sep, "/")
+        if norm in seen or "/fixtures/" in norm or norm.startswith("fixtures/"):
+            continue
+        seen.add(norm)
+        path = os.path.join(root, rel)
+        try:
+            if os.path.getsize(path) > 8 * 1024 * 1024:
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                obj = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(obj, dict) and all(
+                k in obj for k in ("schema_version", "run_id", "scenarios", "integrity")):
+            found.append((norm, obj))
+    return found
+
+
+def _stats_last_activity(root, rel, ledger):
+    """run 的最后活动时间：integrity 链最后一条的 at，退回文件 mtime。"""
+    chain = (ledger.get("integrity") or {}).get("chain") or []
+    ats = [e.get("at") for e in chain if isinstance(e, dict) and e.get("at")]
+    if ats:
+        return max(ats)
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%S%z",
+                             time.localtime(os.path.getmtime(os.path.join(root, rel))))
+    except OSError:
+        return ""
+
+
+def cmd_stats(args):
+    """规则退休的数据来源（T4）：哪些门在实际 run 里做过工，哪些从没拦过任何东西。
+
+    口径（如实声明）：诊断没有历史留痕，本表是对每个账本**当前状态**按
+    `finalize --check-only` 同一路径重算——它回答"今天这些门各拦着谁"，不是
+    "历史上每次 CLI 调用各触发过什么"。已闭环的 run 通常贡献为零（HEAD 前移会带出
+    TESTED_RUNTIME_MISMATCH 一类噪音，属数据本身的形状，不在这里修饰）。
+    退休候选只是候选：退掉一个门是设计决定，须对照它当初防的逃逸（config.md 纪律：
+    新增任何门必须声明它防的诊断码和复审日期）。
+    """
+    rows = _stats_scan_ledgers(args.root)
+    runs, skipped = [], []
+    for rel, ledger in rows:
+        run_dir = os.path.join(args.root, os.path.dirname(rel))
+        try:
+            diags, _ = validate(run_dir, ledger, mode="check-only",
+                                fixture=bool(ledger.get("fixture_only")))
+        except (Exception, SystemExit) as e:  # 老 schema 账本可能算不动：如实跳过，不装作零触发
+            skipped.append((rel, "%s: %s" % (type(e).__name__, e)))
+            continue
+        runs.append({
+            "rel": rel,
+            "run_id": ledger.get("run_id") or os.path.dirname(rel),
+            "at": _stats_last_activity(args.root, rel, ledger),
+            "receipt": load_receipt(run_dir) is not None,
+            "codes": sorted({d.code for d in diags}),
+            "n_diags": len(diags),
+        })
+    runs.sort(key=lambda r: r["at"])
+
+    window = max(args.window, 1)
+    recent = runs[-window:]
+    stats = {}
+    for r in runs:
+        for c in r["codes"]:
+            s = stats.setdefault(c, {"runs": 0, "last_at": "", "last_run": ""})
+            s["runs"] += 1
+            if r["at"] >= s["last_at"]:
+                s["last_at"], s["last_run"] = r["at"], r["run_id"]
+    known = list(CANONICAL_ORDER)
+    for c in stats:  # 目录之外新造的码也要进表，不静默丢
+        if c not in known:
+            known.append(c)
+    recent_codes = {c for r in recent for c in r["codes"]}
+    candidates = [c for c in known if c not in recent_codes] if len(runs) >= window else []
+
+    if args.as_json:
+        print(json.dumps({
+            "runs_scanned": len(runs), "runs_skipped": len(skipped),
+            "receipts": sum(1 for r in runs if r["receipt"]),
+            "window": window, "per_code": stats,
+            "retirement_candidates": candidates,
+            "skipped": [{"path": p, "error": e} for p, e in skipped],
+        }, ensure_ascii=False, indent=1))
+        return
+
+    print("plan-test gate stats：%d 个 run 账本（receipt %d 个%s），退休窗口=最近 %d 个 run"
+          % (len(runs), sum(1 for r in runs if r["receipt"]),
+             "，%d 个解析失败跳过" % len(skipped) if skipped else "", window))
+    print("口径：各账本当前状态按 check-only 重算（诊断无历史留痕），不是逐次调用的流水。")
+    if not runs:
+        print("没有可统计的账本。")
+        return
+    print()
+    print("%-38s %8s %10s  %s" % ("诊断码", "触发run数", "最后触发", "最后所在 run"))
+    for c in sorted(stats, key=lambda c: (-stats[c]["runs"], c)):
+        s = stats[c]
+        print("%-38s %8d %10s  %s" % (c, s["runs"], (s["last_at"] or "-")[:10], s["last_run"]))
+    zero = [c for c in known if c not in stats]
+    if zero:
+        print()
+        print("全史零触发（%d）：%s" % (len(zero), ", ".join(zero)))
+    print()
+    if len(runs) < window:
+        print("退休候选：样本不足（%d 个 run < 窗口 %d），不出结论。" % (len(runs), window))
+    elif candidates:
+        print("退休候选（最近 %d 个 run 零触发，共 %d 个）：" % (window, len(candidates)))
+        for c in candidates:
+            print("  · %s" % c)
+        print("退休前须对照该门当初防的逃逸与复审日期（config.md 门禁登记纪律）。")
+    else:
+        print("退休候选：无——最近 %d 个 run 里每个已知诊断码都触发过。" % window)
+    for p, e in skipped:
+        print("跳过 %s（%s）" % (p, e), file=sys.stderr)
 
 
 def cmd_invalidate(args):
@@ -4868,6 +5082,10 @@ def main(argv=None):
     p.add_argument("--run-dir", required=True)
     p.add_argument("--phase", required=True)
     p.add_argument("--status", default="ok", choices=["ok", "blocked", "abandoned"])
+    p.add_argument("--subagents", type=int,
+                   help="遥测（自报）：本阶段派发的子代理数；render 开销表聚合，不参与门判定")
+    p.add_argument("--rounds", type=int,
+                   help="遥测（自报）：本阶段实际轮次数")
     p.add_argument("--note")
     p.set_defaults(fn=lambda a: cmd_phase_event(a, "end"))
 
@@ -4945,6 +5163,15 @@ def main(argv=None):
                        help="一行摘要（hook/CI 压缩输出用）；退出码同 finalize --check-only")
     p.add_argument("--run-dir", required=True)
     p.set_defaults(fn=cmd_summary)
+
+    p = sub.add_parser("stats",
+                       help="规则退休的数据来源：扫描全部 run 账本与 receipt，按诊断码统计"
+                            "触发情况；连续 N 个 run 零触发的门列为退休候选（只报表，不改状态）")
+    p.add_argument("--root", default=".", help="仓库根目录（缺省当前目录）")
+    p.add_argument("--window", type=int, default=5,
+                   help="退休候选窗口：最近 N 个 run 零触发（默认 5）")
+    p.add_argument("--json", action="store_true", dest="as_json", help="机器可读输出")
+    p.set_defaults(fn=cmd_stats)
 
     p = sub.add_parser("invalidate")
     p.add_argument("--run-dir", required=True)

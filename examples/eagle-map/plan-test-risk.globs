@@ -1,0 +1,19 @@
+# plan-test 高风险改动面声明（tier_check.py 的输入）
+# 一行一个 glob：** 跨目录，* / ? 不跨 /。命中下列路径的 diff 必须伴随
+# 新建/更新的 run 账本，否则 CI 的 tier_check step FAIL。
+# 安装位置：仓库根 .claude/plan-test-risk.globs
+
+# 数据库结构
+database/migrations/**
+
+# 路由面
+routes/**
+
+# 容器装配与全局配置
+app/Providers/**
+config/**
+
+# 凭据/支付面（stores.credentials 落点与全部平台客户端，2026-08-26 现场对照）
+app/Models/Store.php
+app/Services/Platforms/**
+app/Services/Selection/AmazonCredentials.php

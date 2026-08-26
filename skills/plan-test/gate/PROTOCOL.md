@@ -25,7 +25,7 @@
 ## 2. canonical command（唯一判定入口）
 
 ```bash
-python skills/plan-test/scripts/plan_test_gate.py finalize --run-dir <run-dir>
+python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" finalize --run-dir <run-dir>
 ```
 
 - plan-task/plan-test 的最终交付判定**只接受本命令的 exit code 与结构化 stdout**，不接受代理手写结论。
@@ -213,7 +213,7 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 8c. **`retire`：被取代的历史 run 的唯一合法退场方式**，且必须有继任者。
 
    ```bash
-   python skills/plan-test/scripts/plan_test_gate.py retire --run-dir OLD \
+   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" retire --run-dir OLD \
      --reason "已被 slice-a/b 取代" --superseded-by NEW
    ```
 
@@ -236,7 +236,7 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 8d. **`acknowledge`：用户显式放弃一轮验证**（第二条出口，2026-08-09 加）。
 
    ```bash
-   python skills/plan-test/scripts/plan_test_gate.py acknowledge --run-dir OLD \
+   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" acknowledge --run-dir OLD \
      --reason "<用户为什么放弃>" --approval-hash <用户批准原话的 sha256>
    ```
 
@@ -260,7 +260,7 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
    现在：
 
    ```bash
-   python skills/plan-test/scripts/plan_test_gate.py re-attest --run-dir D --reason "文档回写"
+   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" re-attest --run-dir D --reason "文档回写"
    ```
 
    - 变更集**全部**命中文档白名单 → 记 `doc-only`，既有测试结论继续有效。白名单默认只认

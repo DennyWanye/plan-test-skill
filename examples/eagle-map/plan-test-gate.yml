@@ -1,0 +1,71 @@
+# plan-test 机器门 CI 锚点（hooks/README.md 方式 B + tier_check）。
+# 安装位置：目标仓库 .github/workflows/plan-test-gate.yml
+#
+# 启用前置条件（handoff R1）：仓库全部账本能过 finalize --check-only，或已正当
+# retire / acknowledge——否则本 workflow 装上即红。
+#
+# 本仓库未 vendor skill 目录，所以第二个 checkout 拉 skill 仓库。ref 必须 pin 到
+# commit SHA（追 HEAD = 门的定义可被上游改动悄悄替换）；升级门 = 有意识地改这行。
+name: plan-test gate
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tier_check 需要 merge-base
+      - uses: actions/checkout@v4
+        with:
+          repository: DennyWanye/plan-test-skill
+          ref: PIN_TO_COMMIT_SHA   # ← 装的时候替换成已推送的 skill 仓库 commit SHA
+          path: .plan-test-skill
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: gate self-test
+        run: python .plan-test-skill/skills/plan-test/scripts/test_plan_test_gate.py
+
+      - name: verify every run ledger (shape-scan + check-only)
+        run: |
+          set -eu
+          # skill 仓库的 checkout 是未跟踪目录，会被 gate_scan 的 ls-files -o 扫进来
+          # （里面有它自己的 plans/ 账本）——排除掉，只审本仓库的账本。
+          echo ".plan-test-skill/" >> .git/info/exclude
+          GATE=.plan-test-skill/skills/plan-test/scripts/plan_test_gate.py
+          ledgers=$(python .plan-test-skill/hooks/gate_scan.py \
+                    | sed -n '/^LEDGERS$/,/^HALVES$/p' | sed '1d;$d')
+          [ -n "$ledgers" ] || { echo "无 run 账本（DIRECT 不建账本），跳过"; exit 0; }
+          fail=0
+          while IFS= read -r led; do
+            [ -n "$led" ] || continue
+            dir=$(dirname "$led")
+            echo "::group::$dir"
+            # 出口顺序与 pre-push 适配器同构：acknowledge → fixture 直查 → check-only → retire
+            if python "$GATE" ack-status --run-dir "$dir" >/dev/null 2>&1; then
+              echo "已 acknowledge（用户显式放弃），跳过"
+            elif python -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1],encoding='utf-8')).get('fixture_only') else 1)" "$led" 2>/dev/null; then
+              echo "fixture-only 账本不能出现在交付路径上"; fail=1
+            elif python "$GATE" finalize --run-dir "$dir" --check-only; then
+              :
+            elif python "$GATE" retire-status --run-dir "$dir" >/dev/null 2>&1; then
+              echo "已正当退役（继任 run SHIPPABLE），跳过"
+            else
+              fail=1
+            fi
+            echo "::endgroup::"
+          done <<EOF
+          $ledgers
+          EOF
+          exit $fail
+
+      - name: tier check (high-risk diff must carry a ledger)
+        if: github.event_name == 'pull_request'
+        run: |
+          python .plan-test-skill/skills/plan-test/scripts/tier_check.py \
+            --base "${{ github.event.pull_request.base.sha }}"

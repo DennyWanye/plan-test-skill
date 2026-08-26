@@ -21,7 +21,7 @@
 ## 设计原则
 
 - **机器门是唯一完成 authority**：Markdown 规则是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `skills/plan-test/scripts/plan_test_gate.py`（deterministic validator）重算；最终交付判定只接受 `finalize` 的 exit code 与 `gate-receipt.json`（**exit 0 = 交付通过；exit 3 = fixture-only 通过，不可交付**），没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为 `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。稳定诊断码、状态机与 run 目录契约见 `skills/plan-test/gate/PROTOCOL.md`；当前 schema 见 `skills/plan-test/schemas/plan-test-run.schema.json`；完整自测使用 unittest discovery。
-- **门要被调用才存在**：`hooks/` 提供 Stop hook 与 CI 片段，把"必须跑 finalize"从纪律变成强制。两者都不启用时，请如实说明机器门为自愿调用——Markdown 里写"必须跑"不构成强制。
+- **门要被调用才存在**：`hooks/` 提供三个强制层锚点——CI（最硬）、git pre-push（harness 无关）、harness 原生钩子（Claude Code Stop hook 随插件自动挂载；Codex 无阻断钩子，靠前两者兜），把"必须跑 finalize"从纪律变成强制。一个都不启用时，请如实说明机器门为自愿调用——Markdown 里写"必须跑"不构成强制。锚点 × harness 矩阵见 `hooks/README.md`。
 - **适用性判定入账**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），冻结进账本与 receipt。判「不适用」合法但留痕可追责；判「适用」则场景矩阵必须真的兑现（`APPLICABILITY_GATE_UNSATISFIED`）。此前判一句"这是确定性 UI"就能让场景矩阵、正向价值、随机采样、冷启动四道门合法消失且无人知晓。
 - **账本只能经 CLI 写**：每次写入追加 integrity 链，手改一行 `runs[].result` → `LEDGER_TAMPERED`（防顺手改，不防有决心的伪造）。审计产物里的 verdict 与命令行不一致 → 直接拒绝；`--engine` 与 executor 相同 → advisory 曝光自审自判。
 - **风险路径（`FLOW_TIER`）**：DIRECT（不启动重流程）/ LEAN（单切面）/ FULL（高风险全套）。
@@ -38,18 +38,30 @@
 
 ## 安装
 
-### 方式 A：本地目录加载
+本仓库自带 `.claude-plugin/marketplace.json`，本身就是一个 marketplace。
 
-把本仓库 clone 到本地，在交互式 `claude` 终端用 `/plugin` 加载这个插件目录。
+### 方式 A：从 GitHub 安装（推荐）
 
 ```bash
-git clone https://github.com/DennyWanye/<repo>.git
-# 然后在 claude 里 /plugin → 加载本地插件 → 选中该目录
+claude plugin marketplace add DennyWanye/plan-test-skill
+claude plugin install plan-test@plan-test-skill
 ```
 
-### 方式 B：作为 marketplace 插件
+### 方式 B：从本地 clone 安装（开发/离线）
 
-把本仓库加入你的插件 marketplace 仓库后，通过 `/plugin` 搜索安装。
+```bash
+git clone https://github.com/DennyWanye/plan-test-skill.git
+claude plugin marketplace add ./plan-test-skill
+claude plugin install plan-test@plan-test-skill
+```
+
+装插件即挂 Stop hook（`hooks/hooks.json`，无 gate 记账物的会话实测 0.04s 放行）。
+注意：安装是**快照**（复制到 `~/.claude/plugins/cache/`），仓库更新后要
+`claude plugin update plan-test@plan-test-skill`（同版本号不刷新，必要时先 uninstall 再 install）。
+git pre-push 与 CI 锚点不随插件自动启用，见 `hooks/README.md`。
+
+不想装插件也可以手工复制 `skills/` 下三个目录到 `~/.claude/skills/`——但 Stop hook
+需要按 `hooks/README.md` 自行挂到 settings.json，且两种安装别同时存在（会漂移）。
 
 ## 使用
 

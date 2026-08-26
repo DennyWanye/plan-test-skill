@@ -8,7 +8,7 @@
 contract、scope hash、threat-model hash 和 plan baseline：
 
 ```bash
-loop_id=$(python3 skills/plan-test/scripts/plan_test_gate.py start-challenge-loop \
+loop_id=$(python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" start-challenge-loop \
   --run-dir <run-dir> \
   --loop-type plan-iteration \
   --orchestration clustered \
@@ -20,7 +20,7 @@ loop_id=$(python3 skills/plan-test/scripts/plan_test_gate.py start-challenge-loo
 每轮挑战前调用：
 
 ```bash
-python3 skills/plan-test/scripts/plan_test_gate.py check-loop-limit \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-loop-limit \
   --run-dir <run-dir> \
   --loop-id $loop_id
 ```
@@ -44,14 +44,14 @@ open P0/P1、出现新主要结构根因或需要 architecture reset，立即升
 主 agent 将其唯一 JSON 输出中的 `round` 与 `clusters` 原样拆成两个文件，先后入账：
 
 ```bash
-python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-round \
   --run-dir <run-dir> \
   --loop-id $loop_id \
   --round 1 \
   --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) \
   --findings primary-round.json
 
-python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-clusters \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-clusters \
   --run-dir <run-dir> \
   --loop-id $loop_id \
   --input primary-clusters.json
@@ -67,7 +67,7 @@ Gate 校验 coverage、finding ID、AC/assurance binding、parent finding、plan
 和 `required_evidence`；最多同时运行 4 个，超出时分批。每项完成后立即入账：
 
 ```bash
-python3 skills/plan-test/scripts/plan_test_gate.py record-specialist-challenge \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-specialist-challenge \
   --run-dir <run-dir> \
   --loop-id $loop_id \
   --cluster-id <cluster-id> \
@@ -79,7 +79,7 @@ python3 skills/plan-test/scripts/plan_test_gate.py record-specialist-challenge \
 确需跳过时必须取得用户明确批准并记录原始消息 hash：
 
 ```bash
-python3 skills/plan-test/scripts/plan_test_gate.py record-specialist-challenge \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-specialist-challenge \
   --run-dir <run-dir> --loop-id $loop_id \
   --cluster-id <cluster-id> --status waived \
   --waiver-reason "<reason>" --approval-hash <64-char-message-sha256>
@@ -92,7 +92,7 @@ reviewer 投票。按 stable ID/结构根因去重，裁决冲突，并把结论
 spike 或 scope-change proposal。生成 synthesis JSON 后入账：
 
 ```bash
-python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-synthesis \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-synthesis \
   --run-dir <run-dir> \
   --loop-id $loop_id \
   --input challenge-synthesis.json
@@ -107,7 +107,7 @@ spike，并把命令与实际输出回写 plan。意见冲突未解决时 canoni
 当前 diff、专项冲突、patch-induced 风险和 primary 不可知的新事实；不得无理由重做全量 breadth。
 
 ```bash
-python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-round \
   --run-dir <run-dir> \
   --loop-id $loop_id \
   --round $N \
@@ -137,7 +137,7 @@ architecture reset，不用局部补丁强行收敛。
 控制动作必须入账，例如：
 
 ```bash
-python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-control \
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-control \
   --run-dir <run-dir> --loop-id $loop_id \
   --action scope-audit --outcome <continue|architecture-reset|scope-change> \
   --evidence "<审计证据>"
