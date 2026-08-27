@@ -2,8 +2,8 @@
 
 RUN: enforcement-anchors-001
 STATE: SHIPPABLE
-TESTED HEAD: 147980cce6ed08cbed0b4b50f3ca4e6856b417c0
-GATE RECEIPT: c52a8dc51a3e9ca044cf7eaf56eb562c3122c662f9d5ffe083e00109c6532ab3
+TESTED HEAD: 1e4799e70bcd8dc1d136c816168717419147adbe
+GATE RECEIPT: 1f69638ce0989a90af18b2fa7e7dafb9ea056e7f8a0de3c5d7e36ad599f225cd
 
 ## 身份说明（tested vs delivery，读 receipt 前必看）
 - TESTED HEAD 是**测试时**的代码提交；把本 run-dir 的账本/截图/receipt 提交进仓库
@@ -21,17 +21,31 @@ GATE RECEIPT: c52a8dc51a3e9ca044cf7eaf56eb562c3122c662f9d5ffe083e00109c6532ab3
 - 声明范围：plans/2026-08-26-enforcement-anchors/verification/run-001
 
 ## 本次命中排除的文件
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC1-gate-selftest-0001.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0002.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC3-tier-check-0003.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0004.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC5-pre-push-e2e-0005.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0006.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-input.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-output.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/gate-receipt.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
 - plans/2026-08-26-enforcement-anchors/verification/run-001/manifest.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/plan-test-run.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/report.md（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+
+## 收尾期改动（re-attest 记录）
+- 2026-08-27T09:48:32+0800｜behavioral｜变更 2 个文件｜理由：业主拍板 acknowledge 历史轮 slice-a/b，两本账本文件（仓库内容）被合法修改；按协议 8b 重新采集运行时身份并全量复测（本 run 未声明 impact_paths，fail-closed 全场景 stale）
 
 ## Evidence 计数（引用不等于独立证明）
-- evidence records: 6
-- distinct artifacts（按 sha256）: 6
-- distinct root runs: 6
+- evidence records: 12
+- distinct artifacts（按 sha256）: 12
+- distinct root runs: 12
 - shared artifact hashes: 0
 
 ## 审计与账本完整性
 - 审计：verdict=PASS engine=claude-fable-5-subagent（产物 auditor-output.json）
-- 账本链：自洽（12 条写入，链首 init）
+- 账本链：自洽（25 条写入，链首 init）
 
 ## 场景状态（由 validator 重算）
 - S-AC1-gate-selftest [required]: PASS
@@ -40,6 +54,10 @@ GATE RECEIPT: c52a8dc51a3e9ca044cf7eaf56eb562c3122c662f9d5ffe083e00109c6532ab3
 - S-AC4-phase-cost [required]: PASS
 - S-AC5-pre-push-e2e [required]: PASS
 - S-AC6-stop-hook-e2e [required]: PASS
+
+## 耗时分解（measured=CLI 单调时钟实测；declared=申报值，低信任）
+- user_wait: measured 0.0 min / declared 896.9 min / retry 0 / abort 0 / tests 0
+- checkpoints: 0
 
 ## 未闭环诊断
 - AUDITOR_ENGINE_MISMATCH（advisory，不拦截）: init 冻结 auditor_engine=claude-fable-5(subagent-auditor)，实际审计引擎=claude-fable-5-subagent——引擎配置被静默偏离
@@ -50,5 +68,7 @@ GATE RECEIPT: c52a8dc51a3e9ca044cf7eaf56eb562c3122c662f9d5ffe083e00109c6532ab3
 |---|---|---|---|---|
 | phase-4-stage-gate | 1.3 | 0.0 | 0 | 1 |
 | audit | 3.8 | 0.0 | 1 | 1 |
+| retest-after-ack | 1.4 | 0.0 | 0 | 1 |
+| audit-2 | 2.4 | 0.0 | 1 | 1 |
 
 > 遥测口径：跨度=配对 phase-start/end 时间差合计；实测=该阶段 measured timing；子代理/轮次=phase-end --subagents/--rounds 自报（未报=0）。供 LEAN 档压缩效果比对，不参与门判定。

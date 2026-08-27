@@ -3,6 +3,10 @@
     "path": "plans/2026-07-27-gate-hardening/acceptance.md",
     "sha256": "97483cade7df1a03f01485a36b980d6d50c246031a4ca96895718d468a9c19b5"
   },
+  "acknowledged": true,
+  "acknowledged_approval": "bc21adbb4cc9784d008af291908390701639781f0bf4aad3b6e1d91fa2ce91e4",
+  "acknowledged_at": "2026-08-27T09:47:47+0800",
+  "acknowledged_reason": "无继任者的历史轮：仓库内容已前移（TESTED_RUNTIME_MISMATCH 永久红），业主在三选项对比后拍板选 A（acknowledge 退场，历史原地保留）",
   "applicability": {
     "input_sensitive": {
       "decided_by": "agent",
@@ -1821,7 +1825,7 @@
   "executor_engine": "claude-fable-5(main-loop)",
   "fixture_only": false,
   "integrity": {
-    "chain": "38d98fc5f1bd907b82ba9133ccb75a78a3ae93b65c6c4a76b4d6a447f3de3904",
+    "chain": "a327a67ddacea574ec81684fab3888ba5f11d91d15c1efba90ae32fa4438724d",
     "log": [
       {
         "at": "2026-07-28T00:00:26+0800",
@@ -2697,6 +2701,13 @@
         "facts_digest": "10ccb2b1fac193b7d7e54f456eeba003f284cac377842de58b288ab009d04c3b",
         "op": "record-run",
         "seq": 125
+      },
+      {
+        "at": "2026-08-27T09:47:47+0800",
+        "chain": "a327a67ddacea574ec81684fab3888ba5f11d91d15c1efba90ae32fa4438724d",
+        "facts_digest": "398fa702b46e15a9f3310f0bcc0aa1a91a2aa65350990364e1c4c59c1fdf86c0",
+        "op": "acknowledge",
+        "seq": 126
       }
     ]
   },
@@ -2709,7 +2720,7 @@
     "task_count": 5
   },
   "repo_root": "/Users/denny/planSkill/plan-test",
-  "revision": 125,
+  "revision": 126,
   "run_id": "gate-hardening-slice-a",
   "runs": [
     {

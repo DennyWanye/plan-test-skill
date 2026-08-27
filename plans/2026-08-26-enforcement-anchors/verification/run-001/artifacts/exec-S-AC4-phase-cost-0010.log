@@ -1,0 +1,14 @@
+command: python3 skills/plan-test/scripts/test_phase_cost.py
+exit_code: 0
+started_at: 2026-08-27T01:49:50Z
+ended_at: 2026-08-27T01:49:51Z
+elapsed_ms: 1083
+---- stdout ----
+
+---- stderr ----
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 1.051s
+
+OK
+

@@ -1,24 +1,24 @@
 {
   "acceptance_sha256": "98abefe4b9140e11f010b05e9a3e629153bc16d217be9cf627ee4fefa6ebfeeb",
-  "auditor_input_sha256": "2475cb1a7d651f70f3407eb6bbf03ff81590490981975b6d8538b52a60027031",
-  "auditor_output_sha256": "af666bd711ee6f4f518c0a022b2241b0378dfeb0b86fa07ca56fb9744139c750",
+  "auditor_input_sha256": "b81e6d07d2f34d9b7db578da7f6551711a52ed13e49c3053b433b6af24afc600",
+  "auditor_output_sha256": "3043b38b61d3a0ea1f65832a4712dbf3f0f1d1c440a318c3913384a0a320843d",
   "content_basis": "worktree-content-excluding-declared-scope",
-  "content_digest": "c52a8dc51a3e9ca044cf7eaf56eb562c3122c662f9d5ffe083e00109c6532ab3",
-  "dirty_patch_sha256": "2021c92d8c9e5526b315a07deda556bab8e35009d79d7521dfb9117fe695a092",
-  "evidence_manifest_sha256": "91c0d1b081cc63c8ed46c79b636dc8a2535eeb34b72d2c44c3e5d6c5c7b1348b",
+  "content_digest": "1f69638ce0989a90af18b2fa7e7dafb9ea056e7f8a0de3c5d7e36ad599f225cd",
+  "dirty_patch_sha256": "adbb061a25f7f5459de42c96299cb743af08ff82823b6941e230a7fa8dd7b2a0",
+  "evidence_manifest_sha256": "f307a65c798221010ea74ebbc1fcee7b48567e777a222a9e629ae56fec4ceaf7",
   "evidence_summary": {
-    "distinct_artifacts": 6,
-    "distinct_root_runs": 6,
-    "records": 6,
+    "distinct_artifacts": 12,
+    "distinct_root_runs": 12,
+    "records": 12,
     "shared_artifact_sha256": []
   },
   "exclusion_scope": [
     "plans/2026-08-26-enforcement-anchors/verification/run-001"
   ],
-  "finalized_at": "2026-08-26T18:52:40+0800",
+  "finalized_at": "2026-08-27T09:53:31+0800",
   "fixture_only": false,
-  "head": "147980cce6ed08cbed0b4b50f3ca4e6856b417c0",
-  "ledger_sha256": "d83b2c3e59b6c8dfc684bc1419f474314ac9e6620dec2a513588ba91a6c41dc1",
+  "head": "1e4799e70bcd8dc1d136c816168717419147adbe",
+  "ledger_sha256": "7c4256af72e6d037a9e6f4664172bc128aca7b4271c169ecb68a6a76b920e031",
   "receipt_version": 1,
   "retired": false,
   "run_id": "enforcement-anchors-001",
@@ -34,10 +34,10 @@
   "state": "SHIPPABLE",
   "superseded_by": null,
   "testcase_lock_sha256": "346ea8380be046be9259fd396e107dfc1690e2fc483cf94017c08df8acf9be7d",
-  "tested_code_head": "147980cce6ed08cbed0b4b50f3ca4e6856b417c0",
+  "tested_code_head": "1e4799e70bcd8dc1d136c816168717419147adbe",
   "timing_summary": {
-    "declared_ms": 0,
-    "entries": 0,
+    "declared_ms": 53812000,
+    "entries": 1,
     "measured_ms": 0
   },
   "validator_version": "1.5.0"
