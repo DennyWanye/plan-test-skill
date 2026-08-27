@@ -1,0 +1,70 @@
+# plan-test gate report
+
+RUN: enforcement-anchors-002
+STATE: SHIPPABLE
+TESTED HEAD: ba4385e3751e9c999641cb776c30098707b5587d
+GATE RECEIPT: 44287913a64f29252ee4ff1aa3bcddde7f0b021cd3e317584380fbabffe29e17
+
+## 身份说明（tested vs delivery，读 receipt 前必看）
+- TESTED HEAD 是**测试时**的代码提交；把本 run-dir 的账本/截图/receipt 提交进仓库
+  的后续提交（evidence-only descendant）**不改变被测内容指纹**，receipt 依然有效。
+- 所以「receipt 的 head 早于仓库最终 HEAD」可以是完全合法的状态——判定依据是
+  内容指纹（排除下方声明范围），不是提交号。若 tested HEAD 之后还改了任何非 run-dir
+  文件，validator 会以 TESTED_RUNTIME_MISMATCH / RETEST_REQUIRED_AFTER_CHANGE 拦截。
+
+## 适用性判定（判「不适用」等于放弃对应条件门，理由须可追责）
+- input_sensitive: 不适用（agent 判定）理由：被测对象是确定性 CLI 与 shell hook，输出不随输入语义变化，无 LLM 生成路径
+- llm_payload_driven: 不适用（agent 判定）理由：不存在 LLM 结构化载荷驱动端侧状态机或卡片渲染的路径
+- stateful_init: 不适用（agent 判定）理由：纯 stdlib 脚本与 git 钩子，无异步注册服务、远程配置或登录态依赖
+
+## 指纹排除范围（init 时冻结的显式声明；事后往仓库塞文件不改变它）
+- 声明范围：plans/2026-08-26-enforcement-anchors/verification/run-001
+- 声明范围：plans/2026-08-26-enforcement-anchors/verification/run-002
+
+## 本次命中排除的文件
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC1-gate-selftest-0001.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC1-gate-selftest-0007.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0002.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0008.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC3-tier-check-0003.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC3-tier-check-0009.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0004.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0010.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC5-pre-push-e2e-0005.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC5-pre-push-e2e-0011.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0006.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0012.log（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-input.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-output.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/gate-receipt.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/manifest.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/plan-test-run.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-001/report.md（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001）
+- plans/2026-08-26-enforcement-anchors/verification/run-002/manifest.json（declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002）
+
+## Evidence 计数（引用不等于独立证明）
+- evidence records: 6
+- distinct artifacts（按 sha256）: 6
+- distinct root runs: 6
+- shared artifact hashes: 0
+
+## 审计与账本完整性
+- 审计：verdict=PASS engine=claude-fable-5-subagent（产物 auditor-output.json）
+- 账本链：自洽（12 条写入，链首 init）
+
+## 场景状态（由 validator 重算）
+- S-AC1-gate-selftest [required]: PASS
+- S-AC2-stats [required]: PASS
+- S-AC3-tier-check [required]: PASS
+- S-AC4-phase-cost [required]: PASS
+- S-AC5-pre-push-e2e [required]: PASS
+- S-AC6-stop-hook-e2e [required]: PASS
+
+## 本 run 开销表（阶段 × 耗时 × 子代理数）
+
+| 阶段 | 事件跨度(min) | timing 实测(min) | 子代理派发 | 轮次 |
+|---|---|---|---|---|
+| phase-4-stage-gate | 1.3 | 0.0 | 0 | 1 |
+| audit | 2.5 | 0.0 | 1 | 1 |
+
+> 遥测口径：跨度=配对 phase-start/end 时间差合计；实测=该阶段 measured timing；子代理/轮次=phase-end --subagents/--rounds 自报（未报=0）。供 LEAN 档压缩效果比对，不参与门判定。

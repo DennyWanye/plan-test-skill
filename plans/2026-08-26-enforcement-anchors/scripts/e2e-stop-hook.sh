@@ -59,4 +59,18 @@ CLAUDE_PROJECT_DIR="$R2" bash "$HOOK" </dev/null >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 0 ] || { echo "FAIL case2: 期望 exit 0，得到 $rc"; exit 1; }
 echo "case2 clean repo allowed: OK (rc=$rc)"
 
+# case 3（F-002）：插件 cache 兜底解析——无 PLAN_TEST_GATE、HOME 指向只含插件 cache
+# 布局的假家目录，复用 case 1 的失败账本仓库 → hook 仍须经 cache glob 找到 gate 并拦截。
+FAKEHOME="$WORK/fakehome"
+CACHE="$FAKEHOME/.claude/plugins/cache/e2e-market/plan-test/0.0.1"
+mkdir -p "$CACHE/skills/plan-test/scripts" "$CACHE/hooks"
+cp "$GATE" "$CACHE/skills/plan-test/scripts/plan_test_gate.py"
+cp "$REPO/hooks/gate_scan.py" "$CACHE/hooks/gate_scan.py"
+rc=0
+env -u PLAN_TEST_GATE HOME="$FAKEHOME" CLAUDE_PROJECT_DIR="$R1" \
+  bash "$HOOK" </dev/null >/dev/null 2>"$WORK/c3.log" || rc=$?
+[ "$rc" -eq 2 ] || { echo "FAIL case3: 期望 exit 2，得到 $rc（cache 兜底未解析到 gate？）"; cat "$WORK/c3.log"; exit 1; }
+grep -q "机器门未通过" "$WORK/c3.log" || { echo "FAIL case3: 缺拦截诊断"; cat "$WORK/c3.log"; exit 1; }
+echo "case3 plugin-cache fallback blocked: OK (rc=$rc)"
+
 echo "E2E-STOP-HOOK: PASS"

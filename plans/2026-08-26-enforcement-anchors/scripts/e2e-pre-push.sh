@@ -78,4 +78,21 @@ bash "$REPO/hooks/adapters/git/install-pre-push.sh" "$R3" >/dev/null
 git -C "$R3" push -q origin HEAD:clean 2>"$WORK/c3.log"
 echo "case3 clean repo allowed: OK"
 
+# case 4（F-002）：插件 cache 兜底解析——无 PLAN_TEST_GATE、无仓库相对 gate、
+# HOME 指向只含插件 cache 布局的假家目录 → pre-push 仍须经 cache glob 找到 gate 并拦截。
+# 这是 WSL 纯插件安装下的生产解析路径，此前无任何证据覆盖（独立审计 F-002）。
+FAKEHOME="$WORK/fakehome"
+CACHE="$FAKEHOME/.claude/plugins/cache/e2e-market/plan-test/0.0.1"
+mkdir -p "$CACHE/skills/plan-test/scripts" "$CACHE/hooks"
+cp "$GATE" "$CACHE/skills/plan-test/scripts/plan_test_gate.py"
+cp "$REPO/hooks/gate_scan.py" "$CACHE/hooks/gate_scan.py"
+R4="$WORK/r4"; mk_repo "$R4"; mk_failing_ledger "$R4" false
+bash "$REPO/hooks/adapters/git/install-pre-push.sh" "$R4" >/dev/null
+rc=0
+env -u PLAN_TEST_GATE HOME="$FAKEHOME" \
+  git -C "$R4" push -q origin HEAD:cache-fallback 2>"$WORK/c4.log" || rc=$?
+[ "$rc" -ne 0 ] || { echo "FAIL case4: cache 兜底路径下失败账本没被拦（gate 未被解析到？）"; exit 1; }
+grep -q "机器门（pre-push）" "$WORK/c4.log" || { echo "FAIL case4: 缺拦截诊断"; cat "$WORK/c4.log"; exit 1; }
+echo "case4 plugin-cache fallback blocked: OK (rc=$rc)"
+
 echo "E2E-PRE-PUSH: PASS"

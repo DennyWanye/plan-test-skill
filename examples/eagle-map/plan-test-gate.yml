@@ -9,7 +9,7 @@
 name: plan-test gate
 on:
   push:
-    branches: [main]
+    branches: [master]   # eagle-map 默认分支是 master（2026-08-27 实装时修正）
   pull_request:
 
 jobs:
