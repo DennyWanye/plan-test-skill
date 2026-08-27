@@ -67,10 +67,26 @@ mkdir -p "$CACHE/skills/plan-test/scripts" "$CACHE/hooks"
 cp "$GATE" "$CACHE/skills/plan-test/scripts/plan_test_gate.py"
 cp "$REPO/hooks/gate_scan.py" "$CACHE/hooks/gate_scan.py"
 rc=0
-env -u PLAN_TEST_GATE HOME="$FAKEHOME" CLAUDE_PROJECT_DIR="$R1" \
+env -u PLAN_TEST_GATE -u CLAUDE_PLUGIN_ROOT HOME="$FAKEHOME" CLAUDE_PROJECT_DIR="$R1" \
   bash "$HOOK" </dev/null >/dev/null 2>"$WORK/c3.log" || rc=$?
 [ "$rc" -eq 2 ] || { echo "FAIL case3: 期望 exit 2，得到 $rc（cache 兜底未解析到 gate？）"; cat "$WORK/c3.log"; exit 1; }
 grep -q "机器门未通过" "$WORK/c3.log" || { echo "FAIL case3: 缺拦截诊断"; cat "$WORK/c3.log"; exit 1; }
 echo "case3 plugin-cache fallback blocked: OK (rc=$rc)"
+
+# case 4（Windows 静默桩回归）：WindowsApps 的 python3 是 rc=0、零输出、不执行代码的桩，
+# 选中它会把门变成静默 no-op（2026-08-27 Windows 插件安装实测无声放行）。按 Windows 的
+# 真实形态构造：PATH 首位是死的 python3 桩 + 活的 python 并存；hook 必须功能探测出
+# 桩是坏的、退回 python，仍然拦截失败账本。
+STUB="$WORK/stub"; mkdir -p "$STUB"
+REAL_PY="$(command -v python3)"
+printf '#!/bin/sh\nexit 0\n' > "$STUB/python3"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$REAL_PY" > "$STUB/python"
+chmod +x "$STUB/python3" "$STUB/python"
+rc=0
+PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$R1" \
+  bash "$HOOK" </dev/null >/dev/null 2>"$WORK/c4.log" || rc=$?
+[ "$rc" -eq 2 ] || { echo "FAIL case4: 期望 exit 2，得到 $rc（静默桩把门变成 no-op？）"; cat "$WORK/c4.log"; exit 1; }
+grep -q "机器门未通过" "$WORK/c4.log" || { echo "FAIL case4: 缺拦截诊断"; cat "$WORK/c4.log"; exit 1; }
+echo "case4 silent-python3-stub still blocked: OK (rc=$rc)"
 
 echo "E2E-STOP-HOOK: PASS"

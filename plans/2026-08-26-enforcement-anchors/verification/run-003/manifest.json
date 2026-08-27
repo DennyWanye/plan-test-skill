@@ -1,0 +1,60 @@
+{
+ "run_id": "enforcement-anchors-003",
+ "repo_root": ".",
+ "source_request_text": "业主选定 Windows 侧插件安装（选项 1）后实测发现：WindowsApps python3 静默桩（rc=0、零输出、不执行代码）使 Stop hook 在 Windows 上静默空转放行失败账本。本批次：两个 hook 脚本改功能探测选解释器；E2E 补静默桩回归用例（stop-hook case4）并按审计 F-005.1 给 cache 兜底用例剥离 CLAUDE_PLUGIN_ROOT；F-001 以 ERRATA.md 勘误落笔（acceptance 同谱系终身冻结，不可改文件本体）；plugin 版本 bump 0.4.1 供两侧刷新。",
+ "acceptance_file": "plans/2026-08-26-enforcement-anchors/acceptance.md",
+ "executor_engine": "claude-fable-5-main",
+ "auditor_engine": "claude-fable-5-subagent",
+ "related_run_dirs": [
+  "plans/2026-08-26-enforcement-anchors/verification/run-001",
+  "plans/2026-08-26-enforcement-anchors/verification/run-002"
+ ],
+ "applicability": {
+  "input_sensitive": {
+   "value": false,
+   "decided_by": "agent",
+   "rationale": "被测对象是确定性 CLI 与 shell hook，输出不随输入语义变化，无 LLM 生成路径"
+  },
+  "llm_payload_driven": {
+   "value": false,
+   "decided_by": "agent",
+   "rationale": "不存在 LLM 结构化载荷驱动端侧状态机或卡片渲染的路径"
+  },
+  "stateful_init": {
+   "value": false,
+   "decided_by": "agent",
+   "rationale": "纯 stdlib 脚本与 git 钩子，无异步注册服务、远程配置或登录态依赖"
+  }
+ },
+ "release_unit": {
+  "must_ac_count": 6,
+  "task_count": 4,
+  "plan_lines": 17
+ },
+ "scenarios": [
+  {
+   "scenario_id": "S-AC1-gate-selftest",
+   "required": true
+  },
+  {
+   "scenario_id": "S-AC2-stats",
+   "required": true
+  },
+  {
+   "scenario_id": "S-AC3-tier-check",
+   "required": true
+  },
+  {
+   "scenario_id": "S-AC4-phase-cost",
+   "required": true
+  },
+  {
+   "scenario_id": "S-AC5-pre-push-e2e",
+   "required": true
+  },
+  {
+   "scenario_id": "S-AC6-stop-hook-e2e",
+   "required": true
+  }
+ ]
+}

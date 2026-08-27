@@ -1,0 +1,14 @@
+command: bash plans/2026-08-26-enforcement-anchors/scripts/e2e-stop-hook.sh
+exit_code: 0
+started_at: 2026-08-27T03:50:30Z
+ended_at: 2026-08-27T03:50:31Z
+elapsed_ms: 983
+---- stdout ----
+case1 failing ledger blocked: OK (rc=2)
+case2 clean repo allowed: OK (rc=0)
+case3 plugin-cache fallback blocked: OK (rc=2)
+case4 silent-python3-stub still blocked: OK (rc=2)
+E2E-STOP-HOOK: PASS
+
+---- stderr ----
+

@@ -55,7 +55,15 @@ do
 done
 [ -z "$GATE" ] && exit 0   # 哪里都没装 gate 脚本：不是本 hook 的管辖范围
 
-PY="$(command -v python3 || command -v python)"
+# python 解释器：不能只看 command -v——Windows 的 WindowsApps python3 是**静默桩**
+# （rc=0、零输出、不执行任何代码），选中它等于把门变成静默 no-op（2026-08-27 Windows
+# 插件安装实测：失败账本被无声放行）。必须做功能探测：真解释器要能打印出 42。
+PY=""
+for c in python3 python; do
+  p="$(command -v "$c" 2>/dev/null)" || continue
+  [ -n "$p" ] || continue
+  if [ "$("$p" -c 'print(42)' 2>/dev/null)" = "42" ]; then PY="$p"; break; fi
+done
 [ -z "$PY" ] && exit 0
 
 PLUGIN_CACHE_SCAN="$(ls -1d "$HOME"/.claude/plugins/cache/*/plan-test/*/hooks/gate_scan.py 2>/dev/null | sort -V | tail -1)"

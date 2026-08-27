@@ -47,7 +47,14 @@ do
 done
 [ -z "$GATE" ] && exit 0   # 哪里都没装 gate 脚本：不是本钩子的管辖范围
 
-PY="$(command -v python3 || command -v python)"
+# python 解释器功能探测（与 stop-gate-check.sh 同步）：Windows WindowsApps python3
+# 是静默桩，rc=0 但不执行代码，只看 command -v 会把门变成静默 no-op。
+PY=""
+for c in python3 python; do
+  p="$(command -v "$c" 2>/dev/null)" || continue
+  [ -n "$p" ] || continue
+  if [ "$("$p" -c 'print(42)' 2>/dev/null)" = "42" ]; then PY="$p"; break; fi
+done
 [ -z "$PY" ] && exit 0
 
 # 扫描器查找：install-pre-push.sh 会把 gate_scan.py 复制到本脚本同目录（.git/hooks/）

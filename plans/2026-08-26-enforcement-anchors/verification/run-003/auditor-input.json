@@ -1,0 +1,90 @@
+{
+ "frozen_at": "2026-08-27T11:50:31+0800",
+ "run_id": "enforcement-anchors-003",
+ "context": "run-003：Windows 静默桩修复批次。① hooks/stop-gate-check.sh 与 hooks/adapters/git/pre-push 的解释器选择改为功能探测（print(42) 验证），堵 WindowsApps python3 静默桩造成的静默 no-op 门；② e2e-stop-hook.sh 新增 case4 桩回归（死 python3 桩+活 python 并存，断言仍拦截）；③ 两个 cache 兜底用例补 env -u CLAUDE_PLUGIN_ROOT（F-005.1）；④ ERRATA.md 勘误 F-001 并记录acceptance 同谱系终身冻结的教训；⑤ plugin.json 0.4.0→0.4.1。manifest related_run_dirs 含 run-001+run-002。",
+ "base_commit": "d06a6afcd0bd538d9ff164a815ed4e0452359a93",
+ "acceptance_sha256": "98abefe4b9140e11f010b05e9a3e629153bc16d217be9cf627ee4fefa6ebfeeb",
+ "check_only_result": "READY_FOR_AUDIT",
+ "evidence": [
+  {
+   "evidence_id": "ev-93580361b3ef",
+   "path": "artifacts/exec-S-AC1-gate-selftest-0001.log",
+   "sha256": "93580361b3ef269e0d080fbd4b42b4c60738a9fb6c0466c2081aaa4818e8d2da",
+   "scenario_id": "S-AC1-gate-selftest"
+  },
+  {
+   "evidence_id": "ev-4bee28e7869b",
+   "path": "artifacts/exec-S-AC2-stats-0002.log",
+   "sha256": "4bee28e7869bd82ee3c1b91ce27fd6eb325fda4fdfcf19966188c65fb9080fc0",
+   "scenario_id": "S-AC2-stats"
+  },
+  {
+   "evidence_id": "ev-4158c0102988",
+   "path": "artifacts/exec-S-AC3-tier-check-0003.log",
+   "sha256": "4158c010298873c56f7a199d3a6a2c9dec59d5541596ec1f82303b4f2a6d2bbb",
+   "scenario_id": "S-AC3-tier-check"
+  },
+  {
+   "evidence_id": "ev-41ca6559c775",
+   "path": "artifacts/exec-S-AC4-phase-cost-0004.log",
+   "sha256": "41ca6559c775efa24a31ff7cc9dfdef973e315b1b9ebb5ccb4a50d79780b854d",
+   "scenario_id": "S-AC4-phase-cost"
+  },
+  {
+   "evidence_id": "ev-71579f9a8349",
+   "path": "artifacts/exec-S-AC5-pre-push-e2e-0005.log",
+   "sha256": "71579f9a83493694415e28a864c805410ef8f5bc934fbad23887a493ee5adaa2",
+   "scenario_id": "S-AC5-pre-push-e2e"
+  },
+  {
+   "evidence_id": "ev-147bbeee008b",
+   "path": "artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
+   "sha256": "147bbeee008bf18888b2100e921075b72189f7e87364ab86f44a6a9618f36ee2",
+   "scenario_id": "S-AC6-stop-hook-e2e"
+  }
+ ],
+ "runs": [
+  {
+   "scenario_id": "S-AC1-gate-selftest",
+   "result": "pass",
+   "command": "python3 skills/plan-test/scripts/test_plan_test_gate.py",
+   "exec_exit_code": 0,
+   "elapsed_ms": 65480
+  },
+  {
+   "scenario_id": "S-AC2-stats",
+   "result": "pass",
+   "command": "python3 skills/plan-test/scripts/test_gate_stats.py",
+   "exec_exit_code": 0,
+   "elapsed_ms": 1117
+  },
+  {
+   "scenario_id": "S-AC3-tier-check",
+   "result": "pass",
+   "command": "python3 skills/plan-test/scripts/test_tier_check.py",
+   "exec_exit_code": 0,
+   "elapsed_ms": 538
+  },
+  {
+   "scenario_id": "S-AC4-phase-cost",
+   "result": "pass",
+   "command": "python3 skills/plan-test/scripts/test_phase_cost.py",
+   "exec_exit_code": 0,
+   "elapsed_ms": 1044
+  },
+  {
+   "scenario_id": "S-AC5-pre-push-e2e",
+   "result": "pass",
+   "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-pre-push.sh",
+   "exec_exit_code": 0,
+   "elapsed_ms": 1120
+  },
+  {
+   "scenario_id": "S-AC6-stop-hook-e2e",
+   "result": "pass",
+   "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-stop-hook.sh",
+   "exec_exit_code": 0,
+   "elapsed_ms": 983
+  }
+ ]
+}

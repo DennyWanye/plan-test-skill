@@ -342,7 +342,7 @@
   "external_run_dir": false,
   "fixture_only": false,
   "integrity": {
-    "chain": "219ecc4807ef6b6eea1c091f5aa4d84603f9dd072b6032c39c009c63df79eaab",
+    "chain": "e050571640920d3a7be3be82b980cb4e27a3a2aacfdd667c55c4cc082dcab4fa",
     "genesis": "6b95d6145b3bad95c82762f96ecf89b7086f7799f38c058da4fca309dcefb45f",
     "log": [
       {
@@ -428,6 +428,13 @@
         "facts_digest": "11c12504049977eb07a2b8afca921216617c048dfc3cc12c487ee8e74f5a1640",
         "op": "audit",
         "seq": 12
+      },
+      {
+        "at": "2026-08-27T11:53:10+0800",
+        "chain": "e050571640920d3a7be3be82b980cb4e27a3a2aacfdd667c55c4cc082dcab4fa",
+        "facts_digest": "0ce82125b793c5fa92afa60750e87c4c6e8ae3963f850a91167150f2439f2e5c",
+        "op": "retire",
+        "seq": 13
       }
     ]
   },
@@ -440,7 +447,10 @@
     "task_count": 3
   },
   "repo_root": "/home/denny/projects/plan-test-skill",
-  "revision": 12,
+  "retired": true,
+  "retired_at": "2026-08-27T11:53:10+0800",
+  "retired_reason": "静默桩修复批次使内容指纹前移；由同 acceptance、同 required 场景集且已 SHIPPABLE 的 run-003 接棒",
+  "revision": 13,
   "run_id": "enforcement-anchors-002",
   "runs": [
     {
@@ -1273,6 +1283,8 @@
     "sha256": "f3d616928480a97de0950bcd95c69de68aa657b8173057665db3db5d705b2598"
   },
   "structured_audit_required": false,
+  "superseded_by": "plans/2026-08-26-enforcement-anchors/verification/run-003",
+  "superseded_by_receipt": "9e6368aed70a1bad67743f0bd25773b4f573f1fa637cda9fe2ed9f8f626c6d2e",
   "testcase_lock": {
     "files": [],
     "locked_at": null

@@ -1,0 +1,14 @@
+command: python3 skills/plan-test/scripts/test_tier_check.py
+exit_code: 0
+started_at: 2026-08-27T03:50:27Z
+ended_at: 2026-08-27T03:50:28Z
+elapsed_ms: 538
+---- stdout ----
+
+---- stderr ----
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 0.505s
+
+OK
+

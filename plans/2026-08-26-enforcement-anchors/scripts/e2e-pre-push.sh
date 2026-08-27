@@ -89,7 +89,7 @@ cp "$REPO/hooks/gate_scan.py" "$CACHE/hooks/gate_scan.py"
 R4="$WORK/r4"; mk_repo "$R4"; mk_failing_ledger "$R4" false
 bash "$REPO/hooks/adapters/git/install-pre-push.sh" "$R4" >/dev/null
 rc=0
-env -u PLAN_TEST_GATE HOME="$FAKEHOME" \
+env -u PLAN_TEST_GATE -u CLAUDE_PLUGIN_ROOT HOME="$FAKEHOME" \
   git -C "$R4" push -q origin HEAD:cache-fallback 2>"$WORK/c4.log" || rc=$?
 [ "$rc" -ne 0 ] || { echo "FAIL case4: cache 兜底路径下失败账本没被拦（gate 未被解析到？）"; exit 1; }
 grep -q "机器门（pre-push）" "$WORK/c4.log" || { echo "FAIL case4: 缺拦截诊断"; cat "$WORK/c4.log"; exit 1; }

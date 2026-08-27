@@ -21,90 +21,16 @@
       "value": false
     }
   },
-  "attestations": [
-    {
-      "change_kind": "behavioral",
-      "changed_count": 2,
-      "changed_paths": [
-        "plans/2026-07-27-gate-hardening/verification/slice-a/plan-test-run.json",
-        "plans/2026-07-27-gate-hardening/verification/slice-b/plan-test-run.json"
-      ],
-      "content_digest": "c668a0ac4a0ec2e4a5b21077213ba5fe2b773e0f7d193bb1e3c9436f014242cc",
-      "dirty_patch_sha256": "adbb061a25f7f5459de42c96299cb743af08ff82823b6941e230a7fa8dd7b2a0",
-      "exclusion_count": 12,
-      "exclusion_scope": [
-        "plans/2026-08-26-enforcement-anchors/verification/run-001"
-      ],
-      "exclusions": [
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC1-gate-selftest-0001.log",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0002.log",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC3-tier-check-0003.log",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0004.log",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC5-pre-push-e2e-0005.log",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-input.json",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-output.json",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/gate-receipt.json",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/manifest.json",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/plan-test-run.json",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ],
-        [
-          "plans/2026-08-26-enforcement-anchors/verification/run-001/report.md",
-          "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
-        ]
-      ],
-      "head": "1e4799e70bcd8dc1d136c816168717419147adbe",
-      "reason": "业主拍板 acknowledge 历史轮 slice-a/b，两本账本文件（仓库内容）被合法修改；按协议 8b 重新采集运行时身份并全量复测（本 run 未声明 impact_paths，fail-closed 全场景 stale）",
-      "recorded_at": "2026-08-27T09:48:32+0800",
-      "runs_index": 6
-    }
-  ],
   "audit_findings": [
     {
-      "ac_ids": [
-        "AC-6"
-      ],
+      "ac_ids": [],
       "id": "F-001",
-      "imported_runs_index": 12,
+      "imported_runs_index": 6,
       "required_retest": false,
-      "scenario_ids": [
-        "S-AC6-stop-hook-e2e"
-      ],
+      "scenario_ids": [],
       "severity": "P2",
-      "status": "open",
-      "summary": "维持上轮原状（本轮无修复主张）：acceptance.md 判档依据声称改动'全部为纯新增（git diff 无删改 hunk）'与事实不符——commit 147980c 实有 40 行删除、分布在 9 个文件，含门禁组件 hooks/stop-gate-check.sh 的 3 行删改（路径解析候选列表重写）。缓解：该文件拦/放两径已被 AC-6 E2E 覆盖，其余删改为文档与版本元数据；建议后续把判档理由改写为'删改面已被回归覆盖'。",
+      "status": "resolved",
+      "summary": "确认闭环：F-001（acceptance 判档依据'纯新增、无删改 hunk'失实）已落笔为 plans/2026-08-26-enforcement-anchors/ERRATA.md E-1，勘误正文如实复述 40 行删除/9 文件/stop-gate-check.sh 3 行删改的事实并给出正确判档理由。'不改 acceptance.md、同谱系终身冻结'的结论经独立核验**成立**：plan_test_gate.py cmd_retire（3033-3038 行）要求继任 run 与被退役 run 的 acceptance sha256 相等，改动 acceptance.md 会使后续 run 永久丧失退役前任的资格；E-2 关于 required 场景集只能超集扩展的推论也与 3040-3054 行的重算 PASS 覆盖检查一致。勘误入 ERRATA 而非改正文是当前机制下唯一不破坏 retire 链的做法。",
       "type": "docs"
     },
     {
@@ -112,8 +38,8 @@
         "AC-5",
         "AC-6"
       ],
-      "id": "F-002",
-      "imported_runs_index": 12,
+      "id": "F-005",
+      "imported_runs_index": 6,
       "required_retest": false,
       "scenario_ids": [
         "S-AC5-pre-push-e2e",
@@ -121,8 +47,23 @@
       ],
       "severity": "P2",
       "status": "open",
-      "summary": "维持上轮原状（本轮无修复主张）：pre-push 与 stop-gate-check 新增的插件 cache 兜底解析分支（~/.claude/plugins/cache/*/plan-test/*/… 按版本取最新）仍无任何证据覆盖——round 2 复测沿用同一批 E2E，均经 PLAN_TEST_GATE 显式注入或仓库相对路径命中，cache 分支未走到；实际部署为 WSL 纯插件安装，该分支恰是生产解析路径。建议补一条覆盖或在 install 自检中验证。",
+      "summary": "部分修复、按第 2 点继续留痕：第 1 点已修——两个 cache 兜底用例（e2e-pre-push case4 / e2e-stop-hook case3）均已补 env -u CLAUDE_PLUGIN_ROOT，候选链密闭性完整，本轮 diff 核实。第 2 点本批未修：gate_scan.py 的插件 cache glob 兜底分支仍未被任何用例走到（pre-push 场景 scanner 经 .git/hooks/ 同目录副本命中，stop-hook 场景经 dirname($0) 命中）；兜底的兜底、风险低，维持 P2 留痕。",
       "type": "testcase"
+    },
+    {
+      "ac_ids": [
+        "AC-6"
+      ],
+      "id": "F-007",
+      "imported_runs_index": 6,
+      "required_retest": false,
+      "scenario_ids": [
+        "S-AC6-stop-hook-e2e"
+      ],
+      "severity": "P2",
+      "status": "open",
+      "summary": "静默桩修复的残余形态（非本批 AC 范围、不阻塞）：新探测逻辑对'rc=0 零输出桩'确实免疫（桩打印不出 42 被跳过、退回下一候选），对正常环境无回归（真 python3 首位即中，仅多一次解释器启动）；e2e case4 也真实还原了'PATH 首位死 python3 桩 + 活 python 并存'形态且是真回归用例（旧逻辑下扫描输出为空→FAILED=0→rc=0，case4 必失败）。但当 python3 与 python **双双**是桩或缺失时（WindowsApps 实际同时提供 python.exe/python3.exe 两个别名），探测全败→PY 为空→两个 hook 仍 `exit 0` 静默放行——门从'选中桩静默空转'变成'找不到解释器静默开门'，同一 Windows 威胁形态只堵了一半。建议：hooks/README.md 残余缺口矩阵补记这一列，或在 PY 为空时向 stderr 打一行警告（Stop hook exit 0 + stderr 不阻断但留痕）。e2e 亦未覆盖'双桩'形态。",
+      "type": "code"
     },
     {
       "ac_ids": [
@@ -133,8 +74,8 @@
         "AC-5",
         "AC-6"
       ],
-      "id": "F-004",
-      "imported_runs_index": 12,
+      "id": "F-008",
+      "imported_runs_index": 6,
       "required_retest": false,
       "scenario_ids": [
         "S-AC1-gate-selftest",
@@ -146,121 +87,179 @@
       ],
       "severity": "P2",
       "status": "resolved",
-      "summary": "第二轮增量核验通过项记录：(1) round-2 auditor-input.json 的 6 条证据 sha256 独立重算全部吻合（0007-0012）。(2) 六个新日志内容齐全——AC-1 'Ran 215 tests'+OK（70951ms 与日志内 70.885s 自洽）、AC-2/3/4 'Ran 5/11/5 tests' OK、AC-5 三 case OK+E2E-PRE-PUSH: PASS、AC-6 两 case OK+E2E-STOP-HOOK: PASS；command/exit_code/elapsed_ms 与账本 runs 7-12 逐一致，时间戳均为 2026-08-27T01:48:33Z–01:49:53Z 且首尾相接。(3) 账本 runtime_attestation 存在且 change_kind=behavioral，changed_paths 恰为 slice-a/b 两本账本，reason 如实申报'未声明 impact_paths、fail-closed 全场景 stale'；integrity log 中 re-attest op（09:48:32+0800）早于全部 6 条复测 record-run，复测起跑（09:48:33）在 re-attest 之后。(4) 工作区相对上轮的 tracked 变化仅四处且全部在预期内：slice-a/b 两本账本各自的纯 acknowledge 写入（acknowledged 四字段 + integrity 链新增 op=acknowledge 条目 seq 126/140 + revision 递增，无其他字段改动）、run-001 自身账本与 auditor-input 的本轮自记账；untracked 仅六个 round-2 日志。147980c→1e4799e 之间 0 个非 plans/ 文件变更，被测实现未动。(5) 跨夜空窗（2026-08-26T10:51:41Z→2026-08-27T01:48:33Z，53812s）已按 activity_class=user_wait、wait_reason=user_review 申报入账（t-0001），时长与区间精确吻合。复测未暴露新问题。",
+      "summary": "run-003 核验通过项记录：(1) auditor-input.json 六条证据 sha256 独立重算全部吻合。(2) 日志内容齐全——AC-1 'Ran 215 tests'+OK（65480ms 与日志内 65.418s 自洽），AC-2/3/4 'Ran 5/11/5 tests' OK，AC-5 四个 case OK+E2E-PRE-PUSH: PASS，AC-6 **四个** case OK（含 case4 silent-python3-stub still blocked OK rc=2）+E2E-STOP-HOOK: PASS；command/exit_code/elapsed_ms 与账本逐一致，时间戳 2026-08-27T03:49:15Z–03:50:31Z 首尾相接且早于 frozen_at。(3) 工作区相对 d06a6af 的变化与批次声明严格一致：tracked 恰为两个 hook 脚本（各一段功能探测块，逻辑两边同步）、两个 E2E 脚本、plugin.json 版本行 0.4.0→0.4.1；untracked 仅 ERRATA.md 与 run-003 目录，无未申报改动。(4) manifest/账本：acceptance sha256 与谱系一致（98abefe4…），6 个 required 场景与 run-001/002 完全同集，related_run_dirs 含 run-001+run-002，引擎名 claude-fable-5-main / claude-fable-5-subagent 合法，fixture_only=false，6 runs 全 pass。",
       "type": "evidence"
     }
   ],
-  "audit_findings_history": [
-    {
-      "findings": [
-        {
-          "ac_ids": [
-            "AC-6"
-          ],
-          "id": "F-001",
-          "imported_runs_index": 6,
-          "required_retest": false,
-          "scenario_ids": [
-            "S-AC6-stop-hook-e2e"
-          ],
-          "severity": "P2",
-          "status": "open",
-          "summary": "acceptance.md 判档依据声称改动'全部为纯新增（git diff 无删改 hunk）'，与事实不符：commit 147980c 实有 40 行删除、分布在 9 个文件，其中含门禁组件 hooks/stop-gate-check.sh 的 3 行删改（gate/scanner 路径解析候选列表重写）。缓解：该文件的拦/放两条路径已被 AC-6 E2E 端到端覆盖，其余删改均为文档与版本号元数据（README/SKILL/config/PROTOCOL/phase-*/plugin.json），不动摇任何 AC 证据；但 LEAN 判档理由的这半句表述失实，下次判档应改为'删改面已被回归覆盖'而非'无删改 hunk'。",
-          "type": "docs"
-        },
-        {
-          "ac_ids": [
-            "AC-5",
-            "AC-6"
-          ],
-          "id": "F-002",
-          "imported_runs_index": 6,
-          "required_retest": false,
-          "scenario_ids": [
-            "S-AC5-pre-push-e2e",
-            "S-AC6-stop-hook-e2e"
-          ],
-          "severity": "P2",
-          "status": "open",
-          "summary": "pre-push 与 stop-gate-check 新增的插件 cache 兜底解析分支（~/.claude/plugins/cache/*/plan-test/*/… 按版本取最新）无任何证据覆盖：两个 E2E 均经 PLAN_TEST_GATE 显式注入或仓库相对路径命中，cache 分支从未走到。鉴于实际部署为 WSL 纯插件安装，该分支恰是生产解析路径，建议后续补一条覆盖或在 install 脚本自检中验证。",
-          "type": "testcase"
-        },
-        {
-          "ac_ids": [
-            "AC-1",
-            "AC-2",
-            "AC-3",
-            "AC-4",
-            "AC-5",
-            "AC-6"
-          ],
-          "id": "F-003",
-          "imported_runs_index": 6,
-          "required_retest": false,
-          "scenario_ids": [
-            "S-AC1-gate-selftest",
-            "S-AC2-stats",
-            "S-AC3-tier-check",
-            "S-AC4-phase-cost",
-            "S-AC5-pre-push-e2e",
-            "S-AC6-stop-hook-e2e"
-          ],
-          "severity": "P2",
-          "status": "resolved",
-          "summary": "核验通过项记录：6 条 evidence sha256 独立重算全部吻合；6 个 exec log 的 command/exit_code/elapsed_ms 与账本 runs 逐一致，时间戳首尾相接（10:46:02→10:47:17Z）且与 frozen_at 一致；AC-1 含 'Ran 215 tests'+OK 且 68841ms 与日志内 68.782s 自洽（215 用例约 69 秒，非毫秒级）；AC-2/3/4 分别含 'Ran 5/11/5 tests' OK；AC-5 含三 case OK 行与 E2E-PRE-PUSH: PASS；AC-6 含两 case OK 行与 E2E-STOP-HOOK: PASS。6 条 MUST AC 与 manifest/账本 6 个 required 场景一一对应，无悬空无多余。抽查：pre-push 检查顺序 ack→fixture_only 直查→check-only→retire-status 与声明一致，且 E2E case2 grep 'fixture-only' 专门钉住直查分支；cmd_stats 在 docstring 与渲染输出（'各账本当前状态按 check-only 重算，诊断无历史留痕'）双处如实声明口径，窗口不足不出退休结论、零触发全史清单均有实现与测试对应。E2E 断言强度足够：退出码精确断言（rc=2/0）+ 特征诊断串 grep，非宽松匹配。工作区 tracked 文件干净，证据确实测的是 147980c 内容。",
-          "type": "evidence"
-        }
-      ],
-      "superseded_at": "2026-08-27T09:53:31+0800"
-    }
-  ],
   "auditor": {
-    "audited_at": "2026-08-27T09:53:31+0800",
+    "audited_at": "2026-08-27T11:53:10+0800",
     "engine": "claude-fable-5-subagent",
-    "facts_digest": "b4fa9e36915a2a82692f2040d13c2550d3d168a0cb7430f5de33b81e516859f5",
+    "facts_digest": "5c0bebe003344b123a9446e86501ee565ae518fa45b3534012be591627f0b2c8",
     "input_path": "auditor-input.json",
-    "input_sha256": "b81e6d07d2f34d9b7db578da7f6551711a52ed13e49c3053b433b6af24afc600",
+    "input_sha256": "98803a30a496245451c6e100383c0ba97faf43397b63605a972f57fea5e19842",
     "output_path": "auditor-output.json",
-    "output_sha256": "3043b38b61d3a0ea1f65832a4712dbf3f0f1d1c440a318c3913384a0a320843d",
+    "output_sha256": "987eb2633194af964e52cca1308b64e8ab67f687befb30552891587ddcf25b84",
     "verdict": "PASS"
   },
-  "auditor_engine": "claude-fable-5(subagent-auditor)",
+  "auditor_engine": "claude-fable-5-subagent",
   "baseline": {
-    "content_digest": "40e5b9c9d48e2ada5f15bb7781e45fb79731633ef66838d0c3fa2ff8d8f4fdb0",
-    "dirty_patch_sha256": "2021c92d8c9e5526b315a07deda556bab8e35009d79d7521dfb9117fe695a092",
-    "exclusion_count": 1,
+    "content_digest": "f7b7702ddc3352c3319ab3e911e7571fe28984a7fc1fb064eb8eaa7dff2930ff",
+    "dirty_patch_sha256": "76f6e9c0769c3541fe9ea6f16d0b2e9bd128717c0edcbee2ab1f9039e58fa9d6",
+    "exclusion_count": 31,
     "exclusion_scope": [
-      "plans/2026-08-26-enforcement-anchors/verification/run-001"
+      "plans/2026-08-26-enforcement-anchors/verification/run-001",
+      "plans/2026-08-26-enforcement-anchors/verification/run-002",
+      "plans/2026-08-26-enforcement-anchors/verification/run-003"
     ],
     "exclusions": [
       [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC1-gate-selftest-0001.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC1-gate-selftest-0007.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0002.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0008.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC3-tier-check-0003.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC3-tier-check-0009.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0004.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0010.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC5-pre-push-e2e-0005.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC5-pre-push-e2e-0011.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0012.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-input.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/auditor-output.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/gate-receipt.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
         "plans/2026-08-26-enforcement-anchors/verification/run-001/manifest.json",
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/plan-test-run.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/report.md",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC1-gate-selftest-0001.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC2-stats-0002.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC3-tier-check-0003.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC4-phase-cost-0004.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC5-pre-push-e2e-0005.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/auditor-input.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/auditor-output.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/gate-receipt.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/manifest.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/plan-test-run.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/report.md",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-003/manifest.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-003"
       ]
     ],
-    "head": "147980cce6ed08cbed0b4b50f3ca4e6856b417c0",
-    "recorded_at": "2026-08-26T18:46:02+0800"
+    "head": "d06a6afcd0bd538d9ff164a815ed4e0452359a93",
+    "recorded_at": "2026-08-27T11:49:15+0800"
   },
   "behavior_changes": [],
   "behavior_contract": {},
   "challenge_loops": [],
   "challenger_engine": null,
   "compiled_manifest": null,
-  "created_at": "2026-08-26T18:46:02+0800",
+  "created_at": "2026-08-27T11:49:15+0800",
   "declared_statuses": [],
   "delivery": {},
   "doc_only_globs": null,
   "events": [
     {
       "action": "start",
-      "at": "2026-08-26T10:46:02Z",
-      "note": "LEAN 验证：4 个自测套件 + 2 个 E2E（pre-push / Stop hook）",
+      "at": "2026-08-27T03:49:15Z",
+      "note": "静默桩修复批次：4 套件 + 2 个 E2E（stop-hook 新增 case4 桩回归）",
       "phase": "phase-4-stage-gate",
       "type": "phase"
     },
     {
       "action": "end",
-      "at": "2026-08-26T10:47:18Z",
+      "at": "2026-08-27T03:50:31Z",
       "phase": "phase-4-stage-gate",
       "rounds": 1,
       "status": "ok",
@@ -269,47 +268,15 @@
     },
     {
       "action": "start",
-      "at": "2026-08-26T10:47:52Z",
-      "note": "独立审计：子代理（separate context）对照 acceptance 与证据",
+      "at": "2026-08-27T03:50:31Z",
+      "note": "run-003 独立审计（第四轮，同一独立上下文审计者）",
       "phase": "audit",
       "type": "phase"
     },
     {
       "action": "end",
-      "at": "2026-08-26T10:51:41Z",
+      "at": "2026-08-27T03:53:10Z",
       "phase": "audit",
-      "rounds": 1,
-      "status": "ok",
-      "subagents": 1,
-      "type": "phase"
-    },
-    {
-      "action": "start",
-      "at": "2026-08-27T01:48:32Z",
-      "note": "re-attest 后全量复测：6 个 required 场景逐一重跑",
-      "phase": "retest-after-ack",
-      "type": "phase"
-    },
-    {
-      "action": "end",
-      "at": "2026-08-27T01:49:53Z",
-      "phase": "retest-after-ack",
-      "rounds": 1,
-      "status": "ok",
-      "subagents": 0,
-      "type": "phase"
-    },
-    {
-      "action": "start",
-      "at": "2026-08-27T01:51:07Z",
-      "note": "re-attest 全量复测后的第二轮独立审计",
-      "phase": "audit-2",
-      "type": "phase"
-    },
-    {
-      "action": "end",
-      "at": "2026-08-27T01:53:31Z",
-      "phase": "audit-2",
       "rounds": 1,
       "status": "ok",
       "subagents": 1,
@@ -319,11 +286,11 @@
   "evidence": [
     {
       "artifact_kind": "execution-log",
-      "attached_at": "2026-08-26T18:47:13+0800",
+      "attached_at": "2026-08-27T11:50:26+0800",
       "business_facts": {},
-      "evidence_id": "ev-8fc510450948",
-      "file_mtime": "2026-08-26T10:47:13Z",
-      "generated_at": "2026-08-26T10:47:13Z",
+      "evidence_id": "ev-93580361b3ef",
+      "file_mtime": "2026-08-27T03:50:26Z",
+      "generated_at": "2026-08-27T03:50:26Z",
       "kind": "primary",
       "path": "artifacts/exec-S-AC1-gate-selftest-0001.log",
       "producer_type": "gate-exec",
@@ -331,15 +298,15 @@
       "root_run_id": null,
       "scenario_id": "S-AC1-gate-selftest",
       "session_id": null,
-      "sha256": "8fc5104509486cbd2936a8ad62721c7b4b172db54c52ab2c7c8800e2a60ae7fa"
+      "sha256": "93580361b3ef269e0d080fbd4b42b4c60738a9fb6c0466c2081aaa4818e8d2da"
     },
     {
       "artifact_kind": "execution-log",
-      "attached_at": "2026-08-26T18:47:14+0800",
+      "attached_at": "2026-08-27T11:50:27+0800",
       "business_facts": {},
-      "evidence_id": "ev-f4f0498e7927",
-      "file_mtime": "2026-08-26T10:47:14Z",
-      "generated_at": "2026-08-26T10:47:14Z",
+      "evidence_id": "ev-4bee28e7869b",
+      "file_mtime": "2026-08-27T03:50:27Z",
+      "generated_at": "2026-08-27T03:50:27Z",
       "kind": "primary",
       "path": "artifacts/exec-S-AC2-stats-0002.log",
       "producer_type": "gate-exec",
@@ -347,15 +314,15 @@
       "root_run_id": null,
       "scenario_id": "S-AC2-stats",
       "session_id": null,
-      "sha256": "f4f0498e79275726402a17f327837b1999c1e7fb65c738d3e4cb7cf1da8be3c5"
+      "sha256": "4bee28e7869bd82ee3c1b91ce27fd6eb325fda4fdfcf19966188c65fb9080fc0"
     },
     {
       "artifact_kind": "execution-log",
-      "attached_at": "2026-08-26T18:47:15+0800",
+      "attached_at": "2026-08-27T11:50:28+0800",
       "business_facts": {},
-      "evidence_id": "ev-dba94dab29c4",
-      "file_mtime": "2026-08-26T10:47:15Z",
-      "generated_at": "2026-08-26T10:47:15Z",
+      "evidence_id": "ev-4158c0102988",
+      "file_mtime": "2026-08-27T03:50:28Z",
+      "generated_at": "2026-08-27T03:50:28Z",
       "kind": "primary",
       "path": "artifacts/exec-S-AC3-tier-check-0003.log",
       "producer_type": "gate-exec",
@@ -363,15 +330,15 @@
       "root_run_id": null,
       "scenario_id": "S-AC3-tier-check",
       "session_id": null,
-      "sha256": "dba94dab29c49ff7bd99bd2fd1e98b1ed91c1aa862bb7b256bb706729fda8eec"
+      "sha256": "4158c010298873c56f7a199d3a6a2c9dec59d5541596ec1f82303b4f2a6d2bbb"
     },
     {
       "artifact_kind": "execution-log",
-      "attached_at": "2026-08-26T18:47:16+0800",
+      "attached_at": "2026-08-27T11:50:29+0800",
       "business_facts": {},
-      "evidence_id": "ev-e1cb5f1f25ec",
-      "file_mtime": "2026-08-26T10:47:16Z",
-      "generated_at": "2026-08-26T10:47:16Z",
+      "evidence_id": "ev-41ca6559c775",
+      "file_mtime": "2026-08-27T03:50:29Z",
+      "generated_at": "2026-08-27T03:50:29Z",
       "kind": "primary",
       "path": "artifacts/exec-S-AC4-phase-cost-0004.log",
       "producer_type": "gate-exec",
@@ -379,15 +346,15 @@
       "root_run_id": null,
       "scenario_id": "S-AC4-phase-cost",
       "session_id": null,
-      "sha256": "e1cb5f1f25ecb9b5fca9ef0ac28e18a5dcc6d8de81509fb99f2a6240f7f32b2f"
+      "sha256": "41ca6559c775efa24a31ff7cc9dfdef973e315b1b9ebb5ccb4a50d79780b854d"
     },
     {
       "artifact_kind": "execution-log",
-      "attached_at": "2026-08-26T18:47:17+0800",
+      "attached_at": "2026-08-27T11:50:30+0800",
       "business_facts": {},
-      "evidence_id": "ev-ec0fc9e940ad",
-      "file_mtime": "2026-08-26T10:47:17Z",
-      "generated_at": "2026-08-26T10:47:17Z",
+      "evidence_id": "ev-71579f9a8349",
+      "file_mtime": "2026-08-27T03:50:30Z",
+      "generated_at": "2026-08-27T03:50:30Z",
       "kind": "primary",
       "path": "artifacts/exec-S-AC5-pre-push-e2e-0005.log",
       "producer_type": "gate-exec",
@@ -395,15 +362,15 @@
       "root_run_id": null,
       "scenario_id": "S-AC5-pre-push-e2e",
       "session_id": null,
-      "sha256": "ec0fc9e940ad2501578f7ef3688a4bb62914c7f7723f6224b2638a2b218c609e"
+      "sha256": "71579f9a83493694415e28a864c805410ef8f5bc934fbad23887a493ee5adaa2"
     },
     {
       "artifact_kind": "execution-log",
-      "attached_at": "2026-08-26T18:47:17+0800",
+      "attached_at": "2026-08-27T11:50:31+0800",
       "business_facts": {},
-      "evidence_id": "ev-463083265580",
-      "file_mtime": "2026-08-26T10:47:17Z",
-      "generated_at": "2026-08-26T10:47:17Z",
+      "evidence_id": "ev-147bbeee008b",
+      "file_mtime": "2026-08-27T03:50:31Z",
+      "generated_at": "2026-08-27T03:50:31Z",
       "kind": "primary",
       "path": "artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
       "producer_type": "gate-exec",
@@ -411,484 +378,201 @@
       "root_run_id": null,
       "scenario_id": "S-AC6-stop-hook-e2e",
       "session_id": null,
-      "sha256": "4630832655804fa9400a2e3411e1b7cc13df452f06b3c77978abf0ce58ce40d5"
-    },
-    {
-      "artifact_kind": "execution-log",
-      "attached_at": "2026-08-27T09:49:48+0800",
-      "business_facts": {},
-      "evidence_id": "ev-5d760dfa2170",
-      "file_mtime": "2026-08-27T01:49:48Z",
-      "generated_at": "2026-08-27T01:49:48Z",
-      "kind": "primary",
-      "path": "artifacts/exec-S-AC1-gate-selftest-0007.log",
-      "producer_type": "gate-exec",
-      "producer_version": "1.5.0",
-      "root_run_id": null,
-      "scenario_id": "S-AC1-gate-selftest",
-      "session_id": null,
-      "sha256": "5d760dfa2170cf4c7f885e4ae90811ffef83d78d61e097a00ccc91ff54df5104"
-    },
-    {
-      "artifact_kind": "execution-log",
-      "attached_at": "2026-08-27T09:49:49+0800",
-      "business_facts": {},
-      "evidence_id": "ev-3ec0d6c0d71c",
-      "file_mtime": "2026-08-27T01:49:49Z",
-      "generated_at": "2026-08-27T01:49:49Z",
-      "kind": "primary",
-      "path": "artifacts/exec-S-AC2-stats-0008.log",
-      "producer_type": "gate-exec",
-      "producer_version": "1.5.0",
-      "root_run_id": null,
-      "scenario_id": "S-AC2-stats",
-      "session_id": null,
-      "sha256": "3ec0d6c0d71c3881159c636cb425c7020d3f9baf5baad8f1fb11d3c255dfb046"
-    },
-    {
-      "artifact_kind": "execution-log",
-      "attached_at": "2026-08-27T09:49:50+0800",
-      "business_facts": {},
-      "evidence_id": "ev-7b3b5a6c8bdd",
-      "file_mtime": "2026-08-27T01:49:50Z",
-      "generated_at": "2026-08-27T01:49:50Z",
-      "kind": "primary",
-      "path": "artifacts/exec-S-AC3-tier-check-0009.log",
-      "producer_type": "gate-exec",
-      "producer_version": "1.5.0",
-      "root_run_id": null,
-      "scenario_id": "S-AC3-tier-check",
-      "session_id": null,
-      "sha256": "7b3b5a6c8bddf5cbbc3f87ba605c032c48f4e82c58bdfb438715ec1b4a7e604a"
-    },
-    {
-      "artifact_kind": "execution-log",
-      "attached_at": "2026-08-27T09:49:51+0800",
-      "business_facts": {},
-      "evidence_id": "ev-8c49d14b72fa",
-      "file_mtime": "2026-08-27T01:49:51Z",
-      "generated_at": "2026-08-27T01:49:51Z",
-      "kind": "primary",
-      "path": "artifacts/exec-S-AC4-phase-cost-0010.log",
-      "producer_type": "gate-exec",
-      "producer_version": "1.5.0",
-      "root_run_id": null,
-      "scenario_id": "S-AC4-phase-cost",
-      "session_id": null,
-      "sha256": "8c49d14b72fad35f3b0f87432df6e2264a3b30fb9e8958b15c82cc4fc7352232"
-    },
-    {
-      "artifact_kind": "execution-log",
-      "attached_at": "2026-08-27T09:49:52+0800",
-      "business_facts": {},
-      "evidence_id": "ev-694a21ff6cd6",
-      "file_mtime": "2026-08-27T01:49:52Z",
-      "generated_at": "2026-08-27T01:49:52Z",
-      "kind": "primary",
-      "path": "artifacts/exec-S-AC5-pre-push-e2e-0011.log",
-      "producer_type": "gate-exec",
-      "producer_version": "1.5.0",
-      "root_run_id": null,
-      "scenario_id": "S-AC5-pre-push-e2e",
-      "session_id": null,
-      "sha256": "694a21ff6cd6d7edf40dd22fd370d6194ca4623e468eeb8ea5d1225195f03c0a"
-    },
-    {
-      "artifact_kind": "execution-log",
-      "attached_at": "2026-08-27T09:49:53+0800",
-      "business_facts": {},
-      "evidence_id": "ev-830b85dadce6",
-      "file_mtime": "2026-08-27T01:49:53Z",
-      "generated_at": "2026-08-27T01:49:53Z",
-      "kind": "primary",
-      "path": "artifacts/exec-S-AC6-stop-hook-e2e-0012.log",
-      "producer_type": "gate-exec",
-      "producer_version": "1.5.0",
-      "root_run_id": null,
-      "scenario_id": "S-AC6-stop-hook-e2e",
-      "session_id": null,
-      "sha256": "830b85dadce6448d1652fc67eeb03032f70042ac6ac90b7773918249a988149a"
+      "sha256": "147bbeee008bf18888b2100e921075b72189f7e87364ab86f44a6a9618f36ee2"
     }
   ],
   "exclusion_scope": [
-    "plans/2026-08-26-enforcement-anchors/verification/run-001"
+    "plans/2026-08-26-enforcement-anchors/verification/run-001",
+    "plans/2026-08-26-enforcement-anchors/verification/run-002",
+    "plans/2026-08-26-enforcement-anchors/verification/run-003"
   ],
-  "executor_engine": "claude-fable-5(main-loop)",
+  "executor_engine": "claude-fable-5-main",
   "external_run_dir": false,
   "fixture_only": false,
   "integrity": {
-    "chain": "54c5137e166ac34c27108bd33f11dff68cf9a97df00a610886f24144a24ee1ad",
-    "genesis": "68dbfe8582848008a8c7193b620143fc9d11e0c7ad04a011d91ae6d47bb6758a",
+    "chain": "86364935945ae76428bf2c222a04adeee36affcb8d3971fdf8dffe7449f82e90",
+    "genesis": "3b0be6fa32fe1541b89c1e0aba33f4ce2f8e617041c940e9ab1bf5d128a31f7d",
     "log": [
       {
-        "at": "2026-08-26T18:46:02+0800",
-        "chain": "6f835b32aa03f13dbf4d6b41b5b6ef3ee26ca8970c2f51f95f20dcd0c43ded20",
-        "facts_digest": "f11eefe32636c43d347a5f3e84cd102899ac4eaf03ee58a9e83548cef65ccd20",
+        "at": "2026-08-27T11:49:15+0800",
+        "chain": "122bf1cf9c009bfefc4c45bcd53902fb30bb7b2d4b8731e0f5602f657470257b",
+        "facts_digest": "6674c7bb7f4f232987e7580a056d386a1ccf2895fb13fb529c867de9867eebb4",
         "op": "init",
         "seq": 1
       },
       {
-        "at": "2026-08-26T18:46:02+0800",
-        "chain": "12b7c2fde3fd2c43041e8962154b1d64f82285d81b2c4397f9cc51c01187c602",
-        "facts_digest": "fc1cfe987edb7a8e841a50153f6358ff68a41eb8db05f44b54e938887578ab72",
+        "at": "2026-08-27T11:49:15+0800",
+        "chain": "6fc24f984bc513e77fcaf5d320fe8233a1c789dc4607b969b04d598abb3768c4",
+        "facts_digest": "7e28f61afc977fa4e8821bec9116ad178b43866be279e1bc58333ea8e3580f11",
         "op": "phase-start",
         "seq": 2
       },
       {
-        "at": "2026-08-26T18:47:13+0800",
-        "chain": "cdd9582bfc9fdff651e8eb263977e3f9bddb6111054922a6b57381ccfda56ad7",
-        "facts_digest": "32251de10f0d4ea82081c94500ed3b2dc5ea5922a37f00871f6b057b6a4da997",
+        "at": "2026-08-27T11:50:26+0800",
+        "chain": "99c0c4498177fa7f66326ad930cbfd7bd48133218acd60da53a1c97080a16ed4",
+        "facts_digest": "d52f207a4900af13fefe925792b004b5756b5c2d418b18ecc0f616b1361b0c2f",
         "op": "record-run",
         "seq": 3
       },
       {
-        "at": "2026-08-26T18:47:14+0800",
-        "chain": "65a48c9780169af0648fd9a3471c53dfd7f2f9583e00bfef0e714995950ac2f5",
-        "facts_digest": "f51e14cfa9f76d2c3c2a1366222e6f96131df05ad988f330cbe5c8aa32280b91",
+        "at": "2026-08-27T11:50:27+0800",
+        "chain": "662968581155b192eddb77bc0279944395bf7d99c92399dddcdb31e40c0bf376",
+        "facts_digest": "84f20ca1a8613e17f6afd7df40e4d39c887b3aef0f5ff00343ce3f4f6eeccdcd",
         "op": "record-run",
         "seq": 4
       },
       {
-        "at": "2026-08-26T18:47:15+0800",
-        "chain": "a627e325f91469734c81d80dc6f96a32a5d015721cbea5e4046d6241d6249917",
-        "facts_digest": "c66761bb06dae6b3faa04f0f79955aff1ae75813c073e45a86075965c6f9f6bb",
+        "at": "2026-08-27T11:50:28+0800",
+        "chain": "e64fc98c93f7ad9a556123ff96862cc6172dd41a405b53ecfaa50d9d3baef0f8",
+        "facts_digest": "10fa631a2faf2a1a55cac568b38e739ce1d6d7c8cae48fdd93d0f461b39e4b62",
         "op": "record-run",
         "seq": 5
       },
       {
-        "at": "2026-08-26T18:47:16+0800",
-        "chain": "39ed24188dffb727880b3208301024a536f621aae0b7457588e511fa7f35e1fa",
-        "facts_digest": "23a9a72d78a03216ee05b7f1ff8bcb8800a0298c13c2ff8c10d5b01bfa358b5a",
+        "at": "2026-08-27T11:50:29+0800",
+        "chain": "268f57d0de41fc9700d73fbd3fa044c7b1d98cf17feb0be8aee7e4048af1a8b5",
+        "facts_digest": "02112fec6b7daf9585dfa1ab32659c411a2c70e1449e6134134dfdb865fc5105",
         "op": "record-run",
         "seq": 6
       },
       {
-        "at": "2026-08-26T18:47:17+0800",
-        "chain": "4c345b5172272154fcedd38fab0478c1bddfbaa02d1a487a9e3f4e91e1a377e5",
-        "facts_digest": "10a8e35d5ca30ed3b2a473350b2768cd82e5d66c35208b22b544dec200be427e",
+        "at": "2026-08-27T11:50:30+0800",
+        "chain": "c425a64b4510e456dced49bd15b23cbee3c35869131a2e55ec5ce5c564199ede",
+        "facts_digest": "4695ace30bd8eb024d288e53d9ba5029a0f59565fd824186c7b40dbea7cc013f",
         "op": "record-run",
         "seq": 7
       },
       {
-        "at": "2026-08-26T18:47:17+0800",
-        "chain": "2a0ca3b4d3d8cd10d6e0043a4d23685ffb447a3e31cc866fc887e697be05b1eb",
-        "facts_digest": "201b1a513fba6e31d72ee8ee76be7150d9aa4920c7e196b531c71a2b9a77b95d",
+        "at": "2026-08-27T11:50:31+0800",
+        "chain": "ec694f8c41cb0ed65d61402457fbff29c4f17e96def8f317ef0ce4d44f7cbaa6",
+        "facts_digest": "4ce1349cea234dc4f677f781a12a143c6f867503ffa91b8c2d5217b706740349",
         "op": "record-run",
         "seq": 8
       },
       {
-        "at": "2026-08-26T18:47:18+0800",
-        "chain": "b94caaff035db86ec93c5049ec4c33e6542227ec6a09dd3443ffa4b64a75f4ed",
-        "facts_digest": "990b0c446de91b0c68ee6519bb17cb460c57d46a11d9c99d634bdb8cbacb894e",
+        "at": "2026-08-27T11:50:31+0800",
+        "chain": "3ae81bef71847ac6f01ca0ce7a1ebb04e04831cfe57a558967db977376802960",
+        "facts_digest": "c31b596c39a30e9cdbfc4c1c4383495e95bb87a271ce423f5271aa71d45c4f80",
         "op": "phase-end",
         "seq": 9
       },
       {
-        "at": "2026-08-26T18:47:52+0800",
-        "chain": "ce588f98bc695858ba9bb97a91853540b5ef6343606cc484011d61bf7f5360e9",
-        "facts_digest": "8509349e2444a0f03069fe5f950370bced6614a7bfc0027faa9fb86e209c15ba",
+        "at": "2026-08-27T11:50:31+0800",
+        "chain": "a885f798587d84304bd009916be8aecea915ea173045fd006d536d1ae852235b",
+        "facts_digest": "15767931691be5206d3b89d4e08b6ef929d7b6bc13c5fa30f68ee74934be44f2",
         "op": "phase-start",
         "seq": 10
       },
       {
-        "at": "2026-08-26T18:51:41+0800",
-        "chain": "0f9fb82e46954c051ae22098f53a495ad84f8a87d4831b1f32ad72c0f9b90967",
-        "facts_digest": "5ad5f84314733812fdd5e7b710e6ff0443b0029724304618bcc87f67ba053f4b",
+        "at": "2026-08-27T11:53:10+0800",
+        "chain": "c346a2e40b85a24992578425ef84250f9ebb26db08bec98e58b28804e9b5dacf",
+        "facts_digest": "9edfac76c708cde7a4fbb2d5b2488a3b78bb5e38a161805564fb713daac4f0dc",
         "op": "phase-end",
         "seq": 11
       },
       {
-        "at": "2026-08-26T18:52:40+0800",
-        "chain": "c45e0f305d43a38ef186cf7ca18c1b8f3ea12d5e053a9268da6fc49f9539fef6",
-        "facts_digest": "9139cad82ff55218b348d7c604abf846e05cbf92106031d8f3b1ef615d290506",
+        "at": "2026-08-27T11:53:10+0800",
+        "chain": "86364935945ae76428bf2c222a04adeee36affcb8d3971fdf8dffe7449f82e90",
+        "facts_digest": "905be8dd97782123d28bd5c3f14ae35d0a6f620b604ba35badeca449cd00b87c",
         "op": "audit",
         "seq": 12
-      },
-      {
-        "at": "2026-08-27T09:48:32+0800",
-        "chain": "0e71ac6e88534e6ad5729091754e22cab2286e878fda7a2eb1b085f389065b3a",
-        "facts_digest": "4bd72c093a7f9ba809589037521de16436a8dedf6c5a320cba3a615bd21c68a1",
-        "op": "re-attest",
-        "seq": 13
-      },
-      {
-        "at": "2026-08-27T09:48:32+0800",
-        "chain": "597eb085fcb009d642e8dffb079113b2cb036a0e39b8c36287c0899ca90522e5",
-        "facts_digest": "a912be1869e5c8d1c82354d6ac98944353470c72e5479a240b3d854905bf35c7",
-        "op": "phase-start",
-        "seq": 14
-      },
-      {
-        "at": "2026-08-27T09:49:48+0800",
-        "chain": "56e5759e44ff5ed5e1167ece8f961a6bf4dff8965ee74dcbe268d6b7ff62409a",
-        "facts_digest": "2cb3c712000cf082b5e2ddc057524dd2284b850717c7d0776a7fb3f5b6a04031",
-        "op": "record-run",
-        "seq": 15
-      },
-      {
-        "at": "2026-08-27T09:49:49+0800",
-        "chain": "785eee182a50127b155dee851ad4fb8ffa68782c071c1c217d9bc74ed147e0e4",
-        "facts_digest": "a49837a6e55df467d3d8d031a840b28226af33299b0e3095808700981bb7a646",
-        "op": "record-run",
-        "seq": 16
-      },
-      {
-        "at": "2026-08-27T09:49:50+0800",
-        "chain": "1c3d53c9baa89c69e4011278bacf5424005b095031e0ee21c373de3f188aba32",
-        "facts_digest": "dfdd4cd1e86e02bd495f84360b43671bfd4dd003dde694c4984c0af1da7d3480",
-        "op": "record-run",
-        "seq": 17
-      },
-      {
-        "at": "2026-08-27T09:49:51+0800",
-        "chain": "019cbeb80ec199581e682afdb146ef4544b149249dbe48578b91133ceffbf649",
-        "facts_digest": "7183f5f68de1068d05c2e0cdaff97a4011038b9d51f7b57125094471a804c88b",
-        "op": "record-run",
-        "seq": 18
-      },
-      {
-        "at": "2026-08-27T09:49:52+0800",
-        "chain": "29bd6e979c8233e82783f029da707737263fb9df404066d5142f2d62e97cd90f",
-        "facts_digest": "98ae7a2da034657a64aec2d0f15f15dab043e3562141746aee215d1f83c53077",
-        "op": "record-run",
-        "seq": 19
-      },
-      {
-        "at": "2026-08-27T09:49:53+0800",
-        "chain": "a89e57e763995a841d12152336128ecc67166d1ac3df7d554305e1e8ba2403d8",
-        "facts_digest": "ec278b31f4f96cf1f61835a2a6250a55b7693bfaed1ef11410d1cdf9d9f80698",
-        "op": "record-run",
-        "seq": 20
-      },
-      {
-        "at": "2026-08-27T09:49:53+0800",
-        "chain": "e2f9d3bdaab3d67dcc6e91190d82be4c464a1363f3022173d41009c99e7e6c07",
-        "facts_digest": "36487b81568ca2b9d89f8d948be32ee554c2342887ff040b53e471558638d0ce",
-        "op": "phase-end",
-        "seq": 21
-      },
-      {
-        "at": "2026-08-27T09:50:46+0800",
-        "chain": "78b5795c50401dfede681bdd3b8d02bb8a02686a86d333f679e4fe07ecac730c",
-        "facts_digest": "be263eb3f4ff9b8ed988c7bd40f6a9bbaef37a1ab541305e92f9a83119b26e85",
-        "op": "record-timing",
-        "seq": 22
-      },
-      {
-        "at": "2026-08-27T09:51:07+0800",
-        "chain": "db7eb091d492a385c79e524d60b041f4febd37828f14be7a2096b56b3d9a5caf",
-        "facts_digest": "202e318e8d257f1903610534e5e74fb428481339f9038bd4d764db5e736791ae",
-        "op": "phase-start",
-        "seq": 23
-      },
-      {
-        "at": "2026-08-27T09:53:31+0800",
-        "chain": "97866f2c4be936de8ad2305edb65d7e8cff304ff18dcab20a7c3bf10f807a37b",
-        "facts_digest": "2e4368674adadbd1ca064d12cd0243df7459c51e70c6d4d59113b09c03a7e1ef",
-        "op": "phase-end",
-        "seq": 24
-      },
-      {
-        "at": "2026-08-27T09:53:31+0800",
-        "chain": "d24bef3dd6511891d7196646f571f3f6963842cdfb4420f2df6475b3a31a3b4d",
-        "facts_digest": "60557d5487e89340a6307109a86c3586d05d43df97d7616be7f8d572591a8d85",
-        "op": "audit",
-        "seq": 25
-      },
-      {
-        "at": "2026-08-27T11:37:45+0800",
-        "chain": "bc3b64e22b8e41b23dda9bb4f392d874cec98f34844cf1d35c80dc2ffc2cd2d5",
-        "facts_digest": "6eb16ff44291c204d77a70243d575b142faa52b3fea7d0fa44dcb1e460a52c08",
-        "op": "retire",
-        "seq": 26
-      },
-      {
-        "at": "2026-08-27T11:54:02+0800",
-        "chain": "54c5137e166ac34c27108bd33f11dff68cf9a97df00a610886f24144a24ee1ad",
-        "facts_digest": "30e9a357231cb3a28862da76c0f038973e850add2e5efacfa15d4c2259699f79",
-        "op": "retire",
-        "seq": 27
       }
     ]
   },
-  "related_run_dirs": [],
+  "related_run_dirs": [
+    "plans/2026-08-26-enforcement-anchors/verification/run-001",
+    "plans/2026-08-26-enforcement-anchors/verification/run-002"
+  ],
   "release_unit": {
     "must_ac_count": 6,
     "plan_lines": 17,
-    "task_count": 6
+    "task_count": 4
   },
   "repo_root": "/home/denny/projects/plan-test-skill",
-  "retired": true,
-  "retired_at": "2026-08-27T11:54:02+0800",
-  "retired_reason": "退役链重指：原继任 run-002 已被 run-003 退役、receipt 失效，举证责任沿链转移到现役 run-003（同 acceptance、同 required 场景集、receipt 有效）",
-  "revision": 27,
-  "run_id": "enforcement-anchors-001",
+  "revision": 12,
+  "run_id": "enforcement-anchors-003",
   "runs": [
     {
       "command": "python3 skills/plan-test/scripts/test_plan_test_gate.py",
       "driver": "ai",
-      "elapsed_ms": 68841,
-      "ended_at": "2026-08-26T10:47:13Z",
+      "elapsed_ms": 65480,
+      "ended_at": "2026-08-27T03:50:26Z",
       "exec_exit_code": 0,
       "kind": "root",
       "lane": "fresh",
-      "recorded_at": "2026-08-26T18:47:13+0800",
+      "recorded_at": "2026-08-27T11:50:26+0800",
       "result": "pass",
       "scenario_id": "S-AC1-gate-selftest",
-      "started_at": "2026-08-26T10:46:02Z"
+      "started_at": "2026-08-27T03:49:15Z"
     },
     {
       "command": "python3 skills/plan-test/scripts/test_gate_stats.py",
       "driver": "ai",
-      "elapsed_ms": 1192,
-      "ended_at": "2026-08-26T10:47:14Z",
+      "elapsed_ms": 1117,
+      "ended_at": "2026-08-27T03:50:27Z",
       "exec_exit_code": 0,
       "kind": "root",
       "lane": "fresh",
-      "recorded_at": "2026-08-26T18:47:14+0800",
+      "recorded_at": "2026-08-27T11:50:27+0800",
       "result": "pass",
       "scenario_id": "S-AC2-stats",
-      "started_at": "2026-08-26T10:47:13Z"
+      "started_at": "2026-08-27T03:50:26Z"
     },
     {
       "command": "python3 skills/plan-test/scripts/test_tier_check.py",
       "driver": "ai",
-      "elapsed_ms": 581,
-      "ended_at": "2026-08-26T10:47:15Z",
+      "elapsed_ms": 538,
+      "ended_at": "2026-08-27T03:50:28Z",
       "exec_exit_code": 0,
       "kind": "root",
       "lane": "fresh",
-      "recorded_at": "2026-08-26T18:47:15+0800",
+      "recorded_at": "2026-08-27T11:50:28+0800",
       "result": "pass",
       "scenario_id": "S-AC3-tier-check",
-      "started_at": "2026-08-26T10:47:14Z"
+      "started_at": "2026-08-27T03:50:27Z"
     },
     {
       "command": "python3 skills/plan-test/scripts/test_phase_cost.py",
       "driver": "ai",
-      "elapsed_ms": 1096,
-      "ended_at": "2026-08-26T10:47:16Z",
+      "elapsed_ms": 1044,
+      "ended_at": "2026-08-27T03:50:29Z",
       "exec_exit_code": 0,
       "kind": "root",
       "lane": "fresh",
-      "recorded_at": "2026-08-26T18:47:16+0800",
+      "recorded_at": "2026-08-27T11:50:29+0800",
       "result": "pass",
       "scenario_id": "S-AC4-phase-cost",
-      "started_at": "2026-08-26T10:47:15Z"
+      "started_at": "2026-08-27T03:50:28Z"
     },
     {
       "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-pre-push.sh",
       "driver": "ai",
-      "elapsed_ms": 715,
-      "ended_at": "2026-08-26T10:47:17Z",
+      "elapsed_ms": 1120,
+      "ended_at": "2026-08-27T03:50:30Z",
       "exec_exit_code": 0,
       "kind": "root",
       "lane": "fresh",
-      "recorded_at": "2026-08-26T18:47:17+0800",
+      "recorded_at": "2026-08-27T11:50:30+0800",
       "result": "pass",
       "scenario_id": "S-AC5-pre-push-e2e",
-      "started_at": "2026-08-26T10:47:16Z"
+      "started_at": "2026-08-27T03:50:29Z"
     },
     {
       "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-stop-hook.sh",
       "driver": "ai",
-      "elapsed_ms": 411,
-      "ended_at": "2026-08-26T10:47:17Z",
+      "elapsed_ms": 983,
+      "ended_at": "2026-08-27T03:50:31Z",
       "exec_exit_code": 0,
       "kind": "root",
       "lane": "fresh",
-      "recorded_at": "2026-08-26T18:47:17+0800",
+      "recorded_at": "2026-08-27T11:50:31+0800",
       "result": "pass",
       "scenario_id": "S-AC6-stop-hook-e2e",
-      "started_at": "2026-08-26T10:47:17Z"
-    },
-    {
-      "command": "python3 skills/plan-test/scripts/test_plan_test_gate.py",
-      "driver": "ai",
-      "elapsed_ms": 70951,
-      "ended_at": "2026-08-27T01:49:48Z",
-      "exec_exit_code": 0,
-      "kind": "root",
-      "lane": "fresh",
-      "recorded_at": "2026-08-27T09:49:48+0800",
-      "result": "pass",
-      "scenario_id": "S-AC1-gate-selftest",
-      "started_at": "2026-08-27T01:48:33Z"
-    },
-    {
-      "command": "python3 skills/plan-test/scripts/test_gate_stats.py",
-      "driver": "ai",
-      "elapsed_ms": 1153,
-      "ended_at": "2026-08-27T01:49:49Z",
-      "exec_exit_code": 0,
-      "kind": "root",
-      "lane": "fresh",
-      "recorded_at": "2026-08-27T09:49:49+0800",
-      "result": "pass",
-      "scenario_id": "S-AC2-stats",
-      "started_at": "2026-08-27T01:49:48Z"
-    },
-    {
-      "command": "python3 skills/plan-test/scripts/test_tier_check.py",
-      "driver": "ai",
-      "elapsed_ms": 565,
-      "ended_at": "2026-08-27T01:49:50Z",
-      "exec_exit_code": 0,
-      "kind": "root",
-      "lane": "fresh",
-      "recorded_at": "2026-08-27T09:49:50+0800",
-      "result": "pass",
-      "scenario_id": "S-AC3-tier-check",
-      "started_at": "2026-08-27T01:49:49Z"
-    },
-    {
-      "command": "python3 skills/plan-test/scripts/test_phase_cost.py",
-      "driver": "ai",
-      "elapsed_ms": 1083,
-      "ended_at": "2026-08-27T01:49:51Z",
-      "exec_exit_code": 0,
-      "kind": "root",
-      "lane": "fresh",
-      "recorded_at": "2026-08-27T09:49:51+0800",
-      "result": "pass",
-      "scenario_id": "S-AC4-phase-cost",
-      "started_at": "2026-08-27T01:49:50Z"
-    },
-    {
-      "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-pre-push.sh",
-      "driver": "ai",
-      "elapsed_ms": 719,
-      "ended_at": "2026-08-27T01:49:52Z",
-      "exec_exit_code": 0,
-      "kind": "root",
-      "lane": "fresh",
-      "recorded_at": "2026-08-27T09:49:52+0800",
-      "result": "pass",
-      "scenario_id": "S-AC5-pre-push-e2e",
-      "started_at": "2026-08-27T01:49:51Z"
-    },
-    {
-      "command": "bash plans/2026-08-26-enforcement-anchors/scripts/e2e-stop-hook.sh",
-      "driver": "ai",
-      "elapsed_ms": 404,
-      "ended_at": "2026-08-27T01:49:53Z",
-      "exec_exit_code": 0,
-      "kind": "root",
-      "lane": "fresh",
-      "recorded_at": "2026-08-27T09:49:53+0800",
-      "result": "pass",
-      "scenario_id": "S-AC6-stop-hook-e2e",
-      "started_at": "2026-08-27T01:49:52Z"
+      "started_at": "2026-08-27T03:50:30Z"
     }
   ],
   "runtime_attestation": {
-    "change_kind": "behavioral",
-    "changed_count": 2,
-    "changed_paths": [
-      "plans/2026-07-27-gate-hardening/verification/slice-a/plan-test-run.json",
-      "plans/2026-07-27-gate-hardening/verification/slice-b/plan-test-run.json"
-    ],
-    "content_digest": "c668a0ac4a0ec2e4a5b21077213ba5fe2b773e0f7d193bb1e3c9436f014242cc",
+    "content_digest": "f7b7702ddc3352c3319ab3e911e7571fe28984a7fc1fb064eb8eaa7dff2930ff",
     "content_entries": [
       [
         ".claude-plugin/marketplace.json",
@@ -896,11 +580,15 @@
       ],
       [
         ".claude-plugin/plugin.json",
-        "-:3a9a33d8e61f7fc0f763cbdec1970765ecf0543c687290b7c2d1b7250defe410"
+        "-:9e82c3b3f02155af70be937c1fb16234c64a7eb8806d0110aa7f9200bbd97dba"
       ],
       [
         ".gitignore",
         "-:1f398327758bed124c02230b02344a5bd7a043a707b8270b4a939997a6edf488"
+      ],
+      [
+        "AGENTS.md",
+        "-:6deebb7250ff7aa4487ee077f6cafa6ab8cf15d0aaffb10df9bd0d3649211998"
       ],
       [
         "CLAUDE.md",
@@ -968,7 +656,7 @@
       ],
       [
         "examples/eagle-map/plan-test-gate.yml",
-        "-:aa2073e6df9d8b1e2efedae44906501b21a13c87889f61dca5da5c2bd24221ca"
+        "-:43cda0b9b00cd1783b7ddb55c692e7e48a1ad778e2397f423f1124c63be68ad7"
       ],
       [
         "examples/eagle-map/plan-test-risk.globs",
@@ -988,7 +676,7 @@
       ],
       [
         "hooks/adapters/git/pre-push",
-        "x:36867da52cf949f5e3f12e0322e1a03829618ab6af268d6508bb4b7121dce62d"
+        "x:f55ca8602a4a3bb2f1c83cf36e4f7efe4b414cfe5b3d118038dea05534a6dbee"
       ],
       [
         "hooks/gate_scan.py",
@@ -1000,7 +688,7 @@
       ],
       [
         "hooks/stop-gate-check.sh",
-        "x:e9c0a290227b27049b86024334f2314521304fc1a526178d5e2fb4e7bae21f7e"
+        "x:4e51c8c366302f539ffd229bd97489e43d662cb07ad6affb0d7e82a9dedd80f5"
       ],
       [
         "plans/2026-07-27-gate-hardening/acceptance.md",
@@ -1247,16 +935,20 @@
         "-:ec346b65f82f4b6996490912eb0a00321ba34e03fa798e200636fefc83d22d29"
       ],
       [
+        "plans/2026-08-26-enforcement-anchors/ERRATA.md",
+        "-:e4d0d0535ae106f38330bf5589938c38f4a69b2a5b292ed5490685a512f6469e"
+      ],
+      [
         "plans/2026-08-26-enforcement-anchors/acceptance.md",
         "-:98abefe4b9140e11f010b05e9a3e629153bc16d217be9cf627ee4fefa6ebfeeb"
       ],
       [
         "plans/2026-08-26-enforcement-anchors/scripts/e2e-pre-push.sh",
-        "x:aa95fe5ea1b13ccf1d298c5a8176d8bb0433cce90f59b6f571a22db14f253465"
+        "x:8da97e28c76d77a08a73882b835739c0cb9be5676b67e5f143af0cb4251895dc"
       ],
       [
         "plans/2026-08-26-enforcement-anchors/scripts/e2e-stop-hook.sh",
-        "x:365eda378138b82326fcede2046a38cbf42cfb2b0e3ca4544b14487ebe6aa097"
+        "x:33b5b57901ae4585449090856112cd6b7fc31881b7db4e2ee9db89f058d5efe9"
       ],
       [
         "skills/plan-bs/SKILL.md",
@@ -1515,10 +1207,12 @@
         "x:827d167fd2731a64f60b8283b513f418d93f54d5cdf1336be1cb7f80e088f0d9"
       ]
     ],
-    "dirty_patch_sha256": "adbb061a25f7f5459de42c96299cb743af08ff82823b6941e230a7fa8dd7b2a0",
-    "exclusion_count": 12,
+    "dirty_patch_sha256": "76f6e9c0769c3541fe9ea6f16d0b2e9bd128717c0edcbee2ab1f9039e58fa9d6",
+    "exclusion_count": 31,
     "exclusion_scope": [
-      "plans/2026-08-26-enforcement-anchors/verification/run-001"
+      "plans/2026-08-26-enforcement-anchors/verification/run-001",
+      "plans/2026-08-26-enforcement-anchors/verification/run-002",
+      "plans/2026-08-26-enforcement-anchors/verification/run-003"
     ],
     "exclusions": [
       [
@@ -1526,7 +1220,15 @@
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
       ],
       [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC1-gate-selftest-0007.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
         "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0002.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC2-stats-0008.log",
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
       ],
       [
@@ -1534,7 +1236,15 @@
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
       ],
       [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC3-tier-check-0009.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
         "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0004.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC4-phase-cost-0010.log",
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
       ],
       [
@@ -1542,7 +1252,15 @@
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
       ],
       [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC5-pre-push-e2e-0011.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
         "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-001/artifacts/exec-S-AC6-stop-hook-e2e-0012.log",
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
       ],
       [
@@ -1568,12 +1286,62 @@
       [
         "plans/2026-08-26-enforcement-anchors/verification/run-001/report.md",
         "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-001"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC1-gate-selftest-0001.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC2-stats-0002.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC3-tier-check-0003.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC4-phase-cost-0004.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC5-pre-push-e2e-0005.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/artifacts/exec-S-AC6-stop-hook-e2e-0006.log",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/auditor-input.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/auditor-output.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/gate-receipt.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/manifest.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/plan-test-run.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-002/report.md",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-002"
+      ],
+      [
+        "plans/2026-08-26-enforcement-anchors/verification/run-003/manifest.json",
+        "declared-scope:plans/2026-08-26-enforcement-anchors/verification/run-003"
       ]
     ],
-    "head": "1e4799e70bcd8dc1d136c816168717419147adbe",
-    "reason": "业主拍板 acknowledge 历史轮 slice-a/b，两本账本文件（仓库内容）被合法修改；按协议 8b 重新采集运行时身份并全量复测（本 run 未声明 impact_paths，fail-closed 全场景 stale）",
-    "recorded_at": "2026-08-27T09:48:32+0800",
-    "runs_index": 6
+    "head": "d06a6afcd0bd538d9ff164a815ed4e0452359a93",
+    "recorded_at": "2026-08-27T11:49:15+0800"
   },
   "scenarios": [
     {
@@ -1604,35 +1372,12 @@
   "schema_version": "1.5.0",
   "source_request": {
     "inline": true,
-    "sha256": "e5836693a24322bb620f8ce5d22a5789711d07d39aa2e27c04cf71baae1ba0c9"
+    "sha256": "63e37200c0bbfead1e5739321948a96e92b036eefe4bcdbf8a1d8db0094576eb"
   },
   "structured_audit_required": false,
-  "superseded_by": "plans/2026-08-26-enforcement-anchors/verification/run-003",
-  "superseded_by_receipt": "9e6368aed70a1bad67743f0bd25773b4f573f1fa637cda9fe2ed9f8f626c6d2e",
   "testcase_lock": {
     "files": [],
     "locked_at": null
   },
-  "thresholds": {},
-  "timing": [
-    {
-      "abort": false,
-      "activity_class": "user_wait",
-      "command": "user_wait: 业主决策窗口（选项 A/B/C 对比后拍板 acknowledge）",
-      "elapsed_ms": 53812000,
-      "ended_at": "2026-08-27T01:48:33Z",
-      "evidence_ids": [],
-      "measured": false,
-      "phase": "await-user-decision",
-      "recorded_at": "2026-08-27T09:50:46+0800",
-      "retry": 0,
-      "runtime_identity": {
-        "head": "1e4799e70bcd8dc1d136c816168717419147adbe"
-      },
-      "started_at": "2026-08-26T10:51:41Z",
-      "test_count": 0,
-      "timing_id": "t-0001",
-      "wait_reason": "user_review"
-    }
-  ]
+  "thresholds": {}
 }

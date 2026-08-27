@@ -1,0 +1,46 @@
+{
+  "acceptance_sha256": "98abefe4b9140e11f010b05e9a3e629153bc16d217be9cf627ee4fefa6ebfeeb",
+  "auditor_input_sha256": "98803a30a496245451c6e100383c0ba97faf43397b63605a972f57fea5e19842",
+  "auditor_output_sha256": "987eb2633194af964e52cca1308b64e8ab67f687befb30552891587ddcf25b84",
+  "content_basis": "worktree-content-excluding-declared-scope",
+  "content_digest": "9e6368aed70a1bad67743f0bd25773b4f573f1fa637cda9fe2ed9f8f626c6d2e",
+  "dirty_patch_sha256": "76f6e9c0769c3541fe9ea6f16d0b2e9bd128717c0edcbee2ab1f9039e58fa9d6",
+  "evidence_manifest_sha256": "78e84c2379982d6d46fbb088807b6b52802c08e2616e6fdb402b9f947103ae91",
+  "evidence_summary": {
+    "distinct_artifacts": 6,
+    "distinct_root_runs": 6,
+    "records": 6,
+    "shared_artifact_sha256": []
+  },
+  "exclusion_scope": [
+    "plans/2026-08-26-enforcement-anchors/verification/run-001",
+    "plans/2026-08-26-enforcement-anchors/verification/run-002",
+    "plans/2026-08-26-enforcement-anchors/verification/run-003"
+  ],
+  "finalized_at": "2026-08-27T11:53:10+0800",
+  "fixture_only": false,
+  "head": "d06a6afcd0bd538d9ff164a815ed4e0452359a93",
+  "ledger_sha256": "bb04229d311b447356e09d921ed47469c9abf540f94cb2f9942e60cadd88a786",
+  "receipt_version": 1,
+  "retired": false,
+  "run_id": "enforcement-anchors-003",
+  "scenario_statuses": {
+    "S-AC1-gate-selftest": "PASS",
+    "S-AC2-stats": "PASS",
+    "S-AC3-tier-check": "PASS",
+    "S-AC4-phase-cost": "PASS",
+    "S-AC5-pre-push-e2e": "PASS",
+    "S-AC6-stop-hook-e2e": "PASS"
+  },
+  "schema_version": "1.5.0",
+  "state": "SHIPPABLE",
+  "superseded_by": null,
+  "testcase_lock_sha256": "346ea8380be046be9259fd396e107dfc1690e2fc483cf94017c08df8acf9be7d",
+  "tested_code_head": "d06a6afcd0bd538d9ff164a815ed4e0452359a93",
+  "timing_summary": {
+    "declared_ms": 0,
+    "entries": 0,
+    "measured_ms": 0
+  },
+  "validator_version": "1.5.0"
+}
