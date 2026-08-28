@@ -159,6 +159,56 @@ class StatsTest(StatsHarness):
                          "run-pb")
 
 
+class LastActivityTimeSourceTestCase(unittest.TestCase):
+    """W1-1：_stats_last_activity 必须读 integrity.log 的 at，而不是恒走 mtime 兜底。
+
+    病根（第 5 轮审计实证）：函数读 integrity['chain']——那是一个 **str**（链值），
+    时间戳在 integrity['log']（list of dict）。遍历字符串得单字符，isinstance dict
+    恒 False → 永远落到 os.path.getmtime。mtime 被 clone/checkout 重置，
+    换机与 CI 上时间轴系统性失真。"""
+
+    def _gate(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("g_ts", GATE)
+        g = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(g)
+        return g
+
+    def test_reads_integrity_log_not_mtime(self):
+        g = self._gate()
+        tmp = tempfile.mkdtemp(prefix="lastact-")
+        try:
+            rel = "verification/r1/plan-test-run.json"
+            p = os.path.join(tmp, rel)
+            os.makedirs(os.path.dirname(p))
+            ledger = {"integrity": {
+                "chain": "ab" * 32,          # str——真实账本就是这个形状
+                "log": [{"at": "2026-08-27T11:49:15+0800", "chain": "x"},
+                        {"at": "2026-08-27T11:53:10+0800", "chain": "y"}]}}
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(ledger, f)
+            os.utime(p, (0, 0))              # mtime = 1970——若走 mtime 立刻穿帮
+            got = g._stats_last_activity(tmp, rel, ledger)
+            self.assertEqual(got, "2026-08-27T11:53:10+0800",
+                             "必须取 integrity.log 的最大 at，而不是 1970 年的 mtime")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_mtime_fallback_only_when_log_absent(self):
+        g = self._gate()
+        tmp = tempfile.mkdtemp(prefix="lastact-")
+        try:
+            rel = "verification/r1/plan-test-run.json"
+            p = os.path.join(tmp, rel)
+            os.makedirs(os.path.dirname(p))
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump({"integrity": {}}, f)
+            got = g._stats_last_activity(tmp, rel, {"integrity": {}})
+            self.assertTrue(got, "无 log 时仍应有 mtime 兜底，不返回空")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class RefusalStatsTestCase(unittest.TestCase):
     """s1a AC-6：stats 的 refusal 计数段——按码、按命令、总数；坏行跳过；无文件出「（无）」。"""
 

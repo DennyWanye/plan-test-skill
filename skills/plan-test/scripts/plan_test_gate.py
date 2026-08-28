@@ -198,6 +198,8 @@ _ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
 # repo_content_digest，rev1/rev2 两轮挑战实测）。
 REFUSAL_FILE_MAX_KB = 512
 _REFUSAL_CODE_RE = re.compile(r"^([A-Z][A-Z0-9_]{3,}):")
+# 用户批准消息的 SHA-256（W1-3 收敛：此前同一正则抄了 6 处、1 处拼写分叉 [a-f0-9]）
+_HASH64_RE = re.compile(r"^[0-9a-f]{64}$")
 _REFUSAL_CTX = {"cmd": None, "run_dir": None, "writing": False}
 _REPO_ROOT_CACHE = {}
 
@@ -1003,6 +1005,15 @@ def expected_chain_length(ledger):
         n += 1
     if ledger.get("acknowledged"):
         n += 1
+    # W1-4 盲区修补：phase_transitions 与 plan_defects 此前不在下界内——删一条
+    # 不会被长度检查发现（链值检查仍覆盖，但保护弱一档）。计入后：
+    # resolve 原地改（链 +1、事实 +0）、reset 归档进 history（事实只挪不减），
+    # 下界方向均安全。
+    n += len(ledger.get("phase_transitions") or [])
+    n += len(ledger.get("plan_defects") or [])
+    for batch in ledger.get("plan_defects_history") or []:
+        if isinstance(batch, dict):
+            n += len(batch.get("defects") or [])
     return n
 
 
@@ -2209,7 +2220,10 @@ def cmd_compile_manifest(args):
         reuse_errors = validate_reuse_report(
             inventory, reuse,
             [row.get("obligation_id") for row in obligations if isinstance(row, dict)])
-    except (ImportError, ValueError) as exc:
+    except (ImportError, ValueError, OSError) as exc:
+        # OSError 收编（W1-5）：rollout 实测 4 次「[Errno 2] ...」裸 errno 出自旧版
+        # 此路径；现版本 spec 读取已走 _read_json_file，这里是防御——校验器内部
+        # 任何文件系统意外都以带码 die 收场，不裸崩
         die("TESTCASE_INVENTORY_INVALID: %s" % exc)
     if inventory_errors or reuse_errors:
         die("TESTCASE_INVENTORY_INVALID: %s" % "; ".join(
@@ -2772,7 +2786,7 @@ def cmd_phase_event(args, action):
 
 def cmd_record_approval(args):
     """登记用户在 chat 中的显式批准（如"全 AI 驾驶"）。绑定用户消息 hash，事后可对质。"""
-    if not re.match(r"^[0-9a-f]{64}$", args.message_hash or ""):
+    if not _HASH64_RE.match(args.message_hash or ""):
         die("--message-hash 须为用户批准消息原文的 SHA-256（64 位十六进制）——"
             "批准必须能回溯到具体的一句话，不接受一个笼统的\"用户同意了\"")
 
@@ -3468,7 +3482,7 @@ def cmd_acknowledge(args):
         receipt，也就不可能被 successor_receipt_status 认成别人的继任 run。
       - 不可撤销：要继续这一轮请换 run-dir 重新 init 并说明来由。
     """
-    if not re.match(r"^[0-9a-f]{64}$", args.approval_hash or ""):
+    if not _HASH64_RE.match(args.approval_hash or ""):
         die("--approval-hash 须为用户批准消息原文的 SHA-256（64 位十六进制）——"
             "放弃一轮验证必须能回溯到用户说过的具体一句话")
     ledger_self = load_ledger(args.run_dir)
@@ -3507,7 +3521,7 @@ def cmd_ack_status(args):
                for e in (ledger.get("integrity", {}).get("log") or [])):
         print("INVALID: integrity 链里没有 acknowledge 操作——acknowledged 字段是手写的")
         sys.exit(1)
-    if not re.match(r"^[0-9a-f]{64}$", str(ledger.get("acknowledged_approval") or "")):
+    if not _HASH64_RE.match(str(ledger.get("acknowledged_approval") or "")):
         print("INVALID: 缺少用户批准消息 hash")
         sys.exit(1)
     print("VALID acknowledged reason=%s approval=%s…"
@@ -3588,9 +3602,14 @@ def _stats_scan_ledgers(root):
 
 
 def _stats_last_activity(root, rel, ledger):
-    """run 的最后活动时间：integrity 链最后一条的 at，退回文件 mtime。"""
-    chain = (ledger.get("integrity") or {}).get("chain") or []
-    ats = [e.get("at") for e in chain if isinstance(e, dict) and e.get("at")]
+    """run 的最后活动时间：integrity **log** 最后一条的 at，退回文件 mtime。
+
+    W1-1 修复：此前读的是 integrity['chain']——那是链值 **str**，时间戳在
+    integrity['log']（list of dict）。遍历字符串得单字符、isinstance dict 恒 False，
+    函数恒走 mtime 兜底；而 mtime 被 clone/checkout 重置，换机与 CI 上时间轴
+    系统性失真（第 5 轮审计实证，本仓三本真实账本全部命中）。"""
+    log = (ledger.get("integrity") or {}).get("log") or []
+    ats = [e.get("at") for e in log if isinstance(e, dict) and e.get("at")]
     if ats:
         return max(ats)
     try:
@@ -4173,7 +4192,7 @@ def cmd_reset_plan_defects(args):
         sys.exit(0)
 
     # 验证 approval hash 格式
-    if not re.match(r'^[a-f0-9]{64}$', args.approval_hash):
+    if not _HASH64_RE.match(args.approval_hash or ""):
         die("approval_hash 必须是 64 位十六进制 SHA-256")
 
     # 归档旧记录
@@ -4876,7 +4895,7 @@ def cmd_record_specialist_challenge(args):
     if args.status == "waived":
         if not args.waiver_reason or not args.waiver_reason.strip():
             die("WAIVER_REASON_REQUIRED")
-        if not re.match(r"^[0-9a-f]{64}$", str(args.approval_hash or "")):
+        if not _HASH64_RE.match(str(args.approval_hash or "")):
             die("USER_APPROVAL_REQUIRED: required specialist waiver 需要用户批准消息 SHA-256")
         output_path = None
         output_sha = None
@@ -5051,8 +5070,8 @@ def cmd_record_challenge_control(args):
     if args.action in {"scope-audit", "user-review"} and args.outcome not in {
             "continue", "architecture-reset", "scope-change"}:
         die("CONTROL_OUTCOME_INVALID: %s 需要 continue|architecture-reset|scope-change" % args.action)
-    if args.action == "scope-change-approved" and not re.match(
-            r"^[0-9a-f]{64}$", str(args.approval_hash or "")):
+    if args.action == "scope-change-approved" and not _HASH64_RE.match(
+            str(args.approval_hash or "")):
         die("USER_APPROVAL_REQUIRED: scope change 需要 64 位消息 hash")
     after_round = len(loop.get("rounds") or [])
     event = {

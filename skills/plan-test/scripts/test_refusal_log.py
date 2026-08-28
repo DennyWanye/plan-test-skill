@@ -195,5 +195,28 @@ class BareTracebackEntriesTestCase(unittest.TestCase):
             shutil.rmtree(rd, ignore_errors=True)
 
 
+class ChainLengthCoversAllFactArraysTestCase(unittest.TestCase):
+    """W1-4：phase_transitions / plan_defects（含 history 归档）必须计入链长下界。
+
+    此前不计入 → 手删一条不会被长度检查发现（链值检查仍覆盖，保护弱一档）。"""
+
+    def test_counts_include_previous_blind_spots(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "g_cl", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "plan_test_gate.py"))
+        g = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(g)
+        base = {"runs": [], "evidence": []}
+        n0 = g.expected_chain_length(dict(base))
+        n1 = g.expected_chain_length(dict(base, phase_transitions=[{}, {}]))
+        n2 = g.expected_chain_length(dict(base, plan_defects=[{}]))
+        n3 = g.expected_chain_length(dict(
+            base, plan_defects_history=[{"defects": [{}, {}, {}]}]))
+        self.assertEqual(n1 - n0, 2, "phase_transitions 未计入下界")
+        self.assertEqual(n2 - n0, 1, "plan_defects 未计入下界")
+        self.assertEqual(n3 - n0, 3, "归档进 history 的 defects 未计入下界")
+
+
 if __name__ == "__main__":
     unittest.main()

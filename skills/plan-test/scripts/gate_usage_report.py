@@ -24,7 +24,8 @@ DIAG_RE = re.compile(r"^(DIAG|ADVISORY) ([A-Z][A-Z0-9_]*):")
 def git_ls(repo, args):
     try:
         result = subprocess.run(["git", "ls-files"] + args, cwd=repo,
-                                capture_output=True, text=True, timeout=60)
+                                capture_output=True, text=True, timeout=60,
+                                encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return []
     return result.stdout.splitlines() if result.returncode == 0 else []
@@ -53,9 +54,12 @@ def check_one(repo, relative_path):
     gate = os.path.join(os.path.dirname(os.path.realpath(__file__)), "plan_test_gate.py")
     run_dir = os.path.join(repo, os.path.dirname(relative_path))
     try:
+        # encoding 显式定死（W1-2）：text=True 默认按 locale 解码，Windows=GBK 时
+        # gate 的 UTF-8 中文让读线程 UnicodeDecodeError 崩掉，**报告静默变空**——
+        # 规则退休的唯一数据源在 Windows 上失明，规则集因此只进不出（第 5 轮审计）。
         result = subprocess.run([sys.executable, gate, "finalize", "--run-dir", run_dir,
                                  "--check-only"], cwd=repo, capture_output=True, text=True,
-                                timeout=120)
+                                timeout=120, encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired) as exc:
         return [("DIAG", "USAGE_REPORT_EXECUTION_FAILED")], str(exc)
     return parse_diagnostics(result.stdout), None
