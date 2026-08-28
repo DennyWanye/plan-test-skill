@@ -1,0 +1,114 @@
+"""s1a refusal log 用例（acceptance：plans/2026-08-28-gate-authority/slices/s1a-refusal-log/）。
+
+红测纪律（plan §3 步骤 2）：AC-2 反向与 AC-4 断链两条**先于实现提交**，并在无实现的
+代码上确认真的失败——rev1 的 AC-2 正是缺这一步才让「按构造无法失败」的 oracle 混过去。
+计数一律用前后差值：守卫 tmpdir 由整个套件共享，其他用例的 die 也会追加记录。
+"""
+import refusal_guard  # noqa: F401  测试隔离：必须最先 import（见该模块 docstring）
+
+import json
+import os
+import subprocess
+import tempfile
+import shutil
+import unittest
+
+from test_plan_test_gate import GateHarness, run_gate
+
+
+def _refusal_path():
+    return os.path.join(os.environ["PLAN_TEST_REFUSAL_HOME"], "refusals.jsonl")
+
+
+def _lines(path=None):
+    p = path or _refusal_path()
+    if not os.path.isfile(p):
+        return []
+    with open(p, encoding="utf-8") as f:
+        return [l for l in f.read().splitlines() if l.strip()]
+
+
+class RefusalRecordTestCase(unittest.TestCase):
+    """AC-1：die 落一条原始记录。"""
+
+    def test_die_without_code_writes_raw_record(self):
+        """无诊断码前缀的 die（『run-dir 缺少 plan-test-run.json』）也要记，code=null。"""
+        before = len(_lines())
+        empty = tempfile.mkdtemp(prefix="refusal-t-")
+        try:
+            r = run_gate(["checkpoint", "--run-dir", empty, "--note", "x"])
+            self.assertEqual(r.returncode, 2, "前提：该调用必须 die")
+            lines = _lines()
+            self.assertEqual(len(lines), before + 1,
+                             "die 之后 refusals.jsonl 应恰好多一条")
+            rec = json.loads(lines[-1])
+            self.assertEqual(rec["cmd"], "checkpoint")
+            self.assertIsNone(rec["code"])
+            self.assertEqual(rec["run_dir"], empty, "run_dir 记用户所给原文，不加工")
+            self.assertIn("plan-test-run.json", rec["detail"])
+            self.assertTrue(rec.get("cwd"), "cwd 必有且为原文")
+            self.assertTrue(rec.get("at"))
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
+
+
+class RefusalFingerprintReverseTestCase(unittest.TestCase):
+    """AC-2 反向：oracle 必须能判红——显式把落点指进仓库内，指纹必须真的变。"""
+
+    def setUp(self):
+        self.repo = tempfile.mkdtemp(prefix="refusal-repo-")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self._saved = os.environ["PLAN_TEST_REFUSAL_HOME"]
+        # 显式 override（非默认路径）——按 AC-2，此时守卫不设防，责任归操作者
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = os.path.join(self.repo, "inside")
+
+    def tearDown(self):
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self._saved
+        shutil.rmtree(self.repo, ignore_errors=True)
+
+    def _ls_files(self):
+        r = subprocess.run(["git", "ls-files", "-c", "-o", "--exclude-standard"],
+                           cwd=self.repo, capture_output=True, text=True, check=True)
+        return [l for l in r.stdout.splitlines() if l.strip()]
+
+    def test_in_repo_landing_does_perturb_fingerprint(self):
+        before = self._ls_files()
+        empty = tempfile.mkdtemp(prefix="refusal-t-")
+        try:
+            r = run_gate(["checkpoint", "--run-dir", empty, "--note", "x"])
+            self.assertEqual(r.returncode, 2)
+            after = self._ls_files()
+            self.assertGreater(
+                len(after), len(before),
+                "落点在仓库内时 ls-files 必须增加——增加不了说明度量口径失效，"
+                "AC-2 的正向断言从此测不出任何东西")
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
+
+
+class RefusalNoRecursionTestCase(GateHarness):
+    """AC-4：LEDGER_TAMPERED（_append 写前验链自 die）场景不得递归。"""
+
+    def test_chain_break_records_once_and_exits_cleanly(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        ledger_path = os.path.join(self.run_dir, "plan-test-run.json")
+        with open(ledger_path, encoding="utf-8") as f:
+            ledger = json.load(f)
+        ledger["run_id"] = "tampered-by-hand"          # 绕过 CLI 手改 → 链必断
+        with open(ledger_path, "w", encoding="utf-8") as f:
+            json.dump(ledger, f, ensure_ascii=False)
+
+        before = len(_lines())
+        r = run_gate(["checkpoint", "--run-dir", self.run_dir, "--note", "x"])
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertEqual(r.stderr.count("LEDGER_TAMPERED"), 1,
+                         "stderr 只许出现一次 LEDGER_TAMPERED（递归会打多次）")
+        self.assertNotIn("RecursionError", r.stderr)
+        lines = _lines()
+        self.assertEqual(len(lines), before + 1, "断链场景恰记一条")
+        rec = json.loads(lines[-1])
+        self.assertEqual(rec["code"], "LEDGER_TAMPERED")
+
+
+if __name__ == "__main__":
+    unittest.main()
