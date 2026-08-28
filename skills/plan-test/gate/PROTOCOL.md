@@ -99,6 +99,7 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 1 | `SCHEMA_INVALID` | error | 账本结构不合 schema，或 schema_version major 与 validator 不符 |
 | 2 | `LEDGER_TAMPERED` | error | integrity 链断裂或末条 facts_digest ≠ 当前 fact——账本在 CLI 之外被改过 |
 | 2b | `RUN_ABANDONED` | error | 用户已用 `acknowledge` 确认放弃这一轮——不再阻断 hook，但永远不产出 receipt（见 §5.8d） |
+| 2c | `SIBLING_RUN_UNRESOLVED` | error | 同一 `verification/` 下有**测同一批必测场景**、已有 run fact、却既未 retire 也未 acknowledge、也没有 receipt 的兄弟轮——这段历史没有交代，本轮不得发 receipt（见 §5.8e） |
 | 3 | `REQUIRED_SCENARIO_NOT_RUN` | error | required 场景为 NOT_RUN/PARTIAL/BLOCKED/FAIL |
 | 4 | `STATUS_CONFLICT` | error | 文档口径（declared）与账本重算结果冲突 |
 | 5 | `DELIVERY_VERDICT_CONTRADICTS_LEDGER` | error | 手写 SHIP/COMPLETE 但 required 未全 PASS |
@@ -254,6 +255,42 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
    - 局限如实说明：hash 由代理计算，它挡的是"顺手放弃"，不是存心伪造——与
      `record-approval` 完全同源的局限，真正的锚点仍在 CI。
 
+8e. **`SIBLING_RUN_UNRESOLVED`：换目录洗账本**（2026-08-28 加）。
+
+   - **问题**：`fail` 是粘性的——一条 root fail 记进去，这个 run-dir 就永远拿不到 receipt。
+     代理唯一能往前走的动作是新建 `run-00N+1`（`compute_scenario_status` 的注释里就是这么
+     写的，轮换是**设计内的正路**）。问题在于配套的 `retire --superseded-by`（把举证责任
+     转移给继任轮）**没有任何东西检查它做没做**。
+   - **实测数据**（18 本真实账本 + 8 处轮换现场）：5 次轮换里 4 次没挂账；`retire` /
+     `acknowledge` 全局使用次数为 **0**；被丢弃的账本里躺着 **75 条测试事实、142 份证据、
+     16 条 root fail**——比进了 receipt 的 65 条事实还多。两张历史 SHIPPABLE receipt
+     （`s1-relay-foundation/run-006`、`s1-lan-relay/run-003`）都是在旁边躺着红账本的情况下
+     发出的。**receipt 没撒谎，但它把失败史藏起来了。**
+   - **判据是「必测场景集是否相交」，不是「是否同一个目录」**。这一条是被真实反例逼出来的：
+     `plans/2026-08-18-memory-sdk-integration/verification/` 下并排躺着 run-1..run-4，分别测
+     AC-1..4 / AC-5..8 / AC-9..11 / AC-12..14，用四份不同 manifest——那是四个不同 slice
+     各测各的，互不欠账。只按目录判会把它们全判成互相欠账，谁都发不出 receipt。按场景集判，
+     8 处轮换现场里 7 处判为真轮换、这 1 处正确放行。
+   - 也**不能**用 acceptance 哈希判：`s1-relay-foundation` 那 6 轮里 acceptance.md 被改过两次
+     （3 个不同哈希）而场景集 6 轮完全一致——用哈希判，改一下验收文档就溜过去了。
+   - 只算**有 run fact 的**兄弟：纯 init 的空账本不藏失败史（`plan-iteration-*` 这类挑战循环
+     账本同样因零 run fact 天然出局）。`fixture_only` 两侧都豁免。
+   - 兄弟轮的 `retired` / `acknowledged` 必须**链里真有那一笔 op** 才算数——兄弟轮的
+     integrity 链不由本 run 的 validate 核对，只看字段的话"手加一行 `retired: true`"
+     就是绕过本门最省事的路径。
+   - **时序死锁与解法**：若 `retire` 仍要求继任者「已有 receipt」，就会死锁——继任轮因兄弟轮
+     未了结拿不到 receipt，兄弟轮又因继任轮没有 receipt 而退役不掉。故 `retire` 改为接受
+     **全绿但尚未盖章**的继任者（`allow_pending`），放宽的只是"盖没盖章"这一条：继任者仍须
+     通过除本诊断外的全部阻塞门、state 仍须算到 SHIPPABLE、仍须同仓非 fixture、且自己不能是
+     已退役/已放弃的轮次（否则退役链可以首尾相接）。
+   - 与之配套：`retire-status` 在这个中间态输出 **`PENDING` 且 exit 1**。若 PENDING 也判
+     exit 0，就多出一条静默出口——造个全绿继任者、把红账本退役进去、然后永远不 finalize，
+     红账本从此对 hook 隐身而交付从未发生。真要放弃请走 `acknowledge`（需用户批准原话 hash）。
+   - **合法收尾顺序**：兄弟轮红 → 本轮做到全绿 → `retire` 兄弟轮（指向本轮）→ 本轮
+     `finalize` 盖章 → 兄弟轮的 `retire-status` 此时才转 VALID。注意 `retire` 会改写兄弟轮
+     账本，若它不在本轮 init 冻结的 `related_run_dirs` 里，本轮随后会报
+     `TESTED_RUNTIME_MISMATCH`，需要 `re-attest`。
+
 8b. **`re-attest`：收尾期改动的唯一合法出口**。attestation 原本只在 init 写一次，
    而收尾流程强制要求文档回写与状态同步——于是任何合规执行都会把 run 永久锁死，
    唯一出路 `init --force` 会清空 runs/evidence/auditor（第二轮独立审计实测）。
@@ -329,6 +366,21 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
     都在被测者手里，怎么设计都一样。**要真正防篡改，锚点必须在被测者写不到的地方**——
     CI 从 git 历史重算并比对 receipt，或把 receipt 推到 append-only 的远端存储。
     只启用 Stop hook 而不接 CI 时，请按「链只防手滑」来理解它，不要按「防伪造」来宣传。
+
+    **链长下界的误报风险，以及为什么它由测试而不是补丁来守（2026-08-28 加）**：
+    `expected_chain_length` 是一份**手工维护的枚举**——它假设"一次 CLI 写入 = 一条事实"。
+    任何在单次写入里追加两条事实的新命令都会打破这个下界，让**下一条**命令报
+    `LEDGER_TAMPERED`。这不是假想：`record-run --exec`（一次写入同时追加 run 与它抓到的
+    执行日志）2026-08-19 上线，给它补的折扣 2026-08-24 才上线，中间 5 天真实日志里
+    5 次 `LEDGER_TAMPERED` 全部由此产生，其中一次连跑 17 次 `--exec`、缺口正好 16。
+
+    症状为什么必须当回事：`LEDGER_TAMPERED` 是阻塞级、**没有任何修复命令**（有的话就等于
+    "重算链即洗白"），账本一旦被误判就是死的，代理唯一的出路是换 run-dir 重开——而那正是
+    §5.8e 的 `SIBLING_RUN_UNRESOLVED` 要堵的行为。**一个门的误报直接喂给另一个门。**
+
+    因此约束写在测试里而不是文档里：`ChainLengthInvariantTestCase` 逐条执行全部写入命令，
+    断言 Δ(expected_chain_length) ≤ Δ(链长)。**新增写入命令时必须在那份清单里补一行**；
+    漏补的代价是让下一个用户的账本报废，而不是让 CI 变红。
 14. **审计产物 > 命令行**：`audit --verdict` 与 `auditor-output`（JSON 的 `verdict`
     字段或文末 `VERDICT: PASS/FAIL` 行）不一致 → `audit` 直接拒绝（exit 2），
     事后不一致 → `AUDITOR_VERDICT_MISMATCH`。`--engine` 必填；与 `executor_engine`

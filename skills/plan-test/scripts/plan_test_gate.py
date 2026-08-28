@@ -25,7 +25,9 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -133,6 +135,7 @@ DEFAULT_MIN_DISTINCT_INPUT_CLASSES = 3  # 对齐 config.md 的 MANUAL_MIN_DISTIN
 # canonical 诊断排序（plan §3 唯一权威序；同类内按 hint/detail 字典序）
 CANONICAL_ORDER = [
     "SCHEMA_INVALID", "LEDGER_TAMPERED", "RUN_ABANDONED",
+    "SIBLING_RUN_UNRESOLVED",
     "REQUIRED_SCENARIO_NOT_RUN", "STATUS_CONFLICT",
     "DELIVERY_VERDICT_CONTRADICTS_LEDGER", "UI_EVIDENCE_MISSING",
     "RUN_CREATION_UNVERIFIED", "EVIDENCE_MISSING", "EVIDENCE_HASH_MISMATCH",
@@ -886,6 +889,65 @@ def expected_chain_length(ledger):
     return n
 
 
+def _plugin_version():
+    """插件版本取自 `.claude-plugin/plugin.json`——沿脚本路径向上找，找不到就留空。
+
+    不硬编码：脚本可能被装在 `.codex/skills/`、`.claude/plugins/cache/<ver>/` 或直接从
+    仓库跑，三处的版本可以不同，而"到底跑的是哪一份"正是本字段要回答的问题。
+    """
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        candidate = os.path.join(d, ".claude-plugin", "plugin.json")
+        if os.path.exists(candidate):
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    return json.load(f).get("version") or ""
+            except (OSError, ValueError):
+                return ""
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return ""
+
+
+def toolchain_fingerprint():
+    """开账时刻的工具链与环境指纹——回答"这一轮是哪一版 gate、在哪台机器上跑的"。
+
+    动机（2026-08-28，两台机器的 run log 合并分析时发现）：账本此前只记 `schema_version`，
+    而它在 v0.4.0→v0.4.1、8/11→8/28 整段时间里都是 `1.5.0`。于是"这个 run 是哪版跑的"
+    事后完全查不到——一批在**诚实工作**中触发的 LEDGER_TAMPERED 因此无法定性（是旧版 bug
+    已修，还是仍然存在？两种结论对应完全相反的处置）。receipt 里的 `validator_version`
+    补不上这个洞：它是 finalize 时刻的值，而 18 本真实账本里有 14 本根本没走到 finalize。
+
+    `gate_sha256` 是这里最硬的一条：版本号可以忘了升（1.5.0 就横跨了两个插件版本），
+    文件内容哈希不会。定位是**记账**，不是门——本函数不产生任何诊断码。
+    """
+    try:
+        gate_path = os.path.abspath(__file__)
+    except NameError:
+        gate_path = ""
+    try:
+        gate_sha = sha256_file(gate_path) if gate_path else ""
+    except OSError:
+        gate_sha = ""
+    try:
+        host = socket.gethostname()
+    except OSError:
+        host = ""
+    return {
+        "gate_version": VALIDATOR_VERSION,
+        "gate_sha256": gate_sha,
+        "gate_path": gate_path,
+        "plugin_version": _plugin_version(),
+        "python_version": platform.python_version(),
+        "platform": "%s-%s-%s" % (platform.system(), platform.release(),
+                                  platform.machine()),
+        "host": host,
+        "recorded_at": now_iso(),
+    }
+
+
 def integrity_genesis(ledger):
     """开账锚：init 时刻的不可变身份。链被删掉重建时，重建者必须连它一起伪造。"""
     return canonical_digest({
@@ -1156,8 +1218,109 @@ def read_structured_audit_findings(run_dir, output_path):
     return normalized
 
 
-def validate(run_dir, ledger, mode="full", fixture=False):
-    """核心 validator。mode: check-only | full | render。返回 (diags, computed)。"""
+def _resolution_is_genuine(ledger, flag, op):
+    """`retired` / `acknowledged` 只有**经 CLI 写入**才算数。
+
+    手写一行 `"retired": true` 会被该账本自己的 integrity 链判 LEDGER_TAMPERED，但兄弟轮
+    的链不由本 run 的 validate 核对——若这里只看字段，"给红账本手加一个字段"就是绕过本门
+    最省事的路径。判定与 retire-status 同源。
+    """
+    if not ledger.get(flag):
+        return False
+    log = (ledger.get("integrity") or {}).get("log") or []
+    return any(e.get("op") == op for e in log)
+
+
+def _required_scenario_ids(ledger):
+    return {sc.get("scenario_id") for sc in (ledger.get("scenarios") or [])
+            if sc.get("required") and sc.get("scenario_id")}
+
+
+def unresolved_sibling_runs(run_dir, ledger):
+    """同一 `verification/` 下、**测同一批场景**却没交代结局的兄弟 run。
+
+    为什么需要这道门（2026-08-28，18 本真实账本 + 8 处轮换现场的统计结论）：
+      `fail` 是粘性的——一条 root fail 记进去，这个 run-dir 就永远拿不到 receipt，代理
+      唯一能往前走的动作是新建 `run-00N+1`（compute_scenario_status 的注释里就是这么
+      写的）。轮换本身是设计内的正路，问题在于配套的 `retire --superseded-by`（把举证
+      责任转移给继任轮）**没有任何东西检查它做没做**。真实数据：5 次轮换里 4 次没挂账，
+      18 本账本里 retire/acknowledge 的使用次数是 0，被丢弃的账本里躺着 75 条测试事实
+      和 16 条 root fail——而最终那张 receipt 对它们只字未提。receipt 没撒谎，但它把
+      失败史藏起来了。
+
+    **判据是"必测场景集是否相交"，不是"是否同一个目录"**（这一条是真实反例逼出来的）：
+      `plans/2026-08-18-memory-sdk-integration/verification/` 下并排躺着 run-1..run-4，
+      分别测 AC-1..4 / AC-5..8 / AC-9..11 / AC-12..14，用四份不同的 manifest——那是四个
+      不同的 slice 各测各的，互不欠账。只按目录判会把它们全判成互相欠账，谁都发不出
+      receipt。按场景集判，8 处轮换现场里 7 处判为真轮换、这 1 处正确放行。
+
+    也**不能**用 acceptance 哈希判：`s1-relay-foundation` 那 6 轮里 acceptance.md 被改过
+    两次（3 个不同哈希）而场景集 6 轮完全一致——用哈希判，改一下验收文档就溜过去了。
+
+    只算**有 run fact 的**兄弟：纯 init 没跑过的空账本不藏失败史，拦它只是噪音
+    （plan-iteration-* 这类挑战循环账本同样因零 run fact 天然出局）。
+    """
+    if ledger.get("fixture_only"):
+        return []
+    mine = _required_scenario_ids(ledger)
+    if not mine:
+        return []
+    try:
+        here = os.path.realpath(run_dir)
+        parent = os.path.dirname(here)
+        entries = sorted(os.listdir(parent))
+    except OSError:
+        return []
+    out = []
+    for name in entries:
+        d = os.path.join(parent, name)
+        try:
+            if os.path.realpath(d) == here or not os.path.isdir(d):
+                continue
+        except OSError:
+            continue
+        if not os.path.exists(ledger_path(d)):
+            continue
+        try:
+            sib = load_ledger_quiet(d)
+        except Exception:
+            continue
+        if not isinstance(sib, dict) or sib.get("fixture_only"):
+            continue
+        if not (sib.get("runs") or []):
+            continue
+        shared = mine & _required_scenario_ids(sib)
+        if not shared:
+            continue          # 不同 slice 各测各的——不是同一段历史
+        if _resolution_is_genuine(sib, "retired", "retire"):
+            continue
+        if _resolution_is_genuine(sib, "acknowledged", "acknowledge"):
+            continue
+        try:
+            receipt = load_receipt(d)
+        except (OSError, ValueError):
+            receipt = None
+        if receipt is not None and not receipt.get("invalidated"):
+            continue
+        runs = sib.get("runs") or []
+        out.append({
+            "dir": name,
+            "run_id": sib.get("run_id") or name,
+            "run_facts": len(runs),
+            "root_fails": sum(1 for r in runs if r.get("kind") == "root"
+                              and r.get("result") == "fail"),
+            "shared": sorted(shared),
+        })
+    return out
+
+
+def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=False):
+    """核心 validator。mode: check-only | full | render。返回 (diags, computed)。
+
+    `skip_sibling_check` 仅供 successor_receipt_status 使用——"这个 run 能不能承接别人的
+    举证责任"问的是它自身干不干净，与它旁边还有几轮没交代无关。不豁免就会和 retire 撞成
+    死锁：继任轮因兄弟未了结拿不到 receipt，兄弟又因继任轮没有 receipt 而退役不掉。
+    """
     diags = []
     for err in structural_check(ledger):
         diags.append(Diag("SCHEMA_INVALID", err))
@@ -1170,6 +1333,21 @@ def validate(run_dir, ledger, mode="full", fixture=False):
         diags.append(Diag("RUN_ABANDONED",
                           "本 run 已由用户确认放弃（%s）：不再阻断收尾，也不得作为交付证据或继任 run"
                           % (ledger.get("acknowledged_reason") or "未记理由")))
+    if not fixture and not skip_sibling_check and not ledger.get("acknowledged"):
+        for sib in unresolved_sibling_runs(run_dir, ledger):
+            diags.append(Diag(
+                "SIBLING_RUN_UNRESOLVED",
+                "同一 verification/ 下的 %s（%s）测的是同一批场景（%s），已有 %d 条测试事实%s，"
+                "却既未 retire 也未 acknowledge、也没有 receipt——这段历史没有交代，"
+                "本轮不得发 receipt。正当出口：retire --run-dir <该轮> --superseded-by %s"
+                "（本轮全绿即可承接，不必先拿到 receipt），或由用户拍板后 acknowledge。"
+                "注意：retire 会改写该轮账本，若它不在本轮 init 冻结的 related_run_dirs 里，"
+                "本轮随后会报 TESTED_RUNTIME_MISMATCH，需要 re-attest。"
+                % (sib["dir"], sib["run_id"], ", ".join(sib["shared"][:4]),
+                   sib["run_facts"],
+                   "（其中 root fail %d 条）" % sib["root_fails"] if sib["root_fails"] else "",
+                   run_dir),
+                hint=sib["dir"]))
     if ledger.get("active_run_required"):
         repo = os.path.abspath(ledger.get("repo_root") or "")
         registry_path = os.path.join(repo, ".plan-test", "active-run.json")
@@ -1766,6 +1944,7 @@ def build_receipt(run_dir, ledger, computed):
         "run_id": ledger.get("run_id"),
         "schema_version": ledger.get("schema_version"),
         "validator_version": VALIDATOR_VERSION,
+        "toolchain": ledger.get("toolchain") or {},
         "state": computed["state"],
         "ledger_sha256": canonical_digest({k: v for k, v in ledger.items() if k != "revision"}),
         "evidence_manifest_sha256": canonical_digest(evidence_manifest),
@@ -2042,6 +2221,8 @@ def cmd_init(args):
                 "确需如此请显式加 --allow-external-run-dir，该选择会记入账本。" % run_dir)
     ledger = {
         "schema_version": SCHEMA_VERSION,
+        # 开账即冻结：写在 integrity 链首条 init 之前，此后不再改动（改了会让链对不上）。
+        "toolchain": toolchain_fingerprint(),
         "run_id": manifest.get("run_id") or ("run-" + time.strftime("%Y%m%d-%H%M%S")),
         "created_at": now_iso(),
         "repo_root": repo,
@@ -2812,6 +2993,17 @@ def cmd_render(args):
                                   or (ledger.get("baseline") or {}).get("head")),
              "GATE RECEIPT: %s" % (receipt.get("content_digest") if (receipt and shippable) else "无（不得宣布 SHIP）"),
              ""]
+    tc = ledger.get("toolchain") or {}
+    if tc:
+        lines += [
+            "TOOLCHAIN（开账时冻结）: gate %s / plugin %s / %s / Python %s / host %s"
+            % (tc.get("gate_version") or "?", tc.get("plugin_version") or "?",
+               tc.get("platform") or "?", tc.get("python_version") or "?",
+               tc.get("host") or "?"),
+            "  gate_sha256: %s" % (tc.get("gate_sha256") or "?"),
+            ""]
+    else:
+        lines += ["TOOLCHAIN: 本账本开账于加入工具链记账之前，无版本/环境信息", ""]
     lines += [
         "## 身份说明（tested vs delivery，读 receipt 前必看）",
         "- TESTED HEAD 是**测试时**的代码提交；把本 run-dir 的账本/截图/receipt 提交进仓库",
@@ -2965,11 +3157,18 @@ def cmd_render(args):
     sys.exit(0 if shippable else 1)
 
 
-def successor_receipt_status(run_dir, repo=None):
+def successor_receipt_status(run_dir, repo=None, allow_pending=False):
     """继任 run 的 receipt 是否有效。返回 (ok, detail)。
 
     继任者必须在**同一仓库内**：允许指向别处（甚至另一个仓库）等于允许"借"一张无关的 receipt
     来给本次失败背书。同理，fixture-only 的账本不能靠退役退出阻断。
+
+    `allow_pending`（2026-08-28 加，仅 retire 用）：接受一个**还没盖章但已经全绿**的继任者。
+    动机是 SIBLING_RUN_UNRESOLVED 带来的时序死锁——继任轮因兄弟轮未了结而拿不到 receipt，
+    兄弟轮又因继任轮没有 receipt 而退役不掉，两边卡死（本仓 HANDOFF 记过四处同类死结）。
+    放宽的**只是"盖没盖章"这一条**：继任者仍须通过除 SIBLING_RUN_UNRESOLVED 外的全部阻塞
+    门、state 仍须算到 SHIPPABLE、仍须同仓且非 fixture，且它自己不能是已退役/已放弃的轮次
+    （否则退役链可以首尾相接，两个红账本互相"承接"）。
     """
     if repo:
         try:
@@ -2988,15 +3187,22 @@ def successor_receipt_status(run_dir, repo=None):
         return False, "继任 run 没有账本"
     if ledger.get("fixture_only"):
         return False, "继任 run 是 fixture-only，不能作为交付级继任者"
+    if _resolution_is_genuine(ledger, "retired", "retire"):
+        return False, "继任 run 自己已退役——退役链不能首尾相接"
+    if ledger.get("acknowledged"):
+        return False, "继任 run 已被用户确认放弃，不能承接举证责任"
     receipt = load_receipt(run_dir)
-    if receipt is None:
+    if receipt is None and not allow_pending:
         return False, "继任 run 没有 gate-receipt.json（它自己都还没通过）"
-    if receipt.get("invalidated"):
+    if receipt is not None and receipt.get("invalidated"):
         return False, "继任 run 的 receipt 已被 invalidate"
     diags, computed = validate(run_dir, ledger, mode="render",
-                              fixture=bool(ledger.get("fixture_only")))
+                               fixture=bool(ledger.get("fixture_only")),
+                               skip_sibling_check=True)
     if blocking(diags) or computed["state"] != "SHIPPABLE":
         return False, "继任 run 当前并非 SHIPPABLE（state=%s）" % computed["state"]
+    if receipt is None:
+        return True, "PENDING_RECEIPT"
     if receipt_is_stale(run_dir, ledger, computed, receipt):
         return False, "继任 run 的 receipt 已 stale"
     return True, receipt.get("content_digest")
@@ -3025,7 +3231,7 @@ def cmd_retire(args):
     if ledger_self.get("fixture_only"):
         die("RETIRE 拒绝：fixture-only run 不得以退役方式退出阻断（合成数据本就不是交付证据）")
     repo_self = ledger_self.get("repo_root") or os.getcwd()
-    ok, detail = successor_receipt_status(args.superseded_by, repo_self)
+    ok, detail = successor_receipt_status(args.superseded_by, repo_self, allow_pending=True)
     if ok:
         # 同仓还不够：继任者必须真的"承接"了这次的工作，否则就是拿一张无关的 receipt 背书。
         # 独立审计实测：S-1 fail 的 run 被一个唯一场景是「Z-9 完全无关」的同仓 run 退役即通过。
@@ -3043,7 +3249,8 @@ def cmd_retire(args):
             # 会被"多写一行 required:false 且一次都没跑"绕过（第九轮独立审计实测：绕过成本从
             # "另建一个 run"降到"多写一行"）。
             succ_status = validate(args.superseded_by, succ, mode="render",
-                                   fixture=bool(succ.get("fixture_only")))[1]["scenario_statuses"]
+                                   fixture=bool(succ.get("fixture_only")),
+                                   skip_sibling_check=True)[1]["scenario_statuses"]
             theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])
                       if sc.get("required")
                       and succ_status.get(sc["scenario_id"]) == "PASS"}
@@ -3065,14 +3272,22 @@ def cmd_retire(args):
         ledger["retired_at"] = now_iso()
 
     _append(args.run_dir, mutate, op="retire")
-    print("RETIRED: %s\n  继任 run: %s（receipt %s）" % (args.reason, args.superseded_by,
-                                                          str(detail)[:16]))
+    print("RETIRED: %s\n  继任 run: %s（%s）" % (
+        args.reason, args.superseded_by,
+        "全绿但尚未 finalize——它盖章时本轮已计入已了结"
+        if detail == "PENDING_RECEIPT" else "receipt %s" % str(detail)[:16]))
 
 
 def cmd_retire_status(args):
     """退役是否成立——供 hook / CI 调用，避免它们各自解读账本字段。
 
     exit 0 = 退役成立且账本自洽；1 = 不成立（含未退役、链断裂、继任者无效、fixture 冒充）。
+
+    **PENDING 也算不成立（exit 1）**：retire 允许指向一个"全绿但还没盖章"的继任者（否则会
+    和 SIBLING_RUN_UNRESOLVED 撞成死锁），但举证责任只有在继任者真的盖了章之后才算落地。
+    若 PENDING 也判 exit 0，就多出一条静默出口：造一个全绿继任者、把红账本退役进去、然后
+    永远不 finalize——红账本从此对 hook 隐身，而交付从未发生。真要放弃这一轮请走 acknowledge
+    （需用户批准原话的 sha256）。
     """
     ledger = load_ledger(args.run_dir)
     if not ledger.get("retired"):
@@ -3088,15 +3303,23 @@ def cmd_retire_status(args):
     if not any(e.get("op") == "retire" for e in (ledger.get("integrity", {}).get("log") or [])):
         print("INVALID: integrity 链里没有 retire 操作——retired 字段是手写的")
         sys.exit(1)
+    succ_ok_pending, _ = successor_receipt_status(
+        ledger.get("superseded_by") or "", ledger.get("repo_root") or os.getcwd(),
+        allow_pending=True)
     ok, detail = successor_receipt_status(ledger.get("superseded_by") or "",
                                           ledger.get("repo_root") or os.getcwd())
+    if not ok and succ_ok_pending:
+        print("PENDING: 继任 run %s 已全绿但尚未 finalize——退役待其盖章后生效"
+              % ledger.get("superseded_by"))
+        sys.exit(1)
     if ok:
         succ_dir = ledger.get("superseded_by") or ""
         succ = load_ledger_quiet(succ_dir) or {}
         mine = {sc["scenario_id"] for sc in (ledger.get("scenarios") or []) if sc.get("required")}
         # 读侧与写侧同口径复算——r5 的"读/写侧不对称"教训不能在新字段上重演
         succ_status = validate(succ_dir, succ, mode="render",
-                               fixture=bool(succ.get("fixture_only")))[1]["scenario_statuses"] if succ else {}
+                               fixture=bool(succ.get("fixture_only")),
+                               skip_sibling_check=True)[1]["scenario_statuses"] if succ else {}
         theirs = {sc["scenario_id"] for sc in (succ.get("scenarios") or [])
                   if sc.get("required") and succ_status.get(sc["scenario_id"]) == "PASS"}
         my_acc = (ledger.get("acceptance") or {}).get("sha256")

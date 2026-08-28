@@ -41,6 +41,20 @@
       "type": ["object", "null"],
       "description": "compile-manifest 生成并由 init 冻结的验证表面、输入哈希与 testcase 选择"
     },
+    "toolchain": {
+      "type": "object",
+      "description": "开账时刻的工具链与环境指纹（2026-08-28 加）。回答「这一轮是哪一版 gate、在哪台机器上跑的」——schema_version 粒度太粗（1.5.0 横跨插件 v0.4.0/v0.4.1 与整段 08-11→08-28），事后无法定位。写在 integrity 链首条 init 之前，事后改动即 LEDGER_TAMPERED。纯记账，不产生诊断码。",
+      "properties": {
+        "gate_version": {"type": "string", "description": "VALIDATOR_VERSION"},
+        "gate_sha256": {"type": "string", "description": "plan_test_gate.py 自身内容哈希——版本号可能忘了升，文件哈希不会"},
+        "gate_path": {"type": "string", "description": "实际执行的脚本绝对路径（区分 .codex/skills、插件 cache、仓库直跑三种安装）"},
+        "plugin_version": {"type": "string", "description": "取自 .claude-plugin/plugin.json"},
+        "python_version": {"type": "string"},
+        "platform": {"type": "string", "description": "system-release-machine"},
+        "host": {"type": "string"},
+        "recorded_at": {"type": "string"}
+      }
+    },
     "revision": {
       "type": "integer",
       "description": "CAS 并发控制版本号，每次写 +1"

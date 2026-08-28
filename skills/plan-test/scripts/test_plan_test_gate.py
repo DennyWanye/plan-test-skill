@@ -38,6 +38,20 @@ def read_utf8(path):
         return f.read()
 
 
+_GATE_MODULE = None
+
+
+def gate_module():
+    """按路径加载被测 gate 本体——用于直接调用内部不变量函数（不经 CLI）。"""
+    global _GATE_MODULE
+    if _GATE_MODULE is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("plan_test_gate_under_test", GATE)
+        _GATE_MODULE = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_GATE_MODULE)
+    return _GATE_MODULE
+
+
 def run_gate(args, cwd=None):
     return subprocess.run([sys.executable, GATE] + args, capture_output=True,
                           text=True, cwd=cwd)
@@ -1532,8 +1546,14 @@ class RetireTestCase(RealRepoAttestationTestCase):
         # 继任 run 目录须在 init 之前就存在（related_run_dirs 校验存在性）
         os.makedirs(os.path.join(self.repo, "plans", "p", "verification", "succ", "artifacts"))
 
-    def successor(self, scenario_id="S-1"):
-        """造一个真正通过的继任 run（非 fixture、SHIPPABLE、receipt 未失效）。"""
+    def successor(self, scenario_id="S-1", finalize=True):
+        """造一个全绿的继任 run（非 fixture、state=SHIPPABLE）。
+
+        `finalize=True` 会额外盖章拿 receipt。**注意顺序**（2026-08-28 起）：当被退役的
+        run-1 就在同一个 `verification/` 下、且测同一批场景时，继任者在 run-1 了结之前
+        拿不到 receipt（SIBLING_RUN_UNRESOLVED）。合法顺序是"继任者全绿 → retire run-1
+        → 继任者 finalize"，所以这类用例要传 `finalize=False`。
+        """
         d = os.path.join(self.repo, "plans", "p", "verification", "succ")
         manifest = {
             "run_id": "succ", "repo_root": self.repo, "source_request_text": "继任",
@@ -1557,8 +1577,9 @@ class RetireTestCase(RealRepoAttestationTestCase):
                 f.write(body)
         run_gate(["audit", "--run-dir", d, "--verdict", "PASS", "--engine", "e",
                   "--input", "auditor-input.json", "--output", "auditor-output.json"], cwd=self.repo)
-        r = run_gate(["finalize", "--run-dir", d], cwd=self.repo)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        if finalize:
+            r = run_gate(["finalize", "--run-dir", d], cwd=self.repo)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return d
 
     def retire(self, superseded_by, reason="已被继任 run 取代"):
@@ -1582,9 +1603,17 @@ class RetireTestCase(RealRepoAttestationTestCase):
         self.init_real_run(related_run_dirs=["plans/p/verification/succ"])
         run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
                   "--kind", "root", "--result", "fail"], cwd=self.repo)
-        succ = self.successor()
+        succ = self.successor(finalize=False)
         r = self.retire(os.path.relpath(succ, self.repo))
         self.assertEqual(r.returncode, 0, r.stderr)
+        # 继任者还没盖章 → 退役成立但未落地，退役不能在这一步就让 hook 放行，
+        # 否则"造个全绿继任者、退役、永不 finalize"就是一条静默出口。
+        st = self.status()
+        self.assertEqual(st.returncode, 1, st.stdout + st.stderr)
+        self.assertIn("PENDING", st.stdout)
+        # 死锁已解：run-1 一了结，继任者立刻能盖章（这正是 allow_pending 存在的理由）。
+        fin = run_gate(["finalize", "--run-dir", succ], cwd=self.repo)
+        self.assertEqual(fin.returncode, 0, fin.stdout + fin.stderr)
         st = self.status()
         self.assertEqual(st.returncode, 0, st.stdout + st.stderr)
         self.assertIn("VALID", st.stdout)
@@ -1592,7 +1621,7 @@ class RetireTestCase(RealRepoAttestationTestCase):
     def test_handwritten_retired_flag_is_invalid(self):
         """手写 `"retired": true`（不经 CLI）不得生效——链对不上。"""
         self.init_real_run(related_run_dirs=["plans/p/verification/succ"])
-        succ = self.successor()
+        succ = self.successor(finalize=False)
         p = os.path.join(self.run_dir, "plan-test-run.json")
         with open(p, encoding="utf-8") as f:
             led = json.load(f)
@@ -1609,7 +1638,7 @@ class RetireTestCase(RealRepoAttestationTestCase):
         self.init_real_run(related_run_dirs=["plans/p/verification/succ"])
         run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
                   "--kind", "root", "--result", "fail"], cwd=self.repo)
-        succ = self.successor()
+        succ = self.successor(finalize=False)
         self.retire(os.path.relpath(succ, self.repo))
         r = self.check()
         self.assertEqual(r.returncode, 1)
@@ -1645,7 +1674,7 @@ class RetireTestCase(RealRepoAttestationTestCase):
     def test_fixture_run_cannot_retire_out(self):
         """fixture-only 账本不得靠退役退出阻断——retire 命令当场拒绝，不是事后判无效。"""
         self.init_real_run(related_run_dirs=["plans/p/verification/succ"])
-        succ = self.successor()
+        succ = self.successor(finalize=False)
         p = os.path.join(self.run_dir, "plan-test-run.json")
         with open(p, encoding="utf-8") as f:
             led = json.load(f)
@@ -2758,3 +2787,305 @@ class ExposureAdvisoryTestCase(RealRepoAttestationTestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ToolchainRecordingTestCase(GateHarness):
+    """开账即记工具链与环境（2026-08-28）。
+
+    动机是一次跨机器的 run log 合并分析：账本此前只有 `schema_version`，而它在插件
+    v0.4.0→v0.4.1、8/11→8/28 全程都是 `1.5.0`，于是"这一轮是哪版 gate、哪台机器跑的"
+    事后完全查不到——一批诚实工作中触发的 LEDGER_TAMPERED 因此无法定性。
+    """
+
+    def _init_run(self):
+        mf = self.manifest([{"scenario_id": "S-1", "required": True,
+                             "title": "冷启动", "cold_start": True}])
+        r = run_gate(["init", "--run-dir", self.run_dir, "--manifest", mf])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.run_dir, "plan-test-run.json"),
+                  encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_init_records_toolchain(self):
+        tc = self._init_run().get("toolchain") or {}
+        for key in ("gate_version", "gate_sha256", "gate_path", "plugin_version",
+                    "python_version", "platform", "host", "recorded_at"):
+            self.assertIn(key, tc)
+        self.assertEqual(tc["gate_version"], "1.5.0")
+        # gate_sha256 是这里最硬的一条：版本号可以忘了升，文件哈希不会。
+        self.assertRegex(tc["gate_sha256"], r"^[0-9a-f]{64}$")
+        self.assertTrue(tc["gate_path"].endswith("plan_test_gate.py"))
+        self.assertEqual(tc["plugin_version"], "0.4.1")
+
+    def test_toolchain_is_frozen_by_the_integrity_chain(self):
+        """工具链写在链首 init 之前，事后改它 → LEDGER_TAMPERED。
+
+        这一条保证记账不是装饰：伪造"我是用旧版跑的"要连链一起重写。
+        """
+        self._init_run()
+        p = os.path.join(self.run_dir, "plan-test-run.json")
+        with open(p, encoding="utf-8") as f:
+            led = json.load(f)
+        led["toolchain"]["gate_version"] = "0.0.1-伪造"
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(led, f, ensure_ascii=False)
+        r = run_gate(["finalize", "--run-dir", self.run_dir, "--check-only"])
+        self.assertIn("LEDGER_TAMPERED", r.stdout + r.stderr)
+
+    def _render_report(self):
+        run_gate(["render", "--run-dir", self.run_dir])   # render 把正文写进 report.md
+        with open(os.path.join(self.run_dir, "report.md"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_render_surfaces_toolchain(self):
+        self._init_run()
+        report = self._render_report()
+        self.assertIn("TOOLCHAIN", report)
+        self.assertIn("gate_sha256", report)
+        self.assertIn("0.4.1", report)
+
+    def test_ledger_without_toolchain_still_renders(self):
+        """加字段不能让上一版 validator 建的账本集体作废（迁移断裂是本仓明令禁止的）。"""
+        self._init_run()
+        p = os.path.join(self.run_dir, "plan-test-run.json")
+        with open(p, encoding="utf-8") as f:
+            led = json.load(f)
+        led.pop("toolchain")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(led, f, ensure_ascii=False)
+        self.assertIn("无版本/环境信息", self._render_report())
+
+
+class SiblingRunUnresolvedTestCase(RealRepoAttestationTestCase):
+    """换目录洗账本：红轮丢在原地、新开一轮全绿拿 receipt（2026-08-28）。
+
+    真实数据（18 本账本 + 8 处轮换现场）：`fail` 粘性 ⇒ 唯一出路是新建 run-00N+1；而配套的
+    `retire --superseded-by` 没有任何东西检查它做没做 ⇒ 5 次轮换里 4 次没挂账，retire/
+    acknowledge 全局使用次数为 0，被丢弃的账本里躺着 75 条测试事实、16 条 root fail。
+    """
+
+    def sibling(self, name, scenario_ids, result="fail", fixture=False):
+        """在同一个 verification/ 下造一个有测试事实的兄弟 run。"""
+        d = os.path.join(self.repo, "plans", "p", "verification", name)
+        os.makedirs(os.path.join(d, "artifacts"), exist_ok=True)
+        if not os.path.exists(os.path.join(self.repo, "acceptance.md")):
+            self.write("acceptance.md", "AC-1 必须：脚本可运行\n")
+        manifest = {
+            "run_id": name, "repo_root": self.repo, "source_request_text": "兄弟轮",
+            "acceptance_file": os.path.join(self.repo, "acceptance.md"),
+            "applicability": self.applicability_block(),
+            "fixture_only": fixture,
+            "scenarios": [{"scenario_id": s, "required": True} for s in scenario_ids],
+        }
+        mp = os.path.join(d, "manifest.json")
+        with open(mp, "w", encoding="utf-8") as f:
+            f.write(json.dumps(manifest, ensure_ascii=False))
+        r = run_gate(["init", "--run-dir", d, "--manifest", mp], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = run_gate(["record-run", "--run-dir", d, "--scenario", scenario_ids[0],
+                      "--kind", "root", "--result", result], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return d
+
+    def test_unresolved_red_sibling_blocks_receipt(self):
+        self.sibling("run-0", ["S-1"])
+        self.init_real_run()
+        r = self.check()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("SIBLING_RUN_UNRESOLVED", r.stdout)
+        self.assertIn("root fail 1 条", r.stdout)
+
+    def test_disjoint_scenarios_are_not_my_history(self):
+        """真实反例：`2026-08-18-memory-sdk-integration/verification/` 下 run-1..run-4
+        分别测 AC-1..4 / AC-5..8 / AC-9..11 / AC-12..14，用四份不同 manifest——那是四个
+        不同 slice 各测各的。只按目录判会把它们全判成互相欠账，谁都发不出 receipt。
+        """
+        self.sibling("run-slice2", ["AC-5", "AC-6"])
+        self.init_real_run()
+        r = self.check()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("SIBLING_RUN_UNRESOLVED", r.stdout)
+
+    def test_init_only_sibling_is_not_blocking(self):
+        """纯 init、没跑过的空账本不藏失败史，拦它只是噪音。"""
+        d = os.path.join(self.repo, "plans", "p", "verification", "run-0")
+        os.makedirs(os.path.join(d, "artifacts"), exist_ok=True)
+        self.write("acceptance.md", "AC-1 必须：脚本可运行\n")
+        manifest = {
+            "run_id": "run-0", "repo_root": self.repo, "source_request_text": "空轮",
+            "acceptance_file": os.path.join(self.repo, "acceptance.md"),
+            "applicability": self.applicability_block(),
+            "scenarios": [{"scenario_id": "S-1", "required": True}],
+        }
+        mp = os.path.join(d, "manifest.json")
+        with open(mp, "w", encoding="utf-8") as f:
+            f.write(json.dumps(manifest, ensure_ascii=False))
+        run_gate(["init", "--run-dir", d, "--manifest", mp], cwd=self.repo)
+        self.init_real_run()
+        self.assertNotIn("SIBLING_RUN_UNRESOLVED", self.check().stdout)
+
+    def test_fixture_sibling_is_ignored(self):
+        self.sibling("run-fix", ["S-1"], fixture=True)
+        self.init_real_run()
+        self.assertNotIn("SIBLING_RUN_UNRESOLVED", self.check().stdout)
+
+    def test_handwritten_retired_sibling_still_blocks(self):
+        """给红账本手加一行 `"retired": true` 是绕过本门最省事的路径——必须不认。
+
+        兄弟轮的 integrity 链不由本 run 的 validate 核对，所以这里单独查"链里有没有
+        retire 这一笔操作"，与 retire-status 同口径。
+        """
+        d = self.sibling("run-0", ["S-1"])
+        p = os.path.join(d, "plan-test-run.json")
+        with open(p, encoding="utf-8") as f:
+            led = json.load(f)
+        led["retired"] = True
+        led["superseded_by"] = "plans/p/verification/run-1"
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(led, f, ensure_ascii=False)
+        self.init_real_run()
+        self.assertIn("SIBLING_RUN_UNRESOLVED", self.check().stdout)
+
+    def test_retire_then_finalize_is_the_legal_way_out(self):
+        """完整的正当出口，也是死锁已解的端到端证明。
+
+        顺序：兄弟轮红 → 本轮全绿（此时被兄弟轮挡住，拿不到 receipt）→ retire 兄弟轮
+        （继任者尚未盖章也接受）→ 本轮 finalize 通过。
+        """
+        sib = self.sibling("run-0", ["S-1"])
+        # 兄弟 run-dir 必须在 init 显式声明才不算交付内容（PROTOCOL 的防绕过决定：
+        # 按 `.../verification/<x>/` 路径形态自动排除，等于给"藏后门"开了个口子）。
+        # 不声明的话，下面 retire 写兄弟账本会把本轮打成 TESTED_RUNTIME_MISMATCH。
+        self.init_real_run(related_run_dirs=["plans/p/verification/run-0"])
+        # 本轮补齐证据与审计，做到"全绿但尚未盖章"
+        with open(os.path.join(self.run_dir, "artifacts", "s1.log"), "w") as f:
+            f.write("ok")
+        run_gate(["attach-evidence", "--run-dir", self.run_dir, "--path",
+                  "artifacts/s1.log", "--kind", "primary", "--scenario", "S-1"],
+                 cwd=self.repo)
+        for name, body in (("auditor-input.json", '{"frozen":true}'),
+                           ("auditor-output.json", '{"verdict":"PASS"}')):
+            with open(os.path.join(self.run_dir, name), "w") as f:
+                f.write(body)
+        run_gate(["audit", "--run-dir", self.run_dir, "--verdict", "PASS", "--engine",
+                  "e", "--input", "auditor-input.json", "--output",
+                  "auditor-output.json"], cwd=self.repo)
+        # 全绿也拿不到 receipt——兄弟轮那段历史还没交代
+        blocked = run_gate(["finalize", "--run-dir", self.run_dir], cwd=self.repo)
+        self.assertEqual(blocked.returncode, 1)
+        self.assertIn("SIBLING_RUN_UNRESOLVED", blocked.stdout)
+        # 正当出口：把红轮退役给本轮（本轮尚无 receipt 也接受，否则两边死锁）
+        r = run_gate(["retire", "--run-dir", sib, "--reason", "被 run-1 取代",
+                      "--superseded-by", "plans/p/verification/run-1"], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = run_gate(["finalize", "--run-dir", self.run_dir], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("SIBLING_RUN_UNRESOLVED", r.stdout)
+        # 退役至此才落地
+        st = run_gate(["retire-status", "--run-dir", sib], cwd=self.repo)
+        self.assertEqual(st.returncode, 0, st.stdout + st.stderr)
+
+    def test_acknowledged_sibling_stops_blocking(self):
+        sib = self.sibling("run-0", ["S-1"])
+        approval = hashlib.sha256("我确认放弃这一轮".encode("utf-8")).hexdigest()
+        r = run_gate(["acknowledge", "--run-dir", sib, "--reason", "用户放弃",
+                      "--approval-hash", approval], cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.init_real_run()
+        self.assertNotIn("SIBLING_RUN_UNRESOLVED", self.check().stdout)
+
+
+class ChainLengthInvariantTestCase(RealRepoAttestationTestCase):
+    """链长下界必须对**每一条**写入命令成立：Δ(expected_chain_length) ≤ Δ(len(chain.log))。
+
+    为什么值得单独一个用例（2026-08-28，从 5 次真实误报回溯出来的）：
+      `record-run --exec` 在一次 CLI 写入里同时追加 run 与它抓到的执行日志（2 条事实、
+      1 条链），而 `expected_chain_length` 是**手工维护的枚举**。该特性 2026-08-19 上线，
+      给它补的折扣 2026-08-24 才上线——中间 5 天，每跑一次 `--exec` 就让**下一条**命令
+      报 `LEDGER_TAMPERED`。真实日志里 5 次触发全部由此解释，其中一次连跑 17 次 `--exec`、
+      缺口正好 16。
+
+    症状为什么严重：`LEDGER_TAMPERED` 是阻塞级、没有任何修复命令，账本一旦被误判就是死的，
+    代理只能换 run-dir 重开——而那正是 `SIBLING_RUN_UNRESOLVED` 要堵的行为。一个门的误报
+    直接喂给另一个门。
+
+    所以修的不是那一条折扣，是**让下一条犯同样错误的命令在这里失败，而不是在用户账本里失败**。
+    新增写入命令时请在下面补一行。
+    """
+
+    def _state(self):
+        with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:
+            led = json.load(f)
+        chain = len((led.get("integrity") or {}).get("log") or [])
+        return chain, gate_module().expected_chain_length(led)
+
+    def test_every_write_command_keeps_the_chain_length_bound(self):
+        self.init_real_run()          # init + 一条 record-run
+        prev = self._state()
+        self.assertGreaterEqual(prev[0], prev[1],
+                                "init 之后链长下界就已经不成立")
+
+        approval = hashlib.sha256("同意".encode("utf-8")).hexdigest()
+        self.write("target.md", "plan v1\n")
+        contract = self.write("assurance.json", json.dumps(
+            {"obligations": [], "version": 1}, ensure_ascii=False))
+        with open(os.path.join(self.run_dir, "artifacts", "a.log"), "w") as f:
+            f.write("ok")
+
+        steps = [
+            ("checkpoint", ["checkpoint", "--run-dir", self.run_dir,
+                            "--slice", "s", "--note", "n"]),
+            ("phase-start", ["phase-start", "--run-dir", self.run_dir,
+                             "--phase", "phase-3"]),
+            ("phase-end", ["phase-end", "--run-dir", self.run_dir,
+                           "--phase", "phase-3"]),
+            ("attach-evidence", ["attach-evidence", "--run-dir", self.run_dir,
+                                 "--path", "artifacts/a.log", "--kind", "primary",
+                                 "--scenario", "S-1"]),
+            # 这一条就是当年的肇事者：一次写入 = run + 执行日志两条事实
+            ("record-run --exec", ["record-run", "--run-dir", self.run_dir,
+                                   "--scenario", "S-1", "--kind", "retry", "--exec",
+                                   "--", sys.executable, "-c", "print(1)"]),
+            ("record-timing --exec", ["record-timing", "--run-dir", self.run_dir,
+                                      "--phase", "phase-4", "--activity-class",
+                                      "automated_test", "--exec", "--",
+                                      sys.executable, "-c", "print(2)"]),
+            ("record-timing 声明", ["record-timing", "--run-dir", self.run_dir,
+                                    "--phase", "phase-4", "--activity-class",
+                                    "automated_test",
+                                    "--declared-start", "2026-08-28T10:00:00+0800",
+                                    "--declared-end", "2026-08-28T10:05:00+0800"]),
+            ("declare-status", ["declare-status", "--run-dir", self.run_dir,
+                                "--source", "acceptance.md", "--scenario", "S-1",
+                                "--status", "PASS"]),
+            ("record-approval", ["record-approval", "--run-dir", self.run_dir,
+                                 "--kind", "all-ai-driving",
+                                 "--message-hash", approval, "--note", "n"]),
+            ("record-phase-transition", ["record-phase-transition", "--run-dir", self.run_dir,
+                                         "--from-phase", "phase-3", "--to-phase", "phase-4",
+                                         "--evidence", "e", "--note", "n"]),
+            ("record-plan-defect", ["record-plan-defect", "--run-dir", self.run_dir,
+                                    "--affected-tasks", "T1", "--defect-type",
+                                    "contract-conflict", "--description", "d"]),
+            ("start-challenge-loop", ["start-challenge-loop", "--run-dir", self.run_dir,
+                                      "--loop-type", "plan-iteration",
+                                      "--target-file", "target.md",
+                                      "--assurance-contract", contract]),
+            ("re-attest", ["re-attest", "--run-dir", self.run_dir, "--reason", "文档回写"]),
+        ]
+        for label, args in steps:
+            r = run_gate(args, cwd=self.repo)
+            if r.returncode != 0:      # 该命令本身被别的门拒绝，不是本用例要测的
+                continue
+            chain, need = self._state()
+            self.assertGreaterEqual(
+                chain, need,
+                "%s 之后链长下界被打破（链 %d 条 < 事实 %d 条）——下一条 CLI 命令会误报 "
+                "LEDGER_TAMPERED，账本就此报废。请在 expected_chain_length 里为它补上折扣。"
+                % (label, chain, need))
+            prev = (chain, need)
+
+        # 收尾复核：整条链仍自洽（不只是长度，值也对得上）
+        with open(os.path.join(self.run_dir, "plan-test-run.json"),
+                  encoding="utf-8") as f:
+            self.assertIsNone(gate_module().integrity_check(json.load(f)))

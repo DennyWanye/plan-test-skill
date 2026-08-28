@@ -162,7 +162,10 @@ python3 skills/plan-test/scripts/plan_test_gate.py render --run-dir <D>
 ### Managing Historical Runs
 
 ```bash
-# Retire a run (transfer responsibility to a successor run)
+# Retire a run (transfer responsibility to a successor run).
+# The successor must be green, but since 2026-08-28 it need NOT already hold a receipt
+# — requiring one deadlocks against SIBLING_RUN_UNRESOLVED. `retire-status` reports
+# PENDING (exit 1) until the successor actually finalizes.
 python3 skills/plan-test/scripts/plan_test_gate.py retire \
   --run-dir <old> --superseded-by <new> --reason "..."
 
@@ -217,9 +220,16 @@ The gate has 25+ stable diagnostic codes in canonical order (see `gate/PROTOCOL.
 - `LEDGER_STALLED`: Ledger has no progress (runs/evidence/timing) for >90 minutes
 - `PLAN_SCOPE_EXPANSION` (advisory): Plan size increased by >50% from baseline (exit 0, 仅警告)
 
-**总计诊断码**: 46 个（原 32 + 2026-08-14 新增 9 + 2026-08-19 新增 5 个 advisory 曝光码：
+**2026-08-28 New:**
+
+- `SIBLING_RUN_UNRESOLVED`: A sibling run in the same `verification/` directory tests the **same required scenarios**, has run facts, and is neither retired, acknowledged, nor receipted. Rotating to a fresh `run-00N+1` after a sticky `fail` is the designed path, but the accompanying `retire --superseded-by` was never enforced — real data showed 4 of 5 rotations unlinked, `retire`/`acknowledge` used 0 times, and 16 root fails orphaned outside every receipt. The discriminator is **scenario-set overlap, not directory**: four slices legitimately sharing one `verification/` (disjoint AC sets) must not block each other. See `gate/PROTOCOL.md` §5.8e.
+
+**总计诊断码**: 55 个（以 `CANONICAL_ORDER` 为准。此处此前写「46」，与代码实际的 54 条
+对不上——分类计数是手工维护的，已按实际改正：原 32 + 2026-08-14 新增 9 + 2026-08-19 新增
+5 个 advisory 曝光码：
 `RUN_ATTESTATION_FANOUT` / `EVIDENCE_FREE_FINALIZE` / `EXECUTOR_ENGINE_UNDECLARED` /
-`AUDITOR_ENGINE_MISMATCH` / `OPEN_DEFERRALS`，均不拦截、fixture 免检）
+`AUDITOR_ENGINE_MISMATCH` / `OPEN_DEFERRALS`，均不拦截、fixture 免检
++ 2026-08-28 新增 1 个阻塞码 `SIBLING_RUN_UNRESOLVED`）
 
 Diagnostic output is deterministic: same ledger state → same diagnostic sequence byte-for-byte.
 
@@ -236,6 +246,22 @@ Three dimensions must be explicitly declared in the manifest's `applicability` s
 - `stateful_init`: If true, requires a `cold_start: true` scenario
 
 Declaring "not applicable" is legal but leaves a traceable record. Declaring "applicable" without satisfying the matrix → `APPLICABILITY_GATE_UNSATISFIED`.
+
+### Toolchain Recording (2026-08-28)
+
+`init` freezes a `toolchain` block into the ledger — `gate_version`, `gate_sha256` (hash of
+`plan_test_gate.py` itself), `gate_path`, `plugin_version`, `python_version`, `platform`, `host`.
+
+Motivation: the ledger previously carried only `schema_version`, which stayed `1.5.0` across
+plugin v0.4.0→v0.4.1 and the whole 08-11→08-28 window. "Which build produced this run, on which
+machine" was unanswerable after the fact — a batch of `LEDGER_TAMPERED` firings **during honest
+work** could not be classified (old bug already fixed, or still live?). The receipt's
+`validator_version` does not close this: it is the finalize-time value, and 14 of 18 real ledgers
+never reached finalize. `gate_sha256` is the load-bearing field — a version string can be
+forgotten, a file hash cannot.
+
+It is written before the chain's `init` entry, so editing it afterwards yields `LEDGER_TAMPERED`.
+Recording only; it produces no diagnostic code. Ledgers created before this change still render.
 
 ### Tested Runtime Identity
 
