@@ -426,6 +426,34 @@ validator 能重算的只有"已入账事实之间的自洽性"，事实本身�
 因此准确的说法是：**它对"已入账事实之间的自洽性"是真门，对"事实是否发生"是高成本的自觉提醒。**
 凡是宣称它能防住上面四类的说法，都是过度承诺。
 
+## 6c. refusal log（s1a：拒绝也是事实）
+
+每次 `die()` 向 `$PLAN_TEST_REFUSAL_HOME/refusals.jsonl`（默认 `~/.plan-test/`）追加一条
+**原始**记录：`at / cwd / cmd / code / run_dir / detail` 六字段，原文不加工。`stats` 末尾
+按码/按命令计数（零账本时也输出——"有拒绝、无账本"正是 init 被拒的形态）。
+动机：run log 实证 56% 的测试执行因"换 run-dir 重来"作废，而 `die()` 160 处调用点
+一处都不留痕，系统看不见自己在拒绝什么（`AUDIT-2026-08-28-gate-authority.md`）。
+
+**落点纪律**：绝不写进任何 git 仓库——仓库内任何落点都会进 `repo_content_digest`，
+一次拒绝就可能把同仓其他 run 打成 `TESTED_RUNTIME_MISMATCH`（rev1/rev2 两轮实测）。
+默认路径若竟落在某 git 仓库内（`$HOME` 是 dotfiles 仓库），**跳过写入**；
+显式设 `PLAN_TEST_REFUSAL_HOME` 则不设防，责任归操作者。
+
+**覆盖面（实测，2026-08-28）**：记录 = `die()` 被调用。三类记不到，如实列出：
+1. `parse_args` 之前的 die——当前 **0 处**（spike 实测），防线保留；
+2. 无 die 可达路径的子命令（如 `print-schema`，rc 恒 0）——无失败可记属正常；
+3. argparse "invalid choice"（敲错子命令名）——不经过 `die()`，归 s5 的 `status`。
+
+**已知局限（别当保险箱，同 §6b 的精神）**：
+- 记录含本机路径**明文**；文件不进 git、不出机器。跨机器分析等 s1c 的导出+脱敏。
+- "记录了" ≠ "进程失败了"：全仓唯一吞 `SystemExit` 的 `cmd_stats` 内部的 die
+  会留下记录而进程 rc=0。做配对分析（s1b）须知此口径。
+- 可被手工删改**无检测**——它是诊断数据不是交付事实；防篡改若需要归 s3 的
+  decision 原语，不要回头给它加链。
+- 单文件 512 KB，超限原子地丢最旧一半（诊断数据不得阻塞交付）。
+- 测试隔离：套件经 `refusal_guard.py` 把写入引到 tmpdir，并由
+  `test_zz_refusal_guard.py` 在字母序最后对账真实账本基线。
+
 ## 7. 自测
 
 ```bash

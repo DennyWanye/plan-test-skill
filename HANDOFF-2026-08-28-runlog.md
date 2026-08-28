@@ -279,9 +279,12 @@ CONTROL_NOT_REQUIRED ──┘
 ## 6. 工作环境与验证
 
 ```bash
-# 全套测试（286 项，必须全绿；两个静态 fixture 是冻结契约）
+# 全套测试（必须全绿；两个静态 fixture 是冻结契约。条数不写死——继承复用使
+# unittest 报告数随套件演进：2026-08-28 实测 301）
 python3 -m unittest discover -s skills/plan-test/scripts -p 'test*.py'
-# 约 80 秒，注意别用 120s 超时跑
+# 实测耗时 86–150 秒波动，超时给 300 秒以上。
+# （此处原写"约 80 秒、别用 120s 超时"——正是那条过时建议让第 5 轮 challenger
+#   用 timeout 150 把耗时波动误读成"套件挂死"，s1a T6 更正）
 ```
 
 - 仓库策略：**直接在 `main` 上开发**，不建分支/worktree（见 `CLAUDE.md`）。
