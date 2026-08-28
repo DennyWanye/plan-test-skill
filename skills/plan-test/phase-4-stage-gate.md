@@ -32,17 +32,17 @@
 
 ## ①c 真人覆盖账本（输入语义敏感功能必做，接在兑现表之下）
 
-**病根**：同一个问题重复跑 4 次 + 一次 continuation，很容易被写成"真人验收充分"。深度（失败→重试→恢复）和广度（语义不等价的输入）是两回事，**必须分开记账**。
+深度（失败→重试→恢复）和广度（语义不等价的输入）是两回事，必须分开记账。（病根复盘见 `rationale.md`「真人覆盖为何分开记账」。）
 
-1. **账本**（对照 acceptance 的场景矩阵逐行记）：
+1. **账本由 `render` 自动生成**（W6-20，2026-08-29）：`{GATE_SCRIPT} render --run-dir <run-dir>`
+   在 report.md 输出「真人覆盖账本」表（scenario / gate_type / input_class /
+   root / retry / continuation / 业务终态 / 状态）与汇总计数——**不再人肉手抄**，
+   Markdown 是视图不是 authority。人只补两样机器推不出的，并经 `record-run
+   --business-terminal` / testcase 结论回填入账：
+   - **业务终态判定**（engine 终态 ≠ 业务成功）；
+   - **quality_bar 人工检查结论**。
 
-   | scenario_id | gate_type | input_class | root runs | retry runs | continuation runs | engine 终态 | 业务终态 | 状态 |
-   |-------------|-----------|------------|-----------|------------|-------------------|-------------|----------|------|
-   | S-1 | positive-value | …… | 1 | 2 | 1 | completed | completed+有效报告 | ✅ |
-
-   末尾一行汇总计数：`distinct_scenarios=N / ui_submissions=N / root_runs=N / retry=N / continuation=N / completed=N / partial=N / insufficient=N / failed=N`。
-
-   **engine 终态 ≠ 业务成功**：workflow `status=completed` 只表示流程图正常收敛，业务结果可能是 completed/partial/insufficient。**必须按业务终态判定**：
+   **必须按业务终态判定**：
    - `positive-value` 场景：业务终态必须是"非空有效结果 + 达 quality_bar（人工检查过）"才算 ✅；engine completed 但业务 insufficient/空结果 → **安全行为 PASS、产品质量 FAIL**，场景记 ❌。
    - `negative-safety` 场景：insufficient/诚实失败才是预期 ✅。
    - **insufficient_evidence 不得被拿来证明任何正向 AC**。

@@ -2158,6 +2158,67 @@ class BlockedNonStickyTestCase(GateHarness):
         self.assertIn("状态=FAIL", r.stdout)
 
 
+class FlowTierAndTelemetryTestCase(RealRepoAttestationTestCase):
+    """W6-22/23：判档入账与遥测必记（advisory 起步；LEAN×input_sensitive 矛盾为 error）。"""
+
+    def _check(self, **extra):
+        self.init_real_run(**extra)
+        r = run_gate(["finalize", "--run-dir", self.run_dir, "--check-only"])
+        return r.stdout
+
+    def test_undeclared_flow_tier_is_advisory(self):
+        out = self._check()
+        self.assertIn("ADVISORY FLOW_TIER_UNDECLARED", out,
+                      "未判档应曝光（advisory 起步，存量 manifest 全未声明不许一夜打红）")
+
+    def test_missing_phase_telemetry_surfaces_at_render(self):
+        # 遥测检查按设计只在 full/render 模式跑——check-only 时阶段可能尚未收尾
+        self.init_real_run()
+        r = run_gate(["render", "--run-dir", self.run_dir])
+        self.assertIn("PHASE_TELEMETRY_MISSING", r.stdout,
+                      "无任何 phase 事件应在 render/finalize 曝光")
+        run_gate(["phase-start", "--run-dir", self.run_dir, "--phase", "p4"])
+        run_gate(["phase-end", "--run-dir", self.run_dir, "--phase", "p4",
+                  "--status", "ok"])
+        r2 = run_gate(["render", "--run-dir", self.run_dir])
+        self.assertNotIn("PHASE_TELEMETRY_MISSING", r2.stdout)
+
+    def test_declared_flow_tier_passes(self):
+        out = self._check(flow_tier={"value": "FULL", "decided_by": "agent",
+                                     "rationale": "改动触及共享基础设施，按 config 判 FULL"})
+        self.assertNotIn("FLOW_TIER_UNDECLARED", out)
+
+    def test_lean_with_input_sensitive_is_error(self):
+        out = self._check(
+            flow_tier={"value": "LEAN", "decided_by": "agent",
+                       "rationale": "单切面可自动回归，判 LEAN"},
+            applicability={
+                "input_sensitive": {"value": True, "decided_by": "agent",
+                                    "rationale": "被测对象含 LLM 生成，输出随输入语义变化"},
+                "llm_payload_driven": {"value": False, "decided_by": "agent",
+                                       "rationale": "无 LLM 载荷驱动端侧状态机"},
+                "stateful_init": {"value": False, "decided_by": "agent",
+                                  "rationale": "无异步注册服务或登录态依赖"},
+            },
+            scenarios=[{"scenario_id": "S-%d" % i, "required": True,
+                        "input_class": "c%d" % i,
+                        "gate_type": "positive-value" if i == 1 else "negative-safety"}
+                       for i in (1, 2, 3)])
+        self.assertIn("DIAG FLOW_TIER_BASIS_FALSE", out,
+                      "判 LEAN 与 input_sensitive=true 是实锤矛盾，必须拦")
+
+    def test_render_generates_coverage_table(self):
+        self.init_real_run()
+        run_gate(["record-run", "--run-dir", self.run_dir, "--scenario", "S-1",
+                  "--kind", "root", "--result", "pass"])
+        run_gate(["render", "--run-dir", self.run_dir])
+        with open(os.path.join(self.run_dir, "report.md"), encoding="utf-8") as f:
+            report = f.read()
+        self.assertIn("真人覆盖账本（自动生成", report,
+                      "W6-20：①c 的手写表必须由 render 生成")
+        self.assertIn("| S-1 |", report)
+
+
 class AcknowledgeTestCase(RealRepoAttestationTestCase):
     """acknowledge：用户显式放弃一轮验证——retire 之外的第二条出口。
 

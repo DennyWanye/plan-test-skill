@@ -153,6 +153,18 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
   或 `acknowledge` 放弃整轮（绑业主原话 hash）。W3 的 decision 原语落地后，
   亦可由带 hash 的 decision 显式豁免并在 receipt 的 waivers 里公示。
 
+**W6 新增（2026-08-29，登记四问）**
+- `FLOW_TIER_UNDECLARED`（advisory）：判档不入账。防的逃逸：判 LEAN 使 phase-0/
+  多轮 closure/testcase 挑战合法消失且不留痕（enforcement-anchors run-001 实测判档理由
+  失实仅靠人肉发现）。advisory 起步：存量 manifest 全未声明，error 会一夜打红全部现役 run。
+  出口：manifest 补 `flow_tier{value,rationale,decided_by}`。复审 2026-11-29。
+- `FLOW_TIER_BASIS_FALSE`（error）：判 LEAN 却 `input_sensitive=true`——config.md 明定
+  该条件命中即 FULL，两值同在账本，交叉校验零成本。出口：改判 FULL，或修正
+  applicability 判定（各带理由）。复审 2026-11-29。
+- `PHASE_TELEMETRY_MISSING`（advisory）：全 run 零 phase 事件。防的逃逸：18 本真实账本
+  仅 9 本有阶段事件，档位压缩效果无法评估（"再实践"环节断裂）。出口：各阶段
+  phase-start/end 配对记录。复审 2026-11-29。
+
 **退休记录（2026-08-29）**：`LOOP_LIMIT_EXCEEDED` / `LOOP_REGRESSION` / `LOOP_NO_PROGRESS`
 - 三码自 2026-08-14 登记以来**从未有产生点**（第 5 轮审计实证：全文件仅 `CANONICAL_ORDER`
   声明处 1 次引用；1888 次真实调用零触发）。它们从未防住过任何东西——

@@ -179,7 +179,8 @@ CANONICAL_ORDER = [
     "OPEN_AUDIT_FINDINGS",
     "AUDITOR_INPUT_STALE", "RECEIPT_STALE",
     "ACTIVE_RUN_MISMATCH",
-    "TIMING_MISSING", "TIMING_GAP", "PHASE_UNPAIRED",
+    "TIMING_MISSING", "TIMING_GAP", "PHASE_UNPAIRED", "PHASE_TELEMETRY_MISSING",
+    "FLOW_TIER_UNDECLARED", "FLOW_TIER_BASIS_FALSE",
     "PLAN_SCOPE_EXPANSION",  # advisory
     "AUDITOR_INDEPENDENCE_UNVERIFIED",
     # fixture_only run 免检：合成回放的时间戳与证据分布不适用真实执行启发式。
@@ -1784,6 +1785,34 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
     diags.extend(validate_applicability(ledger, scenarios,
                                         dict(ledger.get("thresholds") or {})))
 
+    # 9b1b. FLOW_TIER 判档入账（W6-22）。UNDECLARED 从 advisory 起步（存量 manifest
+    #      全部未声明，error 会把所有现役 run 一夜打红——门从曝光攒数据开始，符合
+    #      登记纪律精神）；但「判 LEAN 却 input_sensitive=true」是实锤矛盾——
+    #      config.md 明写 input_sensitive 属 FULL 触发条件，且该值就在同一本账本里，
+    #      交叉校验零成本 → error。
+    if not fixture:
+        ft = ledger.get("flow_tier") or {}
+        if not isinstance(ft, dict) or not ft.get("value"):
+            diags.append(Diag("FLOW_TIER_UNDECLARED",
+                              "流程档位（DIRECT/LEAN/FULL）未入账——判档理由留痕可追责，"
+                              "manifest 加 flow_tier{value,rationale,decided_by}",
+                              severity="advisory"))
+        else:
+            if ft.get("value") not in ("DIRECT", "LEAN", "FULL"):
+                diags.append(Diag("FLOW_TIER_UNDECLARED",
+                                  "flow_tier.value=%r 非法（DIRECT|LEAN|FULL）" % ft.get("value"),
+                                  severity="advisory"))
+            if len(str(ft.get("rationale") or "").strip()) < MIN_RATIONALE_CHARS:
+                diags.append(Diag("FLOW_TIER_UNDECLARED",
+                                  "flow_tier 缺判档理由（rationale ≥%d 字）" % MIN_RATIONALE_CHARS,
+                                  severity="advisory"))
+            app_is = (ledger.get("applicability") or {}).get("input_sensitive") or {}
+            if ft.get("value") == "LEAN" and app_is.get("value") is True:
+                diags.append(Diag("FLOW_TIER_BASIS_FALSE",
+                                  "判档 LEAN 与 input_sensitive=true 矛盾——config.md 明定"
+                                  "input_sensitive 命中即 FULL；判档依据失实（run-001 先例：）"
+                                  "此类失实此前只能靠人肉 auditor 事后发现"))
+
     # 9b2. 挑战循环必须收敛才能交付（W2-6，第 5 轮审计 §4.2/§4.3）：
     #     此前 validate() 零引用 challenge_loops——4 张历史 receipt 全部发在没有
     #     挑战循环的账本上，跑过循环的 7 本一张都没有；「计划被严格挑战过」从未
@@ -2019,6 +2048,15 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
 
     # 13b. phase 事件配对（只在 full/render 检查——check-only 时阶段可能尚未收尾）
     if mode in ("full", "render"):
+        # W6-23：遥测从自愿升必记（advisory 起步）。18 本真实账本仅 9 本有 phase 事件、
+        # run-001 的 user_wait declared 896.9min/measured 0——LEAN 档压缩效果永远无法
+        # 评估，"再实践"环节是断的。
+        if not fixture and not any(
+                ev.get("type") == "phase" for ev in ledger.get("events") or []):
+            diags.append(Diag("PHASE_TELEMETRY_MISSING",
+                              "本 run 无任何 phase-start/end 事件——阶段耗时不可重建，"
+                              "档位压缩效果无法评估；各阶段开工/收尾请配对记录",
+                              severity="advisory"))
         open_count = {}
         for ev in ledger.get("events") or []:
             if ev.get("type") != "phase":
@@ -2454,6 +2492,10 @@ def cmd_init(args):
         "declared_statuses": [],
         "delivery": {},
         "applicability": manifest.get("applicability") or {},
+        # W6-22：判档是 fact 不是口头判断——判 LEAN 使 phase-0/多轮 closure/testcase
+        # 多轮挑战合法消失却不留痕；run-001 实测判档理由失实（"无删改 hunk"实有 40 行
+        # 删除）只靠人肉 auditor 发现。与 applicability 同一待遇：入账、进 render。
+        "flow_tier": manifest.get("flow_tier") or {},
         "external_run_dir": bool(getattr(args, "allow_external_run_dir", False)),
         "doc_only_globs": manifest.get("doc_only_globs"),
         "executor_engine": manifest.get("executor_engine"),
@@ -3331,6 +3373,39 @@ def cmd_render(args):
         lines.append("- %s [%s]%s: %s" % (
             sid, "required" if s.get("required") else "optional",
             " (ui)" if s.get("ui") else "", computed["scenario_statuses"].get(sid)))
+    # W6-20：真人覆盖账本表自动生成——phase-4 ①c 此前要求人肉手抄一张账本里全有的表，
+    # 而「Markdown 是视图不是 authority」是本仓自己的原则。人只补两样机器推不出的：
+    # 业务终态判定、quality_bar 人工检查结论。
+    runs_all = ledger.get("runs") or []
+    if runs_all:
+        lines.append("")
+        lines.append("## 真人覆盖账本（自动生成；替代 phase-4 ①c 的手写表）")
+        lines.append("| scenario | gate_type | input_class | root | retry | cont | 业务终态 | 状态 |")
+        lines.append("|---|---|---|---|---|---|---|---|")
+        totals = {"root": 0, "retry": 0, "continuation": 0}
+        for s in ledger.get("scenarios") or []:
+            sid = s["scenario_id"]
+            mine = [r for r in runs_all if r.get("scenario_id") == sid]
+            kinds = {"root": 0, "retry": 0, "continuation": 0}
+            terminals = []
+            for r in mine:
+                k = r.get("kind")
+                if k in kinds:
+                    kinds[k] += 1
+                    totals[k] += 1
+                if r.get("kind") == "root" and r.get("business_terminal"):
+                    terminals.append(str(r["business_terminal"]))
+            lines.append("| %s | %s | %s | %d | %d | %d | %s | %s |" % (
+                sid, s.get("gate_type") or "-", s.get("input_class") or "-",
+                kinds["root"], kinds["retry"], kinds["continuation"],
+                ",".join(terminals[-3:]) or "（人工补）",
+                computed["scenario_statuses"].get(sid)))
+        distinct = len({s.get("input_class") for s in ledger.get("scenarios") or []
+                        if s.get("input_class")})
+        lines.append("汇总：distinct_input_classes=%d / root=%d / retry=%d / continuation=%d"
+                     % (distinct, totals["root"], totals["retry"], totals["continuation"]))
+        lines.append("> retry/同意图改写只证可靠性不增 distinct；continuation 只证 lineage。"
+                     "positive-value 场景的业务终态与 quality_bar 结论仍须人工判定后回填。")
     timing = ledger.get("timing") or []
     if timing:
         lines.append("")
