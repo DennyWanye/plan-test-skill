@@ -1,5 +1,10 @@
 # Program：让门禁的记录与裁决分离（2026-08-28 起）
 
+> **⏭️ 2026-08-29**：业主决定不再逐 slice 分批——本 program 的 s1b–s5 **移交**
+> [`../2026-08-29-phase2-optimization/program.md`](../2026-08-29-phase2-optimization/program.md)
+> 统一排布并一次执行。s1a 已完成（6 commit，303 测试全绿，已推 `4d8c803`）。
+> 本文保留作 s1a 的历史依据与 s2/s3 的设计出处，slice 状态以新 program 为准。
+
 > 证据基础：[`AUDIT-2026-08-28-gate-authority.md`](../../AUDIT-2026-08-28-gate-authority.md)。
 > 本文只定路线与切分，不含实现细节；每个 slice 的 AC 与技术设计在 `slices/<id>/` 下。
 > **本文不是执行授权**，每个 slice 开工前需业主确认。
