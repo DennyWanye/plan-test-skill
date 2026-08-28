@@ -365,6 +365,10 @@ class LedgerLock(object):
                 if time.time() > deadline:
                     die("LEDGER_LOCKED: %s 被其他进程持有（并发写冲突，稍后重试）" % self.path)
                 time.sleep(0.1)
+            except (FileNotFoundError, NotADirectoryError):
+                # 坏输入走 die，不崩裸 traceback（rc=1 且 refusal 记不到）——
+                # 与"存在但缺账本"的 die 路径对齐（PROTOCOL §6c 覆盖面第 4 类）
+                die("run-dir 不存在或不是目录: %s" % os.path.dirname(self.path))
 
     def __exit__(self, *exc):
         try:
@@ -2309,8 +2313,7 @@ def cmd_init(args):
     os.makedirs(os.path.join(run_dir, "artifacts"), exist_ok=True)
     if os.path.exists(ledger_path(run_dir)) and not args.force:
         die("run-dir 已 init（%s 存在）；重开新 run 请换目录" % LEDGER_NAME)
-    with open(args.manifest, "r", encoding="utf-8") as f:
-        manifest = json.load(f)
+    manifest = _read_json_file(args.manifest, "manifest")  # 缺文件/坏 JSON 走 die，不崩 traceback
     compiled_input = manifest.get("compiled_manifest") or {}
     if compiled_input:
         expected_seal = compiled_input.get("seal_sha256")

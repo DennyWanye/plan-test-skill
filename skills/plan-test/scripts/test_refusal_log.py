@@ -163,5 +163,37 @@ class RefusalFailureSafetyTestCase(unittest.TestCase):
             shutil.rmtree(empty, ignore_errors=True)
 
 
+class BareTracebackEntriesTestCase(unittest.TestCase):
+    """坏输入必须走 die（rc=2、单行 ERROR、留 refusal），不许崩裸 traceback（rc=1）。
+
+    冒烟实测（2026-08-28）：不存在的 run-dir 在 LedgerLock 崩 FileNotFoundError；
+    init 的 --manifest 指向不存在文件同样裸崩。这类失败连 refusal 都记不到——
+    因为它根本没走 die()。PROTOCOL §6c 覆盖面第 4 类的修复。"""
+
+    def test_nonexistent_run_dir_dies_cleanly(self):
+        before = len(_lines())
+        r = run_gate(["checkpoint", "--run-dir", "/tmp/refusal-no-such-dir-x",
+                      "--note", "x"])
+        self.assertEqual(r.returncode, 2, "坏输入应 die(rc=2) 而非崩溃(rc=1)")
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertTrue(r.stderr.startswith("ERROR: "), r.stderr[:120])
+        lines = _lines()
+        self.assertEqual(len(lines), before + 1, "die 路径必须留 refusal")
+        self.assertIn("run-dir", json.loads(lines[-1])["detail"])
+
+    def test_init_with_missing_manifest_dies_cleanly(self):
+        before = len(_lines())
+        rd = tempfile.mkdtemp(prefix="refusal-init-")
+        try:
+            r = run_gate(["init", "--run-dir", rd,
+                          "--manifest", "/tmp/refusal-no-such-manifest.json"])
+            self.assertEqual(r.returncode, 2)
+            self.assertNotIn("Traceback", r.stderr)
+            self.assertTrue(r.stderr.startswith("ERROR: "), r.stderr[:120])
+            self.assertEqual(len(_lines()), before + 1)
+        finally:
+            shutil.rmtree(rd, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
