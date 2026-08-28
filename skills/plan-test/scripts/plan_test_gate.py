@@ -4015,8 +4015,17 @@ def _stats_print_refusal_intervals(root, ledger_rows):
 def _iso_gap_minutes(earlier, later):
     try:
         import datetime
-        a = datetime.datetime.fromisoformat(str(earlier).replace("Z", "+00:00"))
-        b = datetime.datetime.fromisoformat(str(later).replace("Z", "+00:00"))
+
+        def parse(value):
+            text = str(value).replace("Z", "+00:00")
+            # Python 3.9（macOS 系统 Python）不接受末尾无冒号的 UTC offset（如 +0800）。
+            # 仅规范化该末尾形态；标准 +08:00、Z 和 naive 时间保持原语义。
+            if re.search(r"[+-]\d{4}$", text):
+                text = text[:-2] + ":" + text[-2:]
+            return datetime.datetime.fromisoformat(text)
+
+        a = parse(earlier)
+        b = parse(later)
         if a.tzinfo is None:
             a = a.replace(tzinfo=datetime.timezone.utc)
         if b.tzinfo is None:

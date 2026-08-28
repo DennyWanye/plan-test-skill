@@ -312,6 +312,20 @@ class RefusalIntervalTestCase(unittest.TestCase):
         self.assertNotRegex(r.stdout, r"SCHEMA_INVALID\s+n=",
                             "跨 verification 目录不得配对")
 
+    def test_iso_gap_accepts_compact_and_colonized_offsets(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("gate_iso_gap", GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        self.assertEqual(
+            gate._iso_gap_minutes(
+                "2026-08-29T10:25:00+0800", "2026-08-29T10:30:00+0800"),
+            5.0)
+        self.assertEqual(
+            gate._iso_gap_minutes(
+                "2026-08-29T10:25:00+08:00", "2026-08-29T10:30:00+08:00"),
+            5.0)
+
 
 class ExportRefusalsTestCase(unittest.TestCase):
     """W5-18（s1c）：导出脱敏——POSIX / Windows 无空格 / Windows 含空格 三形态。"""
