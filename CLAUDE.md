@@ -106,6 +106,12 @@ python3 skills/plan-test/scripts/plan_test_gate.py record-challenge-round \
   --run-dir <run-dir> --loop-id $loop_id --round 1 \
   --plan-hash <sha256> --findings <findings.json> --verdict PASS
 
+# findings.json 写错格式时先看这个，别猜（2026-08-28 new）
+# run log 实证：SCHEMA_INVALID 触发 20 次里 13 次是纯格式问题（id 不合正则、缺字段、
+# 未知字段），典型错法是 in_scope（要 in-scope）、upstream_contract（非法枚举）。
+python3 skills/plan-test/scripts/plan_test_gate.py print-schema
+python3 skills/plan-test/scripts/plan_test_gate.py print-schema --format template
+
 # P0-3: Detect loop reset evasion (2026-08-14 new)
 python3 skills/plan-test/scripts/plan_test_gate.py detect-loop-reset \
   --run-dir <run-dir> --check-target-file <plan.md>

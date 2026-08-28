@@ -95,6 +95,24 @@ BREADTH_COVERAGE_KEYS = {
     "release_and_rollback",
     "trusted_boundary_stop",
 }
+FINDING_ID_PATTERN = r"^[a-z][a-z0-9-]{2,63}$"
+# 挑战层报错手感（run log 实证，2026-08-28）：SCHEMA_INVALID 真实触发 20 次，其中 13 次是
+# 纯格式问题、不拦任何实质风险。典型错法是写 in_scope（要 in-scope）、upstream_contract
+# （非法枚举），而报错只回一个正则或一句"非法"，不给合法取值——代理只能猜。
+# 下面的 helper 让每条枚举错误自带合法值清单；模板由 `print-schema` 子命令输出。
+FINDING_ITEM_REQUIRED = (
+    "id", "severity", "scope_relation", "origin", "violated_acceptance_ids",
+    "assurance_contract_ids", "evidence", "status", "root_cause",
+)
+FINDING_ITEM_OPTIONAL = ("why_not_found_in_round_one",)
+
+
+def _enum_error(where, field, value, allowed):
+    """枚举错误统一带上合法值——只给正则/只说'非法'会逼代理猜。"""
+    return "%s.%s=%r 非法（合法值: %s）" % (
+        where, field, value, " | ".join(sorted(allowed)))
+
+
 CHALLENGE_CONTROL_ACTIONS = {
     "scope-audit", "architecture-reset", "user-review", "scope-change-approved"
 }
@@ -4152,10 +4170,11 @@ def _validate_finding_payload(payload, round_no, loop):
     allowed_root = {"review_mode", "coverage", "findings"}
     extra = sorted(set(payload) - allowed_root)
     if extra:
-        errors.append("findings 根节点未知字段: %s" % ", ".join(extra))
+        errors.append("findings 根节点未知字段: %s（合法字段: %s）"
+                      % (", ".join(extra), ", ".join(sorted(allowed_root))))
     mode = payload.get("review_mode")
     if mode not in CHALLENGE_REVIEW_MODES:
-        errors.append("review_mode=%r 非法" % mode)
+        errors.append(_enum_error("payload", "review_mode", mode, CHALLENGE_REVIEW_MODES))
     if round_no == 1:
         if mode != "breadth":
             errors.append("BREADTH_REVIEW_INCOMPLETE: 第一轮 review_mode 必须为 breadth")
@@ -4201,16 +4220,19 @@ def _validate_finding_payload(payload, round_no, loop):
             continue
         unknown = sorted(set(item) - allowed_item)
         if unknown:
-            errors.append("%s 未知字段: %s" % (where, ", ".join(unknown)))
+            errors.append("%s 未知字段: %s（合法字段: %s）"
+                          % (where, ", ".join(unknown), ", ".join(sorted(allowed_item))))
         required = allowed_item - {"why_not_found_in_round_one"}
         missing = sorted(required - set(item))
         if missing:
-            errors.append("%s 缺少字段: %s" % (where, ", ".join(missing)))
+            errors.append("%s 缺少字段: %s（必填: %s）"
+                          % (where, ", ".join(missing), ", ".join(FINDING_ITEM_REQUIRED)))
             continue
         fid = item.get("id")
-        valid_fid = isinstance(fid, str) and bool(re.match(r"^[a-z][a-z0-9-]{2,63}$", fid))
+        valid_fid = isinstance(fid, str) and bool(re.match(FINDING_ID_PATTERN, fid))
         if not valid_fid:
-            errors.append("%s.id 须匹配 ^[a-z][a-z0-9-]{2,63}$" % where)
+            errors.append("%s.id=%r 非法：须匹配 %s（小写字母开头，允许小写字母/数字/连字符，"
+                          "长度 3–64，例 auth-token-leak）" % (where, fid, FINDING_ID_PATTERN))
         elif fid in ids:
             errors.append("%s.id 在本轮重复: %s" % (where, fid))
         if valid_fid:
@@ -4220,13 +4242,13 @@ def _validate_finding_payload(payload, round_no, loop):
         origin = item.get("origin")
         status = item.get("status")
         if severity not in FINDING_SEVERITIES:
-            errors.append("%s.severity=%r 非法" % (where, severity))
+            errors.append(_enum_error(where, "severity", severity, FINDING_SEVERITIES))
         if scope not in FINDING_SCOPE_RELATIONS:
-            errors.append("%s.scope_relation=%r 非法" % (where, scope))
+            errors.append(_enum_error(where, "scope_relation", scope, FINDING_SCOPE_RELATIONS))
         if origin not in FINDING_ORIGINS:
-            errors.append("%s.origin=%r 非法" % (where, origin))
+            errors.append(_enum_error(where, "origin", origin, FINDING_ORIGINS))
         if status not in FINDING_STATUSES:
-            errors.append("%s.status=%r 非法" % (where, status))
+            errors.append(_enum_error(where, "status", status, FINDING_STATUSES))
         if scope == "out-of-scope" and status != "advisory":
             errors.append("%s out-of-scope finding 必须是 advisory" % where)
         if scope != "out-of-scope" and status == "advisory":
@@ -4462,7 +4484,8 @@ def cmd_record_challenge_round(args):
     payload = _read_json_file(args.findings, "findings")
     normalized, errors = _validate_finding_payload(payload, args.round, loop)
     if errors:
-        die("SCHEMA_INVALID: %s" % "; ".join(errors))
+        die("SCHEMA_INVALID: %s\n合法字段与枚举值： plan_test_gate.py print-schema"
+            % "; ".join(errors))
     if args.round > 1 and loop.get("orchestration") == "clustered":
         synthesis_payload = (loop.get("synthesis") or {}).get("payload") or {}
         canonical_ids = {f.get("id") for f in synthesis_payload.get("canonical_findings", [])}
@@ -4649,22 +4672,26 @@ def _validate_cluster_finding_items(items, loop, required_ids=None):
             continue
         missing = sorted(required_fields - set(item))
         if missing:
-            errors.append("%s 缺少字段: %s" % (where, ", ".join(missing)))
+            errors.append("%s 缺少字段: %s（必填: %s）"
+                          % (where, ", ".join(missing), ", ".join(FINDING_ITEM_REQUIRED)))
             continue
         fid = item.get("id")
-        if not isinstance(fid, str) or not re.match(r"^[a-z][a-z0-9-]{2,63}$", fid):
-            errors.append("%s.id 格式非法" % where)
+        if not isinstance(fid, str) or not re.match(FINDING_ID_PATTERN, fid):
+            errors.append("%s.id=%r 非法：须匹配 %s（小写字母开头，允许小写字母/数字/连字符，"
+                          "长度 3–64，例 auth-token-leak）" % (where, fid, FINDING_ID_PATTERN))
         elif fid in seen:
             errors.append("%s.id 重复: %s" % (where, fid))
         seen.add(fid)
         if item.get("severity") not in FINDING_SEVERITIES:
-            errors.append("%s.severity 非法" % where)
+            errors.append(_enum_error(where, "severity", item.get("severity"),
+                                      FINDING_SEVERITIES))
         if item.get("scope_relation") not in FINDING_SCOPE_RELATIONS:
-            errors.append("%s.scope_relation 非法" % where)
+            errors.append(_enum_error(where, "scope_relation", item.get("scope_relation"),
+                                      FINDING_SCOPE_RELATIONS))
         if item.get("origin") not in FINDING_ORIGINS:
-            errors.append("%s.origin 非法" % where)
+            errors.append(_enum_error(where, "origin", item.get("origin"), FINDING_ORIGINS))
         if item.get("status") not in FINDING_STATUSES:
-            errors.append("%s.status 非法" % where)
+            errors.append(_enum_error(where, "status", item.get("status"), FINDING_STATUSES))
         if item.get("scope_relation") == "out-of-scope" and item.get("status") != "advisory":
             errors.append("%s out-of-scope finding 必须是 advisory" % where)
         if item.get("scope_relation") != "out-of-scope" and item.get("status") == "advisory":
@@ -4725,7 +4752,8 @@ def cmd_record_specialist_challenge(args):
         finding_errors = _validate_cluster_finding_items(
             payload.get("findings"), loop, required_ids=set(cluster.get("parent_finding_ids") or []))
         if finding_errors:
-            die("SCHEMA_INVALID: specialist findings: %s" % "; ".join(finding_errors))
+            die("SCHEMA_INVALID: specialist findings: %s\n"
+                "合法字段与枚举值： plan_test_gate.py print-schema" % "; ".join(finding_errors))
         if not isinstance(payload.get("cross_cluster_refs"), list):
             die("SCHEMA_INVALID: specialist output.cross_cluster_refs 须为数组")
         conclusion = payload.get("conclusion")
@@ -5188,9 +5216,76 @@ def cmd_record_phase_transition(args):
 
 # ---------------------------------------------------------------- main
 
+def cmd_print_schema(args):
+    """输出 findings 载荷的合法字段、枚举值与可复制模板。
+
+    run log 实证：SCHEMA_INVALID 真实触发 20 次，13 次是纯格式问题（id 不合正则、
+    缺必填字段、未知字段、元素非 object）。这些错误不拦任何实质风险，只消耗轮次——
+    代理拿不到合法取值就只能猜。本命令让它一次拿全。
+    """
+    def enum(name, values):
+        return "  %-22s %s" % (name, " | ".join(sorted(values)))
+
+    if args.format == "template":
+        template = {
+            "review_mode": "breadth",
+            "coverage": {k: True for k in sorted(BREADTH_COVERAGE_KEYS)},
+            "findings": [{
+                "id": "auth-token-leak",
+                "severity": "P1",
+                "scope_relation": "in-scope",
+                "origin": "patch-induced",
+                "status": "open",
+                "violated_acceptance_ids": ["AC-1"],
+                "assurance_contract_ids": ["ASR-1"],
+                "evidence": "复现步骤或日志引用（非空字符串）",
+                "root_cause": "根因陈述（非空字符串）",
+            }],
+        }
+        print(json.dumps(template, ensure_ascii=False, indent=2))
+        return
+
+    print("findings 载荷 schema（record-challenge-round --findings 指向的 JSON 文件）")
+    print()
+    print("根节点字段：review_mode（必填）, findings（必填）, coverage"
+          "（review_mode=breadth/consolidated 时必填，8 个键须全为 true）")
+    print()
+    print("findings[] 必填字段：")
+    print("  " + ", ".join(FINDING_ITEM_REQUIRED))
+    print("findings[] 可选字段：")
+    print("  " + ", ".join(FINDING_ITEM_OPTIONAL))
+    print()
+    print("枚举取值（注意全部用连字符，不是下划线）：")
+    print(enum("review_mode", CHALLENGE_REVIEW_MODES))
+    print(enum("severity", FINDING_SEVERITIES))
+    print(enum("scope_relation", FINDING_SCOPE_RELATIONS))
+    print(enum("origin", FINDING_ORIGINS))
+    print(enum("status", FINDING_STATUSES))
+    print()
+    print("id 格式：%s" % FINDING_ID_PATTERN)
+    print("  小写字母开头，允许小写字母/数字/连字符，长度 3–64。例：auth-token-leak")
+    print()
+    print("coverage 的 8 个键：")
+    for k in sorted(BREADTH_COVERAGE_KEYS):
+        print("  " + k)
+    print()
+    print("配对约束：")
+    print("  scope_relation=out-of-scope  ⇒ status 必须为 advisory")
+    print("  scope_relation≠out-of-scope  ⇒ status 不得为 advisory")
+    print("  severity∈{P0,P1} 且 scope_relation∈{in-scope,scope-change-proposal}")
+    print("      ⇒ violated_acceptance_ids 与 assurance_contract_ids 均不得为空")
+    print()
+    print("可复制模板： plan_test_gate.py print-schema --format template")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="plan_test_gate.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("print-schema",
+                       help="输出 findings 载荷的合法字段、枚举值与可复制模板")
+    p.add_argument("--format", choices=("human", "template"), default="human")
+    p.set_defaults(fn=cmd_print_schema)
 
     p = sub.add_parser("compile-manifest",
                        help="从结构化 verification spec 编译并冻结 gate manifest")

@@ -3089,3 +3089,90 @@ class ChainLengthInvariantTestCase(RealRepoAttestationTestCase):
         with open(os.path.join(self.run_dir, "plan-test-run.json"),
                   encoding="utf-8") as f:
             self.assertIsNone(gate_module().integrity_check(json.load(f)))
+
+class FindingSchemaHelpTestCase(GateHarness):
+    """§4 挑战层报错手感：枚举错误必须自带合法取值，且有可复制模板。
+
+    run log 实证（HANDOFF-2026-08-28-runlog.md §4）：SCHEMA_INVALID 真实触发 20 次，
+    其中 13 次是纯格式问题——id 不合正则 5、缺必填字段 4、未知字段 2、元素非 object 2。
+    典型错法 scope_relation='in_scope'（要连字符）、origin='upstream_contract'（非法枚举），
+    而当时报错只回一个正则或一句"非法"。这些错误不拦任何实质风险，只烧轮次。
+
+    本用例锁住：报错必须列出合法取值/必填字段清单，print-schema 的模板必须自洽。
+    新增 finding 字段或枚举值时，这里会跟着变红——那是提醒你同步模板与文档。
+    """
+
+    LOOP = {"contract_snapshots": [
+        {"acceptance_ids": ["AC-1"], "assurance_ids": ["ASR-1"]}]}
+
+    def _template(self):
+        proc = run_gate(["print-schema", "--format", "template"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_template_is_self_consistent(self):
+        """模板本身必须过校验——否则它教出来的就是错的。"""
+        g = gate_module()
+        tpl = self._template()
+        self.assertEqual(set(tpl["coverage"]), g.BREADTH_COVERAGE_KEYS,
+                         "模板 coverage 键与 BREADTH_COVERAGE_KEYS 不一致")
+        _, errors = g._validate_finding_payload(tpl, 1, self.LOOP)
+        self.assertEqual(errors, [], "print-schema 的模板自己过不了校验")
+
+    def test_enum_errors_list_legal_values(self):
+        """两个实测错法：报错必须给出合法取值，而不是只说'非法'。"""
+        g = gate_module()
+        tpl = self._template()
+        tpl["findings"][0]["scope_relation"] = "in_scope"
+        tpl["findings"][0]["origin"] = "upstream_contract"
+        _, errors = g._validate_finding_payload(tpl, 1, self.LOOP)
+        blob = " ; ".join(errors)
+        self.assertIn("in-scope | out-of-scope | scope-change-proposal", blob,
+                      "scope_relation 报错未列合法值——代理只能猜")
+        self.assertIn("new-external-fact | patch-induced | pre-existing", blob,
+                      "origin 报错未列合法值——代理只能猜")
+        self.assertIn("'in_scope'", blob, "报错未回显出错的值")
+
+    def test_missing_and_unknown_fields_list_the_roster(self):
+        g = gate_module()
+        tpl = self._template()
+        tpl["findings"][0]["trusted_boundary_stop"] = True   # 实测：把 coverage 键写进 finding
+        del tpl["findings"][0]["root_cause"]
+        _, errors = g._validate_finding_payload(tpl, 1, self.LOOP)
+        blob = " ; ".join(errors)
+        self.assertIn("合法字段", blob, "未知字段报错未给合法字段清单")
+        self.assertIn("必填", blob, "缺字段报错未给必填清单")
+
+    def test_cluster_path_errors_also_carry_values(self):
+        """specialist/synthesis 走的是另一个校验函数，同样不能只说'非法'。"""
+        g = gate_module()
+        tpl = self._template()
+        item = dict(tpl["findings"][0])
+        item["scope_relation"] = "in_scope"
+        item["severity"] = "SEV1"
+        blob = " ; ".join(g._validate_cluster_finding_items([item], self.LOOP))
+        self.assertIn("in-scope | out-of-scope | scope-change-proposal", blob)
+        self.assertIn("P0 | P1 | P2", blob)
+
+    def test_id_error_explains_the_pattern(self):
+        g = gate_module()
+        tpl = self._template()
+        tpl["findings"][0]["id"] = "Auth_Token_Leak"        # 实测错法：大写 + 下划线
+        _, errors = g._validate_finding_payload(tpl, 1, self.LOOP)
+        blob = " ; ".join(errors)
+        self.assertIn("auth-token-leak", blob, "id 报错未给示例")
+        self.assertIn("'Auth_Token_Leak'", blob, "id 报错未回显出错的值")
+
+    def test_human_output_covers_every_enum(self):
+        """人读版必须列全枚举——漏一个就等于把代理推回猜的状态。"""
+        g = gate_module()
+        proc = run_gate(["print-schema"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = proc.stdout
+        for values in (g.FINDING_SEVERITIES, g.FINDING_SCOPE_RELATIONS,
+                       g.FINDING_ORIGINS, g.FINDING_STATUSES,
+                       g.CHALLENGE_REVIEW_MODES, g.BREADTH_COVERAGE_KEYS):
+            for v in values:
+                self.assertIn(v, out, "print-schema 漏了取值 %s" % v)
+        for field in g.FINDING_ITEM_REQUIRED:
+            self.assertIn(field, out, "print-schema 漏了必填字段 %s" % field)
