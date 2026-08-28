@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """tier_check.py 的测试：真 git 仓库、真 diff、真子进程退出码——不 mock git。"""
 
+import refusal_guard  # noqa: F401  测试隔离：把 refusal 写入引到 tmpdir（s1a AC-7，见该模块 docstring）
 import json
 import os
 import subprocess

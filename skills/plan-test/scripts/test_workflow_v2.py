@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused regression tests for the opt-in workflow extensions."""
 
+import refusal_guard  # noqa: F401  测试隔离：把 refusal 写入引到 tmpdir（s1a AC-7，见该模块 docstring）
 import hashlib
 import json
 import os

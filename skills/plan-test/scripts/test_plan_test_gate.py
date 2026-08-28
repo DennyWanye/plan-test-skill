@@ -7,6 +7,7 @@
 dogfood，以及一条完整 PASS 路径。全部经 canonical CLI 路径执行，不绕过 finalize。
 """
 
+import refusal_guard  # noqa: F401  测试隔离：把 refusal 写入引到 tmpdir（s1a AC-7，见该模块 docstring）
 import hashlib
 import importlib.util
 import json

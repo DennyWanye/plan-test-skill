@@ -5,6 +5,7 @@
 账本经 canonical CLI 路径构造，与 test_gate_stats.py 同一套 fixture 手法。
 """
 
+import refusal_guard  # noqa: F401  测试隔离：把 refusal 写入引到 tmpdir（s1a AC-7，见该模块 docstring）
 import json
 import os
 import shutil

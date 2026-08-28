@@ -6,6 +6,7 @@
 手写的四键 JSON 过不了 validate 的链校验，测出来的是解析失败路径而不是统计路径。
 """
 
+import refusal_guard  # noqa: F401  测试隔离：把 refusal 写入引到 tmpdir（s1a AC-7，见该模块 docstring）
 import json
 import os
 import shutil
