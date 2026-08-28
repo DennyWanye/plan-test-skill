@@ -140,6 +140,26 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 32 | `OPEN_DEFERRALS` | **advisory** | auditor 产物含 deferred findings（`"status": "deferred"` 或 `"deferred": true`）——"留待后续"不许悬空（1.4.0 起；fixture 免检） |
 | - | `REVISION_CONFLICT`（stderr） | - | 并发写 CAS 冲突——重读后重试，不静默覆盖 |
 | - | `LEDGER_LOCKED`（stderr） | - | 文件锁被占用 |
+| 33 | `PLAN_CHALLENGE_UNRESOLVED` | error | 账本存在挑战循环但 `_challenge_state` 现场重算 ≠ CONVERGED——未经收敛的 plan 不得交付（W2，2026-08-29） |
+
+### 4b. 门禁登记（GATE_REGISTRY_DISCIPLINE 四问）与退休记录
+
+**`PLAN_CHALLENGE_UNRESOLVED`（2026-08-29 新增）**
+- 防的诊断码：本码。防的实测逃逸：第 5 轮审计 §4.2——4 张历史 receipt 全部发在
+  **没有**挑战循环的账本上，跑过循环的 7 本一张都没有（两集合零交集）；validate()
+  此前零引用 `challenge_loops`，「计划被严格挑战过」从未进过成绩单。
+- 复审日期：2026-11-29。
+- **第四问（被拦时的合法出口）**：把循环推进到 CONVERGED（修 plan 消掉 open P0/P1），
+  或 `acknowledge` 放弃整轮（绑业主原话 hash）。W3 的 decision 原语落地后，
+  亦可由带 hash 的 decision 显式豁免并在 receipt 的 waivers 里公示。
+
+**退休记录（2026-08-29）**：`LOOP_LIMIT_EXCEEDED` / `LOOP_REGRESSION` / `LOOP_NO_PROGRESS`
+- 三码自 2026-08-14 登记以来**从未有产生点**（第 5 轮审计实证：全文件仅 `CANONICAL_ORDER`
+  声明处 1 次引用；1888 次真实调用零触发）。它们从未防住过任何东西——
+  不是"防住了所以没触发"，是**结构上不可能触发**。
+- 守备面移交：轮次失控由 `_challenge_state` 的 SCOPE_AUDIT/USER_REVIEW/BLOCKED 阶梯
+  （3/5/8）承担；"循环烂尾"由 `PLAN_CHALLENGE_UNRESOLVED` 承担。
+- `LOOP_RESET_EVASION` **不退**：`detect-loop-reset` 有真实产生点。
 
 ## 5. 硬规则摘要
 

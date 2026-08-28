@@ -230,7 +230,9 @@ The gate has 25+ stable diagnostic codes in canonical order (see `gate/PROTOCOL.
 
 - `SIBLING_RUN_UNRESOLVED`: A sibling run in the same `verification/` directory tests the **same required scenarios**, has run facts, and is neither retired, acknowledged, nor receipted. Rotating to a fresh `run-00N+1` after a sticky `fail` is the designed path, but the accompanying `retire --superseded-by` was never enforced — real data showed 4 of 5 rotations unlinked, `retire`/`acknowledge` used 0 times, and 16 root fails orphaned outside every receipt. The discriminator is **scenario-set overlap, not directory**: four slices legitimately sharing one `verification/` (disjoint AC sets) must not block each other. See `gate/PROTOCOL.md` §5.8e.
 
-**总计诊断码**: 55 个（以 `CANONICAL_ORDER` 为准。此处此前写「46」，与代码实际的 54 条
+**总计诊断码**: 53 个（以 `CANONICAL_ORDER` 为准；实测 `len(CANONICAL_ORDER)`，勿手数。
+2026-08-29 W2：+1 `PLAN_CHALLENGE_UNRESOLVED`，−3 退休 `LOOP_LIMIT_EXCEEDED`/`LOOP_REGRESSION`/
+`LOOP_NO_PROGRESS`（从未有产生点，登记见 gate/PROTOCOL.md §4b）。此处此前写「46」，与代码实际的 54 条
 对不上——分类计数是手工维护的，已按实际改正：原 32 + 2026-08-14 新增 9 + 2026-08-19 新增
 5 个 advisory 曝光码：
 `RUN_ATTESTATION_FANOUT` / `EVIDENCE_FREE_FINALIZE` / `EXECUTOR_ENGINE_UNDECLARED` /

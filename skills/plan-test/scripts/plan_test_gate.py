@@ -166,7 +166,11 @@ CANONICAL_ORDER = [
     "RISK_CLOSURE_MISSING",
     "STABILITY_SAMPLES_INSUFFICIENT", "RELEASE_UNIT_TOO_LARGE",
     "RELEASE_UNIT_UNDECLARED", "WIP_ACCUMULATION_UNSAFE",
-    "LOOP_LIMIT_EXCEEDED", "LOOP_REGRESSION", "LOOP_NO_PROGRESS", "LOOP_RESET_EVASION",
+    # W2-7 退休（2026-08-29）：LOOP_LIMIT_EXCEEDED / LOOP_REGRESSION / LOOP_NO_PROGRESS
+    # 三码自 2026-08-14 登记以来**从未有产生点**（第 5 轮审计实证：全文件仅声明处 1 次
+    # 引用），守备面由 PLAN_CHALLENGE_UNRESOLVED（循环未收敛即拦）与 _challenge_state
+    # 的 BLOCKED 全覆盖。退役评审依据与去向记录见 gate/PROTOCOL.md。
+    "PLAN_CHALLENGE_UNRESOLVED", "LOOP_RESET_EVASION",
     "SCOPE_AUDIT_REQUIRED", "ARCHITECTURE_RESET_REQUIRED",
     "USER_REVIEW_REQUIRED", "USER_SCOPE_APPROVAL_REQUIRED",
     "PLAN_UNSTABLE", "LEDGER_STALLED",
@@ -1754,6 +1758,23 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
     # 9b. 适用性判定入账 + 判"适用"时矩阵必须兑现
     diags.extend(validate_applicability(ledger, scenarios,
                                         dict(ledger.get("thresholds") or {})))
+
+    # 9b2. 挑战循环必须收敛才能交付（W2-6，第 5 轮审计 §4.2/§4.3）：
+    #     此前 validate() 零引用 challenge_loops——4 张历史 receipt 全部发在没有
+    #     挑战循环的账本上，跑过循环的 7 本一张都没有；「计划被严格挑战过」从未
+    #     进过任何成绩单，循环是一道纯自觉的门。状态用 _challenge_state 现场重算
+    #     （不信账本里存的 status 字符串——那是缓存，不是 authority）。
+    for loop in ledger.get("challenge_loops") or []:
+        try:
+            state = _challenge_state(loop)
+        except Exception:
+            state = loop.get("status") or "UNKNOWN"
+        if state != "CONVERGED":
+            diags.append(Diag(
+                "PLAN_CHALLENGE_UNRESOLVED",
+                "挑战循环 %s 未收敛（当前 %s）——未经收敛的 plan 不得交付；"
+                "确需放弃本轮验证走 acknowledge" % (loop.get("loop_id"), state),
+                hint=str(loop.get("loop_id"))))
 
     # 9c. 全 AI 驾驶批准（phase-4 ①b 的机器化）：输入语义敏感功能的 required UI 场景，
     #     至少 1 次真人驾驶；确需全 AI 驾驶，须有用户批准 artifact（record-approval）。

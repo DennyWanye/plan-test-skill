@@ -2286,8 +2286,9 @@ class HookOutputBudgetTestCase(StopHookTestCase):
         self.assertEqual(run().returncode, 0, run().stderr)
 
 
-class ChallengeLoopAssuranceTestCase(GateHarness):
-    """Review-loop 1.4：范围冻结、真实 finding ID 与机器推导收敛状态。"""
+class LoopHarness(GateHarness):
+    """挑战循环的 setUp/helpers，不含 test_*——供多个测试类继承而不重复执行用例
+    （与 GateHarness 同一惯例；W2 拆出）。"""
 
     COVERAGE = {
         "acceptance_coverage": True,
@@ -2376,6 +2377,10 @@ class ChallengeLoopAssuranceTestCase(GateHarness):
         if assurance_contract:
             args += ["--assurance-contract", assurance_contract]
         return run_gate(args)
+
+
+class ChallengeLoopAssuranceTestCase(LoopHarness):
+    """Review-loop 1.4：范围冻结、真实 finding ID 与机器推导收敛状态。"""
 
     def test_same_finding_id_reworded_is_not_new(self):
         r1 = self.record(1, [self.finding("wrong-host")])
@@ -3090,6 +3095,37 @@ class ChainLengthInvariantTestCase(RealRepoAttestationTestCase):
         with open(os.path.join(self.run_dir, "plan-test-run.json"),
                   encoding="utf-8") as f:
             self.assertIsNone(gate_module().integrity_check(json.load(f)))
+
+class PlanChallengeUnresolvedTestCase(LoopHarness):
+    """W2-6：挑战循环必须进 finalize 判定——未收敛的 loop 不得拿 receipt。
+
+    依据（第 5 轮审计 §4.2/§4.3）：4 张历史 receipt 全部发在**没有**挑战循环的账本上，
+    跑过循环的 7 本一张都没有；validate()（当时 1335-1905）零引用 challenge_loops，
+    三个 LOOP_* 诊断码无产生点——「计划被严格挑战过」从未进过任何成绩单。"""
+
+    def _check_codes(self):
+        r = run_gate(["finalize", "--run-dir", self.run_dir, "--check-only"])
+        return {l.split()[1].rstrip(":") for l in r.stdout.splitlines()
+                if l.startswith("DIAG ")}
+
+    def test_open_loop_blocks(self):
+        # setUp 刚 start-challenge-loop、零轮次——循环存在且远未收敛
+        self.assertIn("PLAN_CHALLENGE_UNRESOLVED", self._check_codes(),
+                      "存在未收敛的挑战循环时 finalize 必须拦")
+
+    def test_converged_loop_passes(self):
+        r = self.record(1, [])          # 第一轮零 finding → 机器推导 CONVERGED
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("CONVERGED", r.stdout)
+        self.assertNotIn("PLAN_CHALLENGE_UNRESOLVED", self._check_codes(),
+                         "已收敛的循环不得再拦")
+
+    def test_loop_with_open_p0_blocks(self):
+        r = self.record(1, [self.finding("real-bug")])   # open P0 → CONTINUE，非 CONVERGED
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("LOOP_STATE: CONTINUE", r.stdout)
+        self.assertIn("PLAN_CHALLENGE_UNRESOLVED", self._check_codes())
+
 
 class FindingSchemaHelpTestCase(GateHarness):
     """§4 挑战层报错手感：枚举错误必须自带合法取值，且有可复制模板。

@@ -262,12 +262,15 @@
   - 输入语义敏感 + required UI 场景全 AI 驾驶时，须至少 1 次 `--driver human` root run，
     或 `record-approval --kind all-ai-driving --message-hash <用户批准消息 sha256>`；
     否则 `DRIVER_APPROVAL_MISSING`。`audit --engine` 必须是引擎身份（拒绝方法名）。
-- `GATE_REGISTRY_DISCIPLINE`: required（2026-08-26）
+- `GATE_REGISTRY_DISCIPLINE`: required（2026-08-26；第四问 2026-08-29）
   - 规则集只进不出是本套流程的病。**新增任何门（诊断码/检查项）必须在提交说明或
-    `gate/PROTOCOL.md` 里声明：它防的诊断码是什么、防的是哪条实测逃逸、复审日期是哪天。**
-    没有这三样的新门不许合入。
-  - 退休的数据来源：`python {GATE_SCRIPT} stats --root <repo> [--window N]`——按诊断码
-    统计全部 run 账本的触发情况，连续 N 个 run 零触发的门列为退休候选。候选只是候选：
+    `gate/PROTOCOL.md` 里声明四样：它防的诊断码是什么、防的是哪条实测逃逸、
+    复审日期是哪天、以及——**代理在这道门拒绝它的那个状态下，合法出口是什么**。
+    答不出第四问的门不许合入。（依据：本仓每一次实测事故都是同一形状——
+    门堵死合法出口 → 代理换 run-dir → 前面测试全废，作废率实测 56%。）
+  - 退休的数据来源有两个：`python {GATE_SCRIPT} stats --root <repo> [--window N]`
+    统计各账本当前状态的触发情况；refusal log（`stats` 末尾的按码计数）补上
+    "历史上拦过谁"这一半。连续 N 个 run 零触发的门列为退休候选。候选只是候选：
     退门是设计决定，须对照该门当初防的逃逸再拍板。
 
 ## 行为开关

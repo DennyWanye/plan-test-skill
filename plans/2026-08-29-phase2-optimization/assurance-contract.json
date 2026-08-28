@@ -1,0 +1,28 @@
+{
+  "profile": "standard",
+  "acceptance_ids": ["W1", "W2", "W3", "W4", "W5", "W6", "W7"],
+  "protected_assets": [
+    {"id": "ASSET-LEDGER", "description": "run 账本与 integrity 链——一切交付判定的事实底座"},
+    {"id": "ASSET-RECEIPT", "description": "gate-receipt 的可信度：SHIPPABLE 只能由收敛且可追溯的事实推出"},
+    {"id": "ASSET-HISTORY", "description": "失败史与拒绝史——不得被换目录/洗账静默丢弃"}
+  ],
+  "trusted_assumptions": [
+    {"id": "TRUST-DEV-ACCOUNT", "description": "当前开发者账户与本机 OS/内核可信"},
+    {"id": "TRUST-GIT", "description": "git 对象库与远端 origin 完整性可信"},
+    {"id": "TRUST-SUITE", "description": "unittest 套件全绿 = 存量行为未回归（307+ 项，超时≥300s）"}
+  ],
+  "in_scope_failures": [
+    {"id": "FAIL-SILENT-BYPASS", "description": "改动为门开出新的静默绕过（豁免不显形、预授权、洗账通道）"},
+    {"id": "FAIL-REGRESSION", "description": "存量门行为回归：既有拦截失效或既有放行被误拦"},
+    {"id": "FAIL-FALSE-RED", "description": "新码误报把健康账本打红，逼出「换 run-dir」老路"},
+    {"id": "FAIL-ORACLE-DEAD", "description": "新增 AC/用例按构造无法失败（本 program 已四次实证的缺陷形态）"}
+  ],
+  "in_scope_adversaries": [
+    {"id": "ADV-LAZY-AGENT", "description": "想走捷径的执行代理：绕门、洗账、伪造收敛，但不篡改 git/OS"}
+  ],
+  "out_of_scope_conditions": [
+    {"id": "OOS-HOST-COMPROMISE", "description": "宿主机/开发者账户被攻破（hostile-host 档，另立契约）"},
+    {"id": "OOS-FORGED-APPROVAL", "description": "代理伪造业主原话再算 hash——与 acknowledge 既有残余同源，锚点在 CI/人审，不在本 program"}
+  ],
+  "maximum_acceptable_impact": "仅改 gate/流程自身与其测试；不触任何业务仓库；单波可 git revert 整体回退；受保护资产只增可见性、不减既有保障"
+}
