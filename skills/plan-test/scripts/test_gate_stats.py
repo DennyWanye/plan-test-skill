@@ -257,5 +257,102 @@ class RefusalStatsTestCase(unittest.TestCase):
         self.assertIn("refusal 记录：（无）", r.stdout)
 
 
+class RefusalIntervalTestCase(unittest.TestCase):
+    """W5-17（s1b）：「拒绝 → 下一个新 run」按码间隔分布——同目录配对 + 多对一去重。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="gate-int-")
+        subprocess.run(["git", "init", "-q", self.tmp], check=True,
+                       capture_output=True)
+        self._saved = os.environ["PLAN_TEST_REFUSAL_HOME"]
+        self.home = tempfile.mkdtemp(prefix="refusal-int-")
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self.home
+
+    def tearDown(self):
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self._saved
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def _ledger(self, rel_verification, run_name, created):
+        rd = os.path.join(self.tmp, rel_verification, run_name)
+        os.makedirs(rd, exist_ok=True)
+        with open(os.path.join(rd, "plan-test-run.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"schema_version": "1.5.0", "run_id": run_name,
+                       "created_at": created, "scenarios": [],
+                       "integrity": {"chain": "x", "log": []}}, f)
+
+    def _refuse(self, at, run_dir, code):
+        with open(os.path.join(self.home, "refusals.jsonl"), "a",
+                  encoding="utf-8") as f:
+            f.write(json.dumps({"at": at, "cwd": "/w", "cmd": "checkpoint",
+                                "code": code, "run_dir": run_dir,
+                                "detail": "d"}) + "\n")
+
+    def test_same_dir_pairing_with_dedup(self):
+        ver = "plans/p/verification"
+        self._ledger(ver, "run-2", "2026-08-29T10:30:00+0800")
+        # 两条 refusal 指向同目录 run-1：多对一去重应只留最近的（10:25）
+        self._refuse("2026-08-29T10:00:00+0800",
+                     os.path.join(self.tmp, ver, "run-1"), "CONTROL_NOT_REQUIRED")
+        self._refuse("2026-08-29T10:25:00+0800",
+                     os.path.join(self.tmp, ver, "run-1"), "CONTROL_NOT_REQUIRED")
+        # 跨 slice 的 refusal：不同 verification 目录，不得配对
+        self._refuse("2026-08-29T10:20:00+0800",
+                     os.path.join(self.tmp, "plans/other/verification/run-9"),
+                     "SCHEMA_INVALID")
+        # run_dir 为空：只计数不配对
+        self._refuse("2026-08-29T10:21:00+0800", None, "LEDGER_TAMPERED")
+        r = run_gate(["stats", "--root", self.tmp])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("拒绝 → 下一个新 run", r.stdout)
+        self.assertIn("CONTROL_NOT_REQUIRED", r.stdout)
+        self.assertIn("n=1（样本<2 不出分布）", r.stdout,
+                      "去重后应只剩 1 个样本（5 分钟那条），且样本<2 不出分布")
+        self.assertNotRegex(r.stdout, r"SCHEMA_INVALID\s+n=",
+                            "跨 verification 目录不得配对")
+
+
+class ExportRefusalsTestCase(unittest.TestCase):
+    """W5-18（s1c）：导出脱敏——POSIX / Windows 无空格 / Windows 含空格 三形态。"""
+
+    def setUp(self):
+        self._saved = os.environ["PLAN_TEST_REFUSAL_HOME"]
+        self.home = tempfile.mkdtemp(prefix="refusal-exp-")
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self.home
+        with open(os.path.join(self.home, "refusals.jsonl"), "w",
+                  encoding="utf-8") as f:
+            for detail in (
+                    "LEDGER_LOCKED: /home/denny/proj/verification/r1/.gate.lock 被其他进程持有",
+                    "run-dir 在仓库之外（C:\\proj\\verification\\run-1）",
+                    "LEDGER_LOCKED: C:\\Users\\John Smith\\proj\\verification\\run-1\\.gate.lock 被其他进程持有"):
+                f.write(json.dumps({"at": "t", "cwd": "/home/denny/proj",
+                                    "cmd": "checkpoint", "code": None,
+                                    "run_dir": "/home/denny/proj/verification/r1",
+                                    "detail": detail}) + "\n")
+
+    def tearDown(self):
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self._saved
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def test_export_redacts_all_three_path_forms(self):
+        out = os.path.join(self.home, "export.jsonl")
+        r = run_gate(["export-refusals", "--output", out])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertNotIn("/home/denny", text, "POSIX 路径未脱敏")
+        self.assertNotIn("C:\\\\proj", text, "Windows 无空格路径未脱敏")
+        self.assertNotIn("John", text,
+                         "Windows 含空格路径按空白切分会残留姓氏——rev3 挑战抓出的缺口")
+        self.assertNotIn("Smith", text)
+        self.assertIn("<path>", text)
+        self.assertIn("被其他进程持有", text, "非路径文本必须保留（不过度脱敏）")
+
+    def test_output_is_mandatory(self):
+        r = run_gate(["export-refusals"])
+        self.assertEqual(r.returncode, 2, "--output 必填，不许写默认位置")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

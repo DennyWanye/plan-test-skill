@@ -3790,6 +3790,7 @@ def cmd_stats(args):
         # refusal 段必须仍然输出：「有拒绝、无账本」正是 init 被拒的形态——
         # s1a 存在的理由之一就是让这种时刻可见（早期 return 吞掉它是测试抓出的真 bug）
         _stats_print_refusals()
+        _stats_print_refusal_intervals(args.root, rows)
         return
     print()
     print("%-38s %8s %10s  %s" % ("诊断码", "触发run数", "最后触发", "最后所在 run"))
@@ -3811,6 +3812,7 @@ def cmd_stats(args):
     else:
         print("退休候选：无——最近 %d 个 run 里每个已知诊断码都触发过。" % window)
     _stats_print_refusals()
+    _stats_print_refusal_intervals(args.root, rows)
     for p, e in skipped:
         print("跳过 %s（%s）" % (p, e), file=sys.stderr)
 
@@ -3855,6 +3857,98 @@ def _stats_print_refusals():
     print("  按子命令：")
     for c, n in sorted(by_cmd.items(), key=lambda x: (-x[1], x[0])):
         print("    %-38s %d" % (c, n))
+
+
+def _stats_print_refusal_intervals(root, ledger_rows):
+    """W5-17（s1b）：每个诊断码的「拒绝 → 下一个新 run」间隔分布。
+
+    为什么是分布不是转化率：rollout 实测间隔跨四个数量级（P25=0.7 / P50=64 /
+    P90=877 分钟），任何单一窗口阈值要么漏一半要么误报；而按码分组后信号自明
+    （CONTROL_NOT_REQUIRED 中位 4.9 分钟=被门逼的样子 vs SCHEMA_INVALID 368 分钟
+    =显然无关）。分布本身就是结论，阈值只会把它压扁成一个可疑的百分比。
+
+    配对规则（rev3 acceptance 收窄版）：
+      1. 只与该 refusal 的 run_dir **同一 verification 父目录**下、created_at 晚于
+         refusal.at 的新账本配对（后缀匹配吸收 绝对/相对 路径差异）；跨 slice 不计；
+      2. 多对一去重：多条 refusal 配到同一本新账本，只留时间最近的那条；
+      3. run_dir 为空的 refusal 不参与配对（只进计数）；
+      4. 时间源只用账本 created_at 与 refusal at——绝不碰 mtime。
+    """
+    target = _refusal_target()
+    if not target or not os.path.isfile(target):
+        return
+    refusals = []
+    try:
+        with open(target, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(rec, dict) and rec.get("run_dir") and rec.get("at"):
+                    refusals.append(rec)
+    except OSError:
+        return
+    if not refusals:
+        return
+    ledgers = []          # (parent_suffix, created_at)
+    for rel, ledger in ledger_rows:
+        created = str(ledger.get("created_at") or "")
+        if not created:
+            continue
+        parent = os.path.dirname(os.path.dirname(rel)).replace(os.sep, "/")
+        ledgers.append((parent, created))
+    pairs_by_ledger = {}  # ledger key -> (refusal_at, code)  多对一去重：留最近
+    for rec in refusals:
+        parent = os.path.dirname(str(rec["run_dir"]).rstrip("/\\")).replace(os.sep, "/")
+        best = None
+        for lparent, created in ledgers:
+            if not (parent.endswith(lparent) or lparent.endswith(parent)):
+                continue
+            if created <= rec["at"]:
+                continue
+            if best is None or created < best[0]:
+                best = (created, lparent)
+        if best is None:
+            continue
+        key = best
+        prev = pairs_by_ledger.get(key)
+        if prev is None or rec["at"] > prev[0]:
+            pairs_by_ledger[key] = (rec["at"], rec.get("code") or "（无诊断码）")
+    if not pairs_by_ledger:
+        return
+    by_code = {}
+    for (created, _), (rat, code) in pairs_by_ledger.items():
+        gap = _iso_gap_minutes(rat, created)
+        if gap is not None:
+            by_code.setdefault(code, []).append(gap)
+    if not by_code:
+        return
+    print("  「拒绝 → 下一个新 run」间隔（分钟；同 verification 目录配对，多对一去重）：")
+    for code, gaps in sorted(by_code.items(), key=lambda x: (-len(x[1]), x[0])):
+        gaps.sort()
+        if len(gaps) < 2:
+            print("    %-34s n=%d（样本<2 不出分布）" % (code, len(gaps)))
+        else:
+            print("    %-34s n=%-3d 中位 %.1f  最小 %.1f" % (
+                code, len(gaps), gaps[len(gaps) // 2], gaps[0]))
+    print("  > 口径：相关性非因果性，用于**排序**哪道门最常紧跟新 run；退休决定仍需"
+          "人工复核。同目录配对是低估（跨 slice 换目录计不到）。参数待真实数据校准"
+          "（业主决策 C：发布后积累）。")
+
+
+def _iso_gap_minutes(earlier, later):
+    try:
+        import datetime
+        a = datetime.datetime.fromisoformat(str(earlier).replace("Z", "+00:00"))
+        b = datetime.datetime.fromisoformat(str(later).replace("Z", "+00:00"))
+        if a.tzinfo is None:
+            a = a.replace(tzinfo=datetime.timezone.utc)
+        if b.tzinfo is None:
+            b = b.replace(tzinfo=datetime.timezone.utc)
+        return max(0.0, (b - a).total_seconds() / 60.0)
+    except Exception:
+        return None
 
 
 def cmd_invalidate(args):
@@ -5218,6 +5312,50 @@ _LOOP_NEXT_ACTION = {
 }
 
 
+# W5-18（s1c）脱敏：三形态全覆盖（rev3 挑战抓出的 Windows 缺口）。
+#   POSIX：/ 开头、无空格（die 消息实测无以 / 开头的非路径 token、无 ://）；
+#   Windows：盘符开头，**不以空白为界**——`C:\Users\John Smith\...` 按空白切分只会
+#   替换掉 `C:\Users\John`，残留姓氏与目录结构；须吞到行尾或明确终止符（）"'，。；被）。
+_REDACT_POSIX_RE = re.compile(r"(?<!\S)/[^\s\"'），。；]+")
+_REDACT_WIN_RE = re.compile(r"[A-Za-z]:[\\/].*?(?=[\"'），。；]|\s被|$)")
+
+
+def _redact_paths(text):
+    text = _REDACT_WIN_RE.sub("<path>", str(text))
+    return _REDACT_POSIX_RE.sub("<path>", text)
+
+
+def cmd_export_refusals(args):
+    """W5-18（s1c）：把本机 refusal 账本导出为可提交/可传输文件——跨机器分析的出口。
+
+    本机文件是**原文**（s1a 刻意不加工）；导出时脱敏。--output 必填无默认：
+    往仓库里写文件必须是人显式发起的一次动作，不许顺手发生。
+    """
+    target = _refusal_target()
+    if not target or not os.path.isfile(target):
+        die("没有可导出的 refusal 记录（%s 不存在）" % (target or "落点不可用"))
+    out = []
+    with open(target, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            for k in ("cwd", "run_dir", "detail"):
+                if rec.get(k):
+                    rec[k] = _redact_paths(rec[k])
+            out.append(rec)
+    print("将写入 %s（%d 条，已脱敏）" % (args.output, len(out)))
+    with open(args.output, "w", encoding="utf-8") as f:
+        for rec in out:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    print("EXPORTED: %d" % len(out))
+    print("提醒：导出物一旦提交，会像新增任何文件一样进入 repo_content_digest——"
+          "这是正常仓库活动（人显式发起），不同于每次拒绝自动写入。")
+
+
 def cmd_status(args):
     """W4-16：「我在哪、能做什么」的查询入口。
 
@@ -5733,6 +5871,12 @@ def main(argv=None):
     p = sub.add_parser("status", help="我在哪、能做什么：状态 + 阻塞诊断 + 循环下一步（只读）")
     p.add_argument("--run-dir", required=True)
     p.set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("export-refusals",
+                       help="导出本机 refusal 账本（脱敏后）供跨机器分析；--output 必填")
+    p.add_argument("--output", required=True,
+                   help="目标文件路径——无默认值，写文件必须是显式动作")
+    p.set_defaults(fn=cmd_export_refusals)
 
     p = sub.add_parser("print-schema",
                        help="输出 findings 载荷的合法字段、枚举值与可复制模板")
