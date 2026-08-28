@@ -844,11 +844,17 @@ def compute_scenario_status(scenario, runs):
 
     非粘性不引入绕过：解除 blocked 的唯一方式是**真的记一条 root pass**，而 root pass 该有的
     证据/UI/negative-assertion 等硬门一条不少——与从未 blocked 过的场景要求完全相同。
-    fail 仍然粘性（root 一旦红，这一轮就是红的；改完代码 HEAD 会变，本来就该开新 run）。
+
+    **fail 同样非粘性**（W4-15，业主决策 B，2026-08-29）：上一段的论证逐字适用。
+    旧行为下，改完代码重测通过的唯一入账方式是换 run-dir 从零跑——那条 pass 面对的门
+    完全一样，只是**失败史被丢掉了**；同强度证据「留痕」与「洗账」二选一，设计在奖励
+    洗账（run log 实证：56% 执行作废，s1-relay-foundation 连开 6 run 前 5 全废）。
+    现在：fail 可被**其后**的 root pass 解除；失败记录仍在账本与链里，随时可审。
+    代码变更后的重测义务由 TESTED_RUNTIME_MISMATCH / RETEST_REQUIRED_AFTER_CHANGE
+    独立把守，与本函数无关。
     """
     sid = scenario["scenario_id"]
     mine = [(i, r) for i, r in enumerate(runs) if r.get("scenario_id") == sid]
-    roots = [r for _, r in mine if r.get("kind") == "root"]
     if not mine:
         return "NOT_RUN"
     # runs 是 append-only，下标即时间序：取最后一条 root pass 的位置作为"解除线"。
@@ -856,13 +862,15 @@ def compute_scenario_status(scenario, runs):
                         if r.get("kind") == "root" and r.get("result") == "pass"] or [-1])
     if any(r.get("result") == "blocked" and i > last_pass_at for i, r in mine):
         return "BLOCKED"
+    roots_i = [(i, r) for i, r in mine if r.get("kind") == "root"]
+    roots = [r for _, r in roots_i]
     if not roots:
         return "PARTIAL"  # 只有 retry/continuation，没有独立 root run
-    if any(r.get("result") == "fail" for r in roots):
+    if any(r.get("result") == "fail" and i > last_pass_at for i, r in roots_i):
         return "FAIL"
-    # 能走到这里，说明每一条 blocked 都已被其后的 root pass 覆盖——它们是"当时做不到"的历史
-    # 记录，不再参与 PASS 判定；否则"先 blocked 后跑通"会永远卡在 PARTIAL，等于粘性换个名字。
-    roots = [r for r in roots if r.get("result") != "blocked"] or roots
+    # 能走到这里，说明每一条 blocked/fail 都已被其后的 root pass 覆盖——它们是历史记录，
+    # 不再参与 PASS 判定；否则"先红后跑通"会永远卡在 PARTIAL，等于粘性换个名字。
+    roots = [r for r in roots if r.get("result") not in ("blocked", "fail")] or roots
     if all(r.get("result") == "pass" for r in roots):
         gate_type = scenario.get("gate_type", "")
         if gate_type == "positive-value":
@@ -5196,6 +5204,63 @@ def cmd_record_challenge_synthesis(args):
     print("CHALLENGE_SYNTHESIS_RECORDED")
 
 
+_LOOP_NEXT_ACTION = {
+    "CONTINUE": "修订 plan 后 record-challenge-round 进入下一轮",
+    "CONVERGED": "循环已收敛；可进入用户 review / 后续阶段",
+    "SPECIALIST_CHALLENGE_REQUIRED": "为每个 required cluster 执行 record-specialist-challenge",
+    "SYNTHESIS_REQUIRED": "record-challenge-synthesis 统一合成",
+    "CLOSURE_REVIEW_REQUIRED": "修订 plan 后执行 closure diff review（record-challenge-round）",
+    "SCOPE_AUDIT_REQUIRED": "record-challenge-control --action scope-audit（门要求态，无需 hash）",
+    "ARCHITECTURE_RESET_REQUIRED": "record-challenge-control --action architecture-reset（先真的改 plan）",
+    "USER_REVIEW_REQUIRED": "record-challenge-control --action user-review（向用户报告后记录）",
+    "USER_SCOPE_APPROVAL_REQUIRED": "record-challenge-control --action scope-change-approved --approval-hash <用户原话 sha256>",
+    "BLOCKED": "硬上限已到：acknowledge 放弃（绑 hash）或 architecture reset 后走 consolidated",
+}
+
+
+def cmd_status(args):
+    """W4-16：「我在哪、能做什么」的查询入口。
+
+    rollout 实证：代理敲了 12 次不存在的 status、23 次 skills、4 次 report——
+    44+ 个子命令里没有一个能回答这两个问题；W3 把写入入口无条件化之后，
+    没有这个查询口，无条件写入会退化成乱写。只读，不改账本。
+    """
+    ledger = load_ledger(args.run_dir)
+    fixture = bool(ledger.get("fixture_only"))
+    diags, computed = validate(args.run_dir, ledger, mode="check-only", fixture=fixture)
+    print("run_id: %s%s" % (ledger.get("run_id"), "（fixture）" if fixture else ""))
+    print("STATE: %s" % computed["state"])
+    statuses = computed.get("scenario_statuses") or {}
+    if statuses:
+        tally = {}
+        for s in statuses.values():
+            tally[s] = tally.get(s, 0) + 1
+        print("场景: " + "  ".join("%s=%d" % kv for kv in sorted(tally.items())))
+    blocking = [d for d in diags if d.severity == "error"]
+    if blocking:
+        print("阻塞诊断（%d）：" % len(blocking))
+        seen = set()
+        for d in blocking:
+            if d.code in seen:
+                continue
+            seen.add(d.code)
+            print("  DIAG %s: %s" % (d.code, d.detail[:100]))
+    else:
+        print("阻塞诊断：无")
+    for loop in ledger.get("challenge_loops") or []:
+        try:
+            state = _challenge_state(loop)
+        except Exception:
+            state = loop.get("status") or "UNKNOWN"
+        print("挑战循环 %s: %s" % (loop.get("loop_id"), state))
+        print("  下一步: %s" % _LOOP_NEXT_ACTION.get(state, "（未知状态）"))
+    waivers = computed.get("applied_waivers") or []
+    if waivers:
+        print("生效豁免 %d 条（详见 render 报告；豁免不隐身）" % len(waivers))
+    print("下一步总则: 消掉阻塞诊断 → audit → finalize；"
+          "被门拦住且确需越过 → record-decision（绑用户批准 hash，公开挂牌）")
+
+
 def cmd_record_decision(args):
     """W3-10：把「人的决定」记成一等事实——入口无条件，权力在后果。
 
@@ -5645,9 +5710,29 @@ def cmd_print_schema(args):
     print("可复制模板： plan_test_gate.py print-schema --format template")
 
 
+class _SuggestingParser(argparse.ArgumentParser):
+    """W4-16：子命令敲错时给近似建议——rollout 实证代理反复猜不存在的命令名
+    （status 12 次、skills 23 次、report 4 次），argparse 原生报错只回枚举全表。"""
+
+    def error(self, message):
+        if "invalid choice" in message:
+            import difflib
+            m = re.search(r"invalid choice: '([^']+)'.*choose from (.+)\)", message)
+            if m:
+                choices = [c.strip().strip("'") for c in m.group(2).split(",")]
+                close = difflib.get_close_matches(m.group(1), choices, n=3, cutoff=0.4)
+                if close:
+                    message += "\n是不是想敲: %s" % "  ".join(close)
+        super().error(message)
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="plan_test_gate.py")
+    ap = _SuggestingParser(prog="plan_test_gate.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("status", help="我在哪、能做什么：状态 + 阻塞诊断 + 循环下一步（只读）")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(fn=cmd_status)
 
     p = sub.add_parser("print-schema",
                        help="输出 findings 载荷的合法字段、枚举值与可复制模板")

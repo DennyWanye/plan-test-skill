@@ -381,15 +381,20 @@ class GateTestCase(GateHarness):
         self.assertIn("RISK_CLOSURE_MISSING", r.stdout)
 
     def test_stochastic_sampling(self):
-        """高风险非确定性场景 1/3 成功 → 采样不足，不得 SHIP。"""
+        """高风险非确定性场景 1/3 成功 → 采样不足，不得 SHIP。
+
+        W4-15 后 fail 非粘性，场景不再因历史 fail 判 FAIL——但 FLAKY 序列被
+        **稳定性门**独立接住（1/3 通过 + 未解释失败 → STABILITY_SAMPLES_INSUFFICIENT，
+        照样 rc=1）。这正是「解除 fail 的 pass 面对的硬门一条不少」的实证：
+        非粘性没有为抖动测试打开任何口子。"""
         self.init([{"scenario_id": "S-1", "required": True, "min_root_runs": 2}])
         self.record("S-1", result="fail")
         self.record("S-1", result="fail")
         self.record("S-1", result="pass")
         r = self.finalize(check_only=True)
         self.assertEqual(r.returncode, 1)
-        # roots 含 fail → 场景 FAIL → REQUIRED_SCENARIO_NOT_RUN；未解释失败不被最后一次成功覆盖
-        self.assertIn("REQUIRED_SCENARIO_NOT_RUN", r.stdout)
+        self.assertIn("STABILITY_SAMPLES_INSUFFICIENT", r.stdout)
+        self.assertIn("FLAKY", r.stdout)
 
     def test_stochastic_single_run_insufficient(self):
         self.init([{"scenario_id": "S-1", "required": True, "min_root_runs": 2}])
@@ -2128,11 +2133,26 @@ class BlockedNonStickyTestCase(GateHarness):
         self.assertEqual(r.returncode, 1)
         self.assertIn("状态=BLOCKED", r.stdout)
 
-    def test_fail_is_still_sticky(self):
-        """fail 依旧粘性——root 一旦红这一轮就是红的，改完代码本就该开新 run。"""
+    def test_fail_cleared_by_later_compliant_pass(self):
+        """W4-15（业主决策 B，2026-08-29）：fail 非粘性——与 blocked 同一解除线。
+
+        blocked 的先例注释逐字适用：解除的唯一方式是**真的记一条 root pass**，
+        该 pass 面对的硬门与从未 fail 过的场景完全相同。旧行为下同强度的证据
+        「留痕重测」与「换目录洗账」二选一，设计在奖励洗账——56% 作废率的直接来源
+        （s1-relay-foundation 一个 slice 连开 6 个 run、前 5 全废）。
+        失败史不洗：fail 记录仍在账本与链里，render/审计随时可见。"""
         self.init([{"scenario_id": "S-1", "required": True}])
         self.record("S-1", result="fail")
         self.record("S-1", result="pass")
+        r = self.finalize(check_only=True)
+        self.assertNotIn("状态=FAIL", r.stdout,
+                         "其后合规 root pass 应解除更早的 fail")
+
+    def test_fail_after_pass_is_still_fail(self):
+        """解除线是单向的：pass 之后又 fail → 当前状态就是 FAIL。"""
+        self.init([{"scenario_id": "S-1", "required": True}])
+        self.record("S-1", result="pass")
+        self.record("S-1", result="fail")
         r = self.finalize(check_only=True)
         self.assertEqual(r.returncode, 1)
         self.assertIn("状态=FAIL", r.stdout)

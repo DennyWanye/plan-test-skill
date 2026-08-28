@@ -195,6 +195,27 @@ class BareTracebackEntriesTestCase(unittest.TestCase):
             shutil.rmtree(rd, ignore_errors=True)
 
 
+class StatusCommandTestCase(GateHarness):
+    """W4-16：status——只读、回答「我在哪、能做什么」；敲错命令给近似建议。"""
+
+    def test_status_reports_state_and_next_steps(self):
+        self.init([{"scenario_id": "S-1", "required": True}])
+        before = os.path.getmtime(os.path.join(self.run_dir, "plan-test-run.json"))
+        r = run_gate(["status", "--run-dir", self.run_dir])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("STATE:", r.stdout)
+        self.assertIn("REQUIRED_SCENARIO_NOT_RUN", r.stdout)
+        self.assertIn("下一步总则", r.stdout)
+        after = os.path.getmtime(os.path.join(self.run_dir, "plan-test-run.json"))
+        self.assertEqual(before, after, "status 必须只读，不得触碰账本")
+
+    def test_typo_gets_suggestion(self):
+        r = run_gate(["staus", "--run-dir", "/tmp/x"])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("status", r.stderr, "敲错命令应给出近似建议")
+        self.assertIn("是不是想敲", r.stderr)
+
+
 class ChainLengthCoversAllFactArraysTestCase(unittest.TestCase):
     """W1-4：phase_transitions / plan_defects（含 history 归档）必须计入链长下界。
 
