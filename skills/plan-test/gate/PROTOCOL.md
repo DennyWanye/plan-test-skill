@@ -439,10 +439,13 @@ validator 能重算的只有"已入账事实之间的自洽性"，事实本身�
 默认路径若竟落在某 git 仓库内（`$HOME` 是 dotfiles 仓库），**跳过写入**；
 显式设 `PLAN_TEST_REFUSAL_HOME` 则不设防，责任归操作者。
 
-**覆盖面（实测，2026-08-28）**：记录 = `die()` 被调用。三类记不到，如实列出：
+**覆盖面（实测，2026-08-28）**：记录 = `die()` 被调用。四类记不到，如实列出：
 1. `parse_args` 之前的 die——当前 **0 处**（spike 实测），防线保留；
 2. 无 die 可达路径的子命令（如 `print-schema`，rc 恒 0）——无失败可记属正常；
-3. argparse "invalid choice"（敲错子命令名）——不经过 `die()`，归 s5 的 `status`。
+3. argparse "invalid choice"（敲错子命令名）——不经过 `die()`，归 s5 的 `status`；
+4. 不经 `die()` 的裸异常（实测例：`LedgerLock` 对**不存在**的 run-dir 抛
+   `FileNotFoundError` traceback、rc=1——与"存在但空"的 die rc=2 是两条路径）。
+   这类本身是待修的粗糙面，修法是让它们走 die，而不是让 refusal 去兜 traceback。
 
 **已知局限（别当保险箱，同 §6b 的精神）**：
 - 记录含本机路径**明文**；文件不进 git、不出机器。跨机器分析等 s1c 的导出+脱敏。
