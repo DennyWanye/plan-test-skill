@@ -190,7 +190,102 @@ _ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
 
 # ---------------------------------------------------------------- utilities
 
+# ---- refusal log（s1a）：把每一次 die 记成事实 --------------------------------
+# AC 见 plans/2026-08-28-gate-authority/slices/s1a-refusal-log/acceptance.md。
+# 病根：die() 160 处调用点不留痕，系统看不见自己在拒绝什么——56% 的测试作废率
+# 要靠挖另一台机器的会话日志才能发现。本段只记录、不裁决：原始数据落在被测仓库
+# 之外，不进账本、不进链、不进任何 digest（仓库内任何落点都会进
+# repo_content_digest，rev1/rev2 两轮挑战实测）。
+REFUSAL_FILE_MAX_KB = 512
+_REFUSAL_CODE_RE = re.compile(r"^([A-Z][A-Z0-9_]{3,}):")
+_REFUSAL_CTX = {"cmd": None, "run_dir": None, "writing": False}
+_REPO_ROOT_CACHE = {}
+
+
+def _find_repo_root_for(path):
+    """从 path 向上找 .git（目录，或 worktree/submodule 的 file 形态），最多 40 层。"""
+    try:
+        cur = os.path.abspath(path)
+    except Exception:
+        return None
+    if cur in _REPO_ROOT_CACHE:
+        return _REPO_ROOT_CACHE[cur]
+    node, root = cur, None
+    for _ in range(40):
+        if os.path.exists(os.path.join(node, ".git")):
+            root = node
+            break
+        parent = os.path.dirname(node)
+        if parent == node:
+            break
+        node = parent
+    _REPO_ROOT_CACHE[cur] = root
+    return root
+
+
+def _refusal_target():
+    """解析落点。默认路径若竟落在某个 git 仓库内（$HOME 本身是 dotfiles 仓库），
+    返回 None 跳过写入——宁可少记，不可改变任何仓库的内容指纹（AC-2 守卫）。
+    显式设 PLAN_TEST_REFUSAL_HOME 则不设防，责任归操作者（也是 AC-2 反向用例的注入口）。"""
+    home = os.environ.get("PLAN_TEST_REFUSAL_HOME")
+    if home:
+        return os.path.join(home, "refusals.jsonl")
+    base = os.path.join(os.path.expanduser("~"), ".plan-test")
+    if _find_repo_root_for(base) is not None:
+        return None
+    return os.path.join(base, "refusals.jsonl")
+
+
+def _trim_refusals(target):
+    """超 512 KB 丢弃最旧一半。临时文件 + os.replace（POSIX/Windows 均原子）——
+    在无锁路径上做非原子整文件重写，中断即整段丢失（rev2 挑战 P2）。"""
+    try:
+        if os.path.getsize(target) <= REFUSAL_FILE_MAX_KB * 1024:
+            return
+    except OSError:
+        return
+    with open(target, encoding="utf-8") as f:
+        lines = f.readlines()
+    tmp = target + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.writelines(lines[len(lines) // 2:])
+    os.replace(tmp, target)
+
+
+def _record_refusal(msg):
+    """任何失败必须静默：绝不改变 die 原本的 stderr 与退出码（AC-3），绝不触发
+    链校验或再次 die（AC-4；spike 实测无重入防护时递归 51 层）。字段记**原文**，
+    不加工——加工丢的信息补不回来（rev3 的 repo 字段被脱敏成零信息量是前车之鉴）。"""
+    ctx = _REFUSAL_CTX
+    if ctx["writing"]:
+        return
+    ctx["writing"] = True
+    try:
+        target = _refusal_target()
+        if not target:
+            return
+        first = str(msg).splitlines()[0] if str(msg) else ""
+        m = _REFUSAL_CODE_RE.match(first)
+        rec = {
+            "at": now_iso(),
+            "cwd": os.getcwd(),
+            "cmd": ctx["cmd"],
+            "code": m.group(1) if m else None,
+            "run_dir": ctx["run_dir"],
+            "detail": first[:500],
+        }
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        _trim_refusals(target)
+        with open(target, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # SystemExit 继承 BaseException，此处吞不掉退出（spike H1）
+    finally:
+        ctx["writing"] = False
+
+
 def die(msg, code=2):
+    _record_refusal(msg)  # s1a：先记后打——打印/退出路径若异常，记录已落盘
     print("ERROR: %s" % msg, file=sys.stderr)
     sys.exit(code)
 
@@ -5667,6 +5762,9 @@ def main(argv=None):
         exec_cmd = argv[i + 1:]
         argv = argv[:i]
     args = ap.parse_args(argv)
+    # s1a：refusal 上下文——记用户所给原文，不解释不加工（AC-1）
+    _REFUSAL_CTX["cmd"] = getattr(args, "cmd", None)
+    _REFUSAL_CTX["run_dir"] = getattr(args, "run_dir", None)
     if exec_cmd is not None:
         args.exec_cmd = exec_cmd
     args.fn(args)
