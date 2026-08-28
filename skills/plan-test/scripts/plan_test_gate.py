@@ -3659,6 +3659,9 @@ def cmd_stats(args):
     print("口径：各账本当前状态按 check-only 重算（诊断无历史留痕），不是逐次调用的流水。")
     if not runs:
         print("没有可统计的账本。")
+        # refusal 段必须仍然输出：「有拒绝、无账本」正是 init 被拒的形态——
+        # s1a 存在的理由之一就是让这种时刻可见（早期 return 吞掉它是测试抓出的真 bug）
+        _stats_print_refusals()
         return
     print()
     print("%-38s %8s %10s  %s" % ("诊断码", "触发run数", "最后触发", "最后所在 run"))
@@ -3679,8 +3682,51 @@ def cmd_stats(args):
         print("退休前须对照该门当初防的逃逸与复审日期（config.md 门禁登记纪律）。")
     else:
         print("退休候选：无——最近 %d 个 run 里每个已知诊断码都触发过。" % window)
+    _stats_print_refusals()
     for p, e in skipped:
         print("跳过 %s（%s）" % (p, e), file=sys.stderr)
+
+
+def _stats_print_refusals():
+    """s1a AC-6：refusal 计数——按诊断码、按子命令、总条数。只计数，不做时间聚合。
+
+    这是「拒绝的历史留痕」——上面那张表回答不了的那一半（它是当前状态重算）。
+    口径：记录 = die() 被调用，不 = 进程以失败终止（cmd_stats 自己吞 SystemExit，
+    其内部 die 会留记录而 rc=0，见 s1a acceptance「已知遗留」）。坏行跳过。"""
+    target = _refusal_target()
+    print()
+    if not target or not os.path.isfile(target):
+        print("refusal 记录：（无）")
+        return
+    by_code, by_cmd, total, bad = {}, {}, 0, 0
+    try:
+        with open(target, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    bad += 1
+                    continue
+                total += 1
+                code = rec.get("code") or "（无诊断码）"
+                cmd = rec.get("cmd") or "（未解析出子命令）"
+                by_code[code] = by_code.get(code, 0) + 1
+                by_cmd[cmd] = by_cmd.get(cmd, 0) + 1
+    except OSError:
+        print("refusal 记录：（无）")
+        return
+    print("refusal 记录：%d 条（%s%s）" % (
+        total, target, "，坏行跳过 %d" % bad if bad else ""))
+    if not total:
+        return
+    print("  按诊断码：")
+    for c, n in sorted(by_code.items(), key=lambda x: (-x[1], x[0])):
+        print("    %-38s %d" % (c, n))
+    print("  按子命令：")
+    for c, n in sorted(by_cmd.items(), key=lambda x: (-x[1], x[0])):
+        print("    %-38s %d" % (c, n))
 
 
 def cmd_invalidate(args):

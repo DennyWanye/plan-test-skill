@@ -159,5 +159,53 @@ class StatsTest(StatsHarness):
                          "run-pb")
 
 
+class RefusalStatsTestCase(unittest.TestCase):
+    """s1a AC-6：stats 的 refusal 计数段——按码、按命令、总数；坏行跳过；无文件出「（无）」。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="gate-stats-refusal-")
+        subprocess.run(["git", "init", "-q", self.tmp], check=True,
+                       capture_output=True)
+        self._saved = os.environ["PLAN_TEST_REFUSAL_HOME"]
+        self.home = tempfile.mkdtemp(prefix="refusal-stats-")
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self.home
+
+    def tearDown(self):
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self._saved
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def _write_refusals(self, lines):
+        with open(os.path.join(self.home, "refusals.jsonl"), "w",
+                  encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+
+    def test_counts_by_code_and_cmd_with_bad_line(self):
+        self._write_refusals([
+            json.dumps({"at": "t1", "cwd": "/a", "cmd": "checkpoint",
+                        "code": None, "run_dir": "/x", "detail": "d1"}),
+            json.dumps({"at": "t2", "cwd": "/a", "cmd": "record-challenge-control",
+                        "code": "CONTROL_NOT_REQUIRED", "run_dir": "/x", "detail": "d2"}),
+            json.dumps({"at": "t3", "cwd": "/a", "cmd": "record-challenge-control",
+                        "code": "CONTROL_NOT_REQUIRED", "run_dir": "/y", "detail": "d3"}),
+            "{这不是 JSON",                       # 坏行：跳过，不崩溃
+        ])
+        r = run_gate(["stats", "--root", self.tmp])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("refusal 记录：3 条", r.stdout)
+        self.assertIn("坏行跳过 1", r.stdout)
+        self.assertIn("CONTROL_NOT_REQUIRED", r.stdout)
+        self.assertIn("（无诊断码）", r.stdout)
+        self.assertIn("record-challenge-control", r.stdout)
+        # 按码排序：CONTROL_NOT_REQUIRED(2) 应排在（无诊断码）(1) 之前
+        self.assertLess(r.stdout.index("CONTROL_NOT_REQUIRED"),
+                        r.stdout.index("（无诊断码）"))
+
+    def test_no_file_prints_none_and_no_crash(self):
+        r = run_gate(["stats", "--root", self.tmp])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("refusal 记录：（无）", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

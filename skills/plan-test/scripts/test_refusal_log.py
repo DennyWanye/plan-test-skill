@@ -110,5 +110,58 @@ class RefusalNoRecursionTestCase(GateHarness):
         self.assertEqual(rec["code"], "LEDGER_TAMPERED")
 
 
+class RefusalCodedNoRunDirTestCase(unittest.TestCase):
+    """AC-1 第三形态：有 code、无 --run-dir（compile-manifest 这类前置命令）。
+    它正是 rev1 结构上记不到的那 15%——本 slice 的上下文不绑 run_dir，记得到。"""
+
+    def test_compile_manifest_failure_recorded_without_run_dir(self):
+        before = len(_lines())
+        spec = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        spec.write('{"foo": 1}')          # 合法 JSON、非法 spec → SCHEMA_INVALID
+        spec.close()
+        try:
+            r = run_gate(["compile-manifest", "--spec", spec.name,
+                          "--output", spec.name + ".out"])
+            self.assertEqual(r.returncode, 2)
+            lines = _lines()
+            self.assertEqual(len(lines), before + 1)
+            rec = json.loads(lines[-1])
+            self.assertEqual(rec["cmd"], "compile-manifest")
+            self.assertEqual(rec["code"], "SCHEMA_INVALID")
+            self.assertIsNone(rec["run_dir"])
+        finally:
+            os.unlink(spec.name)
+
+
+class RefusalFailureSafetyTestCase(unittest.TestCase):
+    """AC-3：写入失败（refusals.jsonl 被建成目录）不得改变原 stderr 与退出码。
+    注入手段跨平台：open(dir, 'a') 在 POSIX/Windows 均抛异常；不用 chmod
+    （Windows 与 root 下无效，会在未注入任何失败时静默判绿——rev2 挑战 P2）。"""
+
+    def setUp(self):
+        self._saved = os.environ["PLAN_TEST_REFUSAL_HOME"]
+        self.home = tempfile.mkdtemp(prefix="refusal-ro-")
+        os.makedirs(os.path.join(self.home, "refusals.jsonl"))   # 占位为目录
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self.home
+
+    def tearDown(self):
+        os.environ["PLAN_TEST_REFUSAL_HOME"] = self._saved
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def test_write_failure_leaves_stderr_and_exit_code_intact(self):
+        empty = tempfile.mkdtemp(prefix="refusal-t-")
+        try:
+            r = run_gate(["checkpoint", "--run-dir", empty, "--note", "x"])
+            self.assertEqual(r.returncode, 2, "退出码不得因写入失败而变")
+            self.assertEqual(
+                r.stderr.strip(),
+                "ERROR: run-dir 缺少 plan-test-run.json，先执行 init",
+                "stderr 必须与无 refusal 机制时逐字节一致")
+            self.assertTrue(os.path.isdir(
+                os.path.join(self.home, "refusals.jsonl")), "占位目录原样保留")
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
