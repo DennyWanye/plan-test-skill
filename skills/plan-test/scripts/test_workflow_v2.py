@@ -285,6 +285,121 @@ class WorkflowV2TestCase(GateHarness):
         self.assertEqual(closure.returncode, 0, closure.stderr)
         self.assertIn("LOOP_STATE: CONVERGED", closure.stdout)
 
+    def test_clusters_can_be_rerecorded_after_architecture_reset(self):
+        """W3-14：architecture-reset 后允许重聚类，旧编排归档不洗掉。
+
+        此前 clusters/synthesis 一次性——reset 后根本矛盾变了却既不能重聚类也不能
+        重合成，而文档禁止的「开新 loop」是状态机唯一留下的出路（第 5 轮评审 §4.2）。"""
+        self.init([{"scenario_id": "S-1", "required": True}])
+        plan = self.write("plan.md", "task\n")
+        contract = self.write("assurance.json", json.dumps({
+            "profile": "standard", "acceptance_ids": ["AC-1"],
+            "protected_assets": [{"id": "ASSET-1", "description": "plan"}],
+            "trusted_assumptions": [],
+            "in_scope_failures": [{"id": "FAIL-1", "description": "incomplete"}],
+            "in_scope_adversaries": [], "out_of_scope_conditions": [],
+            "maximum_acceptable_impact": "no missing required work",
+        }))
+        started = run_gate(["start-challenge-loop", "--run-dir", self.run_dir,
+                            "--loop-type", "plan-iteration", "--target-file", plan,
+                            "--assurance-contract", contract,
+                            "--orchestration", "clustered"])
+        self.assertEqual(started.returncode, 0, started.stderr)
+        loop_id = started.stdout.strip().splitlines()[-1]
+        finding = {
+            "id": "finding-one", "severity": "P1", "scope_relation": "in-scope",
+            "origin": "pre-existing", "violated_acceptance_ids": ["AC-1"],
+            "assurance_contract_ids": ["FAIL-1"], "evidence": "plan",
+            "status": "open", "root_cause": "missing detail",
+        }
+        coverage = {k: True for k in (
+            "acceptance_coverage", "entry_and_trust_chain", "data_flow_and_persistence",
+            "identity_permissions_concurrency_cleanup", "failure_and_recovery",
+            "tests_and_evidence", "release_and_rollback", "trusted_boundary_stop")}
+
+        def plan_hash():
+            with open(plan, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+
+        def record_round(n, findings, mode, based_on=None):
+            payload = {"review_mode": mode, "findings": findings}
+            if mode in ("breadth", "consolidated"):
+                payload["coverage"] = coverage
+            fp = self.write("rr-round%d.json" % n, json.dumps(payload))
+            args = ["record-challenge-round", "--run-dir", self.run_dir,
+                    "--loop-id", loop_id, "--round", str(n),
+                    "--plan-hash", plan_hash(), "--findings", fp]
+            if n > 1:
+                args += ["--based-on-plan-hash", based_on]
+            return run_gate(args)
+
+        def clusters_payload(name):
+            return self.write(name, json.dumps({
+                "primary_contradiction": {"id": "pc-one", "summary": "missing detail",
+                                          "acceptance_ids": ["AC-1"]},
+                "challenge_clusters": [{
+                    "cluster_id": "cluster-one", "parent_finding_ids": ["finding-one"],
+                    "specialty": "architecture", "question": "what detail?",
+                    "required_evidence": ["plan"], "specialist_required": True,
+                }]}))
+
+        h1 = plan_hash()
+        self.assertEqual(record_round(1, [finding], "breadth").returncode, 0)
+        self.assertEqual(run_gate([
+            "record-challenge-clusters", "--run-dir", self.run_dir,
+            "--loop-id", loop_id, "--input", clusters_payload("rr-c1.json"),
+        ]).returncode, 0)
+        # 无 reset 时重记仍被拒——一次性语义保留
+        again = run_gate(["record-challenge-clusters", "--run-dir", self.run_dir,
+                          "--loop-id", loop_id, "--input", clusters_payload("rr-c1b.json")])
+        self.assertEqual(again.returncode, 2)
+        self.assertIn("CHALLENGE_CLUSTERS_ALREADY_RECORDED", again.stderr)
+        # 完成 specialist + synthesis
+        sp = self.write("rr-sp.json", json.dumps({
+            "cluster_id": "cluster-one", "parent_finding_ids": ["finding-one"],
+            "specialty": "architecture", "findings": [finding],
+            "cross_cluster_refs": [],
+            "conclusion": {"status": "confirmed", "summary": "confirmed"}}))
+        self.assertEqual(run_gate([
+            "record-specialist-challenge", "--run-dir", self.run_dir,
+            "--loop-id", loop_id, "--cluster-id", "cluster-one",
+            "--status", "completed", "--output", sp]).returncode, 0)
+        sy = self.write("rr-sy.json", json.dumps({
+            "source_cluster_ids": ["cluster-one"],
+            "canonical_findings": [dict(finding, status="open")],
+            "resolved_finding_ids": [], "open_finding_ids": ["finding-one"],
+            "decisions": [{"canonical_finding_id": "finding-one",
+                           "source_finding_ids": ["finding-one"],
+                           "action": "plan-change",
+                           "rationale": "structure must change"}],
+            "conflicts": [], "required_spikes": [],
+            "plan_actions": ["rework architecture"]}))
+        self.assertEqual(run_gate([
+            "record-challenge-synthesis", "--run-dir", self.run_dir,
+            "--loop-id", loop_id, "--input", sy]).returncode, 0, "synthesis 入账失败")
+        # 用户主动 architecture-reset（W3 入口无条件化：绑 hash 即可，plan 须已变）
+        plan = self.write("plan.md", "task\nrewritten architecture\n")
+        reset = run_gate(["record-challenge-control", "--run-dir", self.run_dir,
+                          "--loop-id", loop_id, "--action", "architecture-reset",
+                          "--evidence", "owner-ordered reset",
+                          "--approval-hash", "e" * 64])
+        self.assertEqual(reset.returncode, 0, reset.stdout + reset.stderr)
+        # reset 后重聚类放行，旧编排归档
+        re_cluster = run_gate(["record-challenge-clusters", "--run-dir", self.run_dir,
+                               "--loop-id", loop_id,
+                               "--input", clusters_payload("rr-c2.json")])
+        self.assertEqual(re_cluster.returncode, 0,
+                         re_cluster.stdout + re_cluster.stderr)
+        self.assertIn("重聚类", re_cluster.stdout)
+        with open(os.path.join(self.run_dir, "plan-test-run.json"),
+                  encoding="utf-8") as f:
+            loop = json.load(f)["challenge_loops"][0]
+        self.assertEqual(len(loop.get("clusters_history") or []), 1,
+                         "旧编排必须归档进 clusters_history，不许洗掉")
+        self.assertEqual(loop["clusters_history"][0]["synthesis"]["payload"]
+                         ["source_cluster_ids"], ["cluster-one"])
+        self.assertIsNone(loop.get("synthesis"), "重聚类后旧 synthesis 应清位")
+
     def test_audit_findings_block_until_resolved_and_reaudited(self):
         self.init([{"scenario_id": "S-1", "required": True}])
         self.record("S-1")

@@ -2566,9 +2566,31 @@ class ChallengeLoopAssuranceTestCase(LoopHarness):
         self.assertIn("SCHEMA_INVALID", r.stderr)
 
     def test_control_events_cannot_be_pre_authorized(self):
+        """W3 语义更新：预授权防线从「记不进去」改为「记进去但不满足门的要求」。
+
+        入口无条件化后，user-initiated 事件必须绑 hash 才能记录，且**永不**清除
+        门此前/此后的 pending 要求——否则先记一条再触发要求即可让升级永不出现
+        （第 5 轮审计 §5.3 的预授权漏洞）。"""
+        # (a) 门未要求 + 无 hash → 拒绝（新码 CONTROL_APPROVAL_REQUIRED）
         r = self.control("scope-audit", outcome="continue")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("CONTROL_NOT_REQUIRED", r.stderr)
+        self.assertIn("CONTROL_APPROVAL_REQUIRED", r.stderr)
+        # (b) 门未要求 + 带 hash → 如实记录为 user-initiated
+        r = self.control("scope-audit", outcome="continue", approval_hash="c" * 64)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # (c) 预记录不满足门的要求：攒满 3 轮新增关键 finding，
+        #     SCOPE_AUDIT_REQUIRED 必须照常出现（user-initiated 不算数）
+        for n in range(1, 4):
+            if n > 1:
+                self.revise_plan("round-%d" % n)
+            r = self.record(n, [self.finding(
+                "pa-%d" % n,
+                origin="new-external-fact" if n > 1 else "pre-existing")])
+        self.assertIn("SCOPE_AUDIT_REQUIRED", r.stdout,
+                      "预先记录的 user-initiated scope-audit 不得关闭该升级")
+        # (d) 门要求之下的 gate-requested 回应才算满足
+        ok = self.control("scope-audit", outcome="continue")
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
 
     def test_architecture_reset_requires_changed_plan_and_consolidated_review(self):
         self.record(1, [self.finding("base", status="resolved")])
@@ -3095,6 +3117,78 @@ class ChainLengthInvariantTestCase(RealRepoAttestationTestCase):
         with open(os.path.join(self.run_dir, "plan-test-run.json"),
                   encoding="utf-8") as f:
             self.assertIsNone(gate_module().integrity_check(json.load(f)))
+
+class DecisionPrimitiveTestCase(GateHarness):
+    """W3-10：decision 原语——随时可记 / hash 必填 / 豁免降级且强制公示 / 完整性码不可豁免。"""
+
+    def setUp(self):
+        super().setUp()
+        self.init([{"scenario_id": "S-1", "required": True}])
+
+    def _decide(self, effect, subject="*", hash_="d" * 64,
+                rationale="业主批准：该场景本批不做，见批准原话", initiator="user-initiated"):
+        return run_gate(["record-decision", "--run-dir", self.run_dir,
+                         "--effect", effect, "--subject", subject,
+                         "--initiator", initiator, "--approval-hash", hash_,
+                         "--rationale", rationale])
+
+    def _check(self):
+        r = run_gate(["finalize", "--run-dir", self.run_dir, "--check-only"])
+        return r.stdout
+
+    def test_input_validation_fails_closed(self):
+        self.assertEqual(self._decide("waive:NOT_A_CODE").returncode, 2)
+        self.assertEqual(self._decide("REQUIRED_SCENARIO_NOT_RUN").returncode, 2)
+        self.assertEqual(
+            self._decide("waive:REQUIRED_SCENARIO_NOT_RUN", hash_="xyz").returncode, 2)
+        self.assertEqual(
+            self._decide("waive:REQUIRED_SCENARIO_NOT_RUN", rationale="短").returncode, 2)
+
+    def test_integrity_codes_are_not_waivable(self):
+        for code in ("SCHEMA_INVALID", "LEDGER_TAMPERED"):
+            r = self._decide("waive:%s" % code)
+            self.assertEqual(r.returncode, 2, code)
+            self.assertIn("不可豁免", r.stderr)
+
+    def test_waiver_demotes_error_and_publishes(self):
+        self.assertIn("DIAG REQUIRED_SCENARIO_NOT_RUN", self._check())
+        r = self._decide("waive:REQUIRED_SCENARIO_NOT_RUN", subject="S-1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = self._check()
+        self.assertNotIn("DIAG REQUIRED_SCENARIO_NOT_RUN", out,
+                         "命中的 error 应降为 advisory")
+        self.assertIn("ADVISORY REQUIRED_SCENARIO_NOT_RUN", out)
+        self.assertIn("已豁免", out)
+        run_gate(["render", "--run-dir", self.run_dir])
+        with open(os.path.join(self.run_dir, "report.md"), encoding="utf-8") as f:
+            report = f.read()
+        self.assertIn("生效中的豁免", report, "render 报告必须公示豁免——豁免不隐身")
+        self.assertIn("dddddddddddd", report, "豁免的 hash 前缀必须可见")
+
+    def test_subject_scoping(self):
+        r = self._decide("waive:REQUIRED_SCENARIO_NOT_RUN", subject="S-OTHER")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("DIAG REQUIRED_SCENARIO_NOT_RUN", self._check(),
+                      "subject 不匹配的 decision 不得豁免别的场景")
+
+
+class ScopeApproveConsolidatedTestCase(LoopHarness):
+    """W3-12：consolidated 只在结构真变时强制——只批准处置不换约，下轮 diff 即可。"""
+
+    def test_approve_without_snapshot_does_not_force_consolidated(self):
+        proposal = self.finding("prop-only", scope="scope-change-proposal",
+                                assurance=["FAIL-WRONG-HOST"])
+        r = self.record(1, [proposal])
+        self.assertIn("USER_SCOPE_APPROVAL_REQUIRED", r.stdout)
+        ok = self.control("scope-change-approved", outcome="continue",
+                          approval_hash="a" * 64)     # 不带 --acceptance：不换约
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        self.revise_plan("processed proposal")
+        resolved = self.finding("prop-only", scope="scope-change-proposal",
+                                status="resolved", assurance=["FAIL-WRONG-HOST"])
+        r2 = self.record(2, [resolved], review_mode="diff")
+        self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+
 
 class PlanChallengeUnresolvedTestCase(LoopHarness):
     """W2-6：挑战循环必须进 finalize 判定——未收敛的 loop 不得拿 receipt。

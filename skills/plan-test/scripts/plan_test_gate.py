@@ -204,6 +204,13 @@ REFUSAL_FILE_MAX_KB = 512
 _REFUSAL_CODE_RE = re.compile(r"^([A-Z][A-Z0-9_]{3,}):")
 # 用户批准消息的 SHA-256（W1-3 收敛：此前同一正则抄了 6 处、1 处拼写分叉 [a-f0-9]）
 _HASH64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+# decision 原语（W3-10，业主批准 2026-08-29）：人的决定随时可记、必须绑 hash、
+# 后果由 validate 消费并强制公示。effect 枚举复用 CANONICAL_ORDER——
+# "人能豁免什么"与"门能拦什么"永远同构，不会各长各的。
+# 完整性两码不可豁免：豁免 LEDGER_TAMPERED = 给伪造发许可证。
+NON_WAIVABLE_CODES = {"SCHEMA_INVALID", "LEDGER_TAMPERED"}
+DECISION_INITIATORS = {"user-initiated", "agent-proposed"}
 _REFUSAL_CTX = {"cmd": None, "run_dir": None, "writing": False}
 _REPO_ROOT_CACHE = {}
 
@@ -1001,6 +1008,15 @@ def expected_chain_length(ledger):
         n += len(loop.get("specialist_challenges") or [])
         if loop.get("synthesis"):
             n += 1
+        # W3-14：reset 后重聚类把旧编排归档——归档的写入仍计入下界（挪不减）
+        for h in loop.get("clusters_history") or []:
+            if not isinstance(h, dict):
+                continue
+            if h.get("challenge_clusters") is not None:
+                n += 1
+            n += len(h.get("specialist_challenges") or [])
+            if h.get("synthesis"):
+                n += 1
     if ledger.get("auditor"):
         n += 1
     if ledger.get("delivery"):
@@ -1013,6 +1029,7 @@ def expected_chain_length(ledger):
     # 不会被长度检查发现（链值检查仍覆盖，但保护弱一档）。计入后：
     # resolve 原地改（链 +1、事实 +0）、reset 归档进 history（事实只挪不减），
     # 下界方向均安全。
+    n += len(ledger.get("decisions") or [])          # W3-10 record-decision
     n += len(ledger.get("phase_transitions") or [])
     n += len(ledger.get("plan_defects") or [])
     for batch in ledger.get("plan_defects_history") or []:
@@ -2024,11 +2041,49 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
                           "脚本测试改用 record-run --exec（执行日志自动入账），"
                           "UI 测试 attach 截图/回执", severity="advisory"))
 
+    # 15. decision 豁免消费（W3-10，决策 A）：命中的 error 降为 advisory，**公开挂牌**。
+    # 核心不变量：豁免不隐身——今天这些偏离是"换个 run-dir 无声消失"，改后是成绩单上
+    # 的一行。不是放松，是把不可见变成可见。SCHEMA_INVALID/LEDGER_TAMPERED 不可豁免
+    # （record-decision 入口已拦，这里按防御再兜一次）。
+    applied_waivers = []
+    decisions = [d for d in (ledger.get("decisions") or []) if isinstance(d, dict)]
+    if decisions:
+        demoted = []
+        for d in diags:
+            waiver = None
+            if d.severity == "error" and d.code not in NON_WAIVABLE_CODES:
+                for dec in decisions:
+                    if dec.get("effect") != "waive:%s" % d.code:
+                        continue
+                    subj = str(dec.get("subject") or "*")
+                    if subj != "*" and subj != str(d.hint or ""):
+                        continue
+                    waiver = dec
+                    break
+            if waiver:
+                demoted.append(Diag(
+                    d.code,
+                    "%s ——【已豁免】initiator=%s hash=%s…：%s" % (
+                        d.detail, waiver.get("initiator"),
+                        str(waiver.get("approval_hash") or "")[:12],
+                        waiver.get("rationale")),
+                    severity="advisory", hint=d.hint))
+                applied_waivers.append({
+                    "code": d.code, "subject": str(d.hint or "*"),
+                    "initiator": waiver.get("initiator"),
+                    "approval_hash": waiver.get("approval_hash"),
+                    "rationale": waiver.get("rationale"),
+                })
+            else:
+                demoted.append(d)
+        diags = demoted
+
     diags = sort_diags(diags)
     computed = {
         "scenario_statuses": statuses,
         "required_all_pass": required_all_pass and bool(scenarios),
         "state": compute_state(ledger, statuses, diags, mode),
+        "applied_waivers": applied_waivers,
     }
     return diags, computed
 
@@ -2098,6 +2153,8 @@ def build_receipt(run_dir, ledger, computed):
         "ledger_sha256": canonical_digest({k: v for k, v in ledger.items() if k != "revision"}),
         "evidence_manifest_sha256": canonical_digest(evidence_manifest),
         "evidence_summary": summarize_evidence(ledger),
+        # W3-10：豁免不隐身——validate 消费掉的每一条 decision 都在成绩单上挂牌
+        "waivers": computed.get("applied_waivers") or [],
         "acceptance_sha256": (ledger.get("acceptance") or {}).get("sha256"),
         "testcase_lock_sha256": canonical_digest(ledger.get("testcase_lock") or {}),
         "auditor_input_sha256": auditor.get("input_sha256"),
@@ -3171,6 +3228,26 @@ def cmd_render(args):
             lines.append("- %s: %s（%s 判定）%s" % (
                 dim, "适用" if d.get("value") else "不适用",
                 d.get("decided_by") or "未标注", ("理由：" + str(d.get("rationale") or "缺")) ))
+        lines.append("")
+    waivers = computed.get("applied_waivers") or []
+    if waivers:
+        lines.append("## ⚠ 生效中的豁免（decision 原语；每一条都改变了本报告的判定强度）")
+        for w in waivers:
+            lines.append("- **%s**（subject=%s）由 %s 豁免，hash=%s…" % (
+                w.get("code"), w.get("subject"), w.get("initiator"),
+                str(w.get("approval_hash") or "")[:12]))
+            lines.append("  理由：%s" % (w.get("rationale") or "缺"))
+        lines.append("> 豁免不隐身：以上诊断本为 error，经带 hash 的 decision 降为 advisory。")
+        lines.append("")
+    decisions_all = ledger.get("decisions") or []
+    unused = [d for d in decisions_all if isinstance(d, dict) and not any(
+        w.get("code") == str(d.get("effect") or "")[len("waive:"):]
+        and w.get("approval_hash") == d.get("approval_hash") for w in waivers)]
+    if unused:
+        lines.append("## 已登记但当前未命中的 decision（%d 条；命中与否随事实变化）" % len(unused))
+        for d in unused:
+            lines.append("- %s subject=%s（%s）" % (
+                d.get("effect"), d.get("subject"), d.get("initiator")))
         lines.append("")
     att_now = ledger.get("runtime_attestation") or ledger.get("baseline") or {}
     if att_now.get("content_digest_error"):
@@ -4370,9 +4447,19 @@ def _validate_finding_payload(payload, round_no, loop):
         errors.append("第二轮起不得重复 breadth；使用 diff，重大 reset 后使用 consolidated")
     elif round_no > 1:
         previous_round = round_no - 1
+        # W3-12：consolidated 只在**结构真的变了**时强制——architecture-reset 恒算；
+        # scope-change-approved 仅当事件带了 acceptance/contract 快照替换（换了唯一
+        # 真相来源，必须付全量复核）。只批准一个处置、不换约 → 不触发。
+        # 此前记一次 approve 就强制下轮重做 8 键 coverage，正是"范围变了为什么要
+        # 全审"的病，也是下一个「被拒→换目录」候选（第 5 轮审计 §5.4）。
+        def _is_major(e):
+            if e.get("action") == "architecture-reset":
+                return True
+            if e.get("action") == "scope-change-approved":
+                return bool(e.get("acceptance_sha256") or e.get("scope_hash"))
+            return False
         major_change = any(
-            e.get("action") in {"architecture-reset", "scope-change-approved"}
-            and int(e.get("after_round") or 0) >= previous_round
+            _is_major(e) and int(e.get("after_round") or 0) >= previous_round
             for e in loop.get("control_events") or [])
         if major_change and mode != "consolidated":
             errors.append("CONSOLIDATED_REVIEW_REQUIRED: architecture/scope change 后须完整复核")
@@ -4477,7 +4564,17 @@ def _latest_finding_states(loop):
 
 
 def _has_control(loop, action, minimum_round=0):
-    return any(e.get("action") == action and int(e.get("after_round") or 0) >= minimum_round
+    """门的 pending 要求是否已被满足。
+
+    W3-11：只有 **gate-requested** 的事件算"满足了门的要求"——user-initiated 的
+    主动记录只是被如实记下，不清除任何 pending（防预授权：入口无条件化后，
+    否则可先记一条 scope-change-approved 再触发要求，`>=` 使其命中，
+    `USER_SCOPE_APPROVAL_REQUIRED` 永不出现）。
+    legacy 事件（无 initiator 字段）按 gate-requested 对待：旧规则下它们只可能
+    在要求态内被记录，语义等价。"""
+    return any(e.get("action") == action
+               and int(e.get("after_round") or 0) >= minimum_round
+               and e.get("initiator", "gate-requested") == "gate-requested"
                for e in loop.get("control_events") or [])
 
 
@@ -4791,10 +4888,23 @@ def cmd_record_challenge_clusters(args):
         die("找不到 loop_id: %s" % args.loop_id)
     if loop.get("orchestration") != "clustered":
         die("CLUSTER_ORCHESTRATION_DISABLED: start-challenge-loop 需使用 --orchestration clustered")
-    if len(loop.get("rounds") or []) != 1:
+    rounds_n = len(loop.get("rounds") or [])
+    rerecord = loop.get("challenge_clusters") is not None
+    if rerecord:
+        # W3-14：architecture-reset 之后允许重聚类——此前 clusters 一次性 +
+        # synthesis 一次性，reset 后根本矛盾变了却既不能重聚类也不能重合成，
+        # 而文档禁止的「开新 loop」是状态机唯一留下的出路（第 5 轮评审 §4.2，
+        # rollout 实测 plan-iteration-002 正是这条路）。
+        marker = int(loop.get("clusters_recorded_round") or 1)
+        reset_since = any(
+            e.get("action") == "architecture-reset"
+            and int(e.get("after_round") or 0) >= marker
+            for e in loop.get("control_events") or [])
+        if not reset_since:
+            die("CHALLENGE_CLUSTERS_ALREADY_RECORDED: 仅 architecture-reset 之后"
+                "可重聚类（旧 clusters/specialists/synthesis 将归档进 clusters_history）")
+    elif rounds_n != 1:
         die("PRIMARY_CHALLENGE_REQUIRED: clusters 必须紧接第一轮 breadth challenge 记录")
-    if loop.get("challenge_clusters") is not None:
-        die("CHALLENGE_CLUSTERS_ALREADY_RECORDED")
     payload = _read_json_file(args.input, "challenge clusters")
     normalized, errors = _validate_challenge_clusters(payload)
     if errors:
@@ -4808,15 +4918,18 @@ def cmd_record_challenge_clusters(args):
     contradiction_ac = set(contradiction.get("acceptance_ids") or [])
     if not contradiction_ac or not contradiction_ac.issubset(known_ac):
         die("SCHEMA_INVALID: primary_contradiction.acceptance_ids 缺失或引用未知 AC")
+    # parent 集来源：首次聚类 = 第一轮 breadth；reset 后重聚类 = 最近一轮
+    # （即 reset 后的 consolidated 轮——根本矛盾已变，旧第一轮不再是基准）
+    source_round = loop["rounds"][-1 if rerecord else 0]
     primary_findings = {
-        f.get("id") for f in (loop["rounds"][0].get("findings") or [])
+        f.get("id") for f in (source_round.get("findings") or [])
     }
     unknown = sorted({fid for c in normalized["challenge_clusters"]
                       for fid in c.get("parent_finding_ids") or []} - primary_findings)
     if unknown:
         die("UNKNOWN_PARENT_FINDING: %s" % ", ".join(unknown))
     primary_blockers = {
-        f.get("id") for f in (loop["rounds"][0].get("findings") or [])
+        f.get("id") for f in (source_round.get("findings") or [])
         if f.get("severity") in {"P0", "P1"}
         and f.get("scope_relation") == "in-scope" and f.get("status") == "open"
     }
@@ -4828,12 +4941,26 @@ def cmd_record_challenge_clusters(args):
 
     def mutate(current):
         target = _challenge_loop(current, args.loop_id)
+        if rerecord:
+            # 归档而非覆盖：失败史留档不洗掉（与 W4 fail 非粘性同一纪律）
+            target.setdefault("clusters_history", []).append({
+                "archived_at": now_iso(),
+                "primary_contradiction": target.get("primary_contradiction"),
+                "challenge_clusters": target.get("challenge_clusters"),
+                "specialist_challenges": target.get("specialist_challenges") or [],
+                "synthesis": target.get("synthesis"),
+            })
+            target["specialist_challenges"] = []
+            target["synthesis"] = None
         target["primary_contradiction"] = normalized["primary_contradiction"]
         target["challenge_clusters"] = normalized["challenge_clusters"]
+        target["clusters_recorded_round"] = len(target.get("rounds") or [])
         target["status"] = _challenge_state(target)
 
     _append(args.run_dir, mutate, op="record_challenge_clusters")
-    print("CHALLENGE_CLUSTERS_RECORDED: %d" % len(normalized["challenge_clusters"]))
+    print("CHALLENGE_CLUSTERS_RECORDED: %d%s" % (
+        len(normalized["challenge_clusters"]),
+        "（reset 后重聚类；旧编排已归档 clusters_history）" if rerecord else ""))
 
 
 def _validate_cluster_finding_items(items, loop, required_ids=None):
@@ -5069,6 +5196,49 @@ def cmd_record_challenge_synthesis(args):
     print("CHALLENGE_SYNTHESIS_RECORDED")
 
 
+def cmd_record_decision(args):
+    """W3-10：把「人的决定」记成一等事实——入口无条件，权力在后果。
+
+    与 re-attest / acknowledge 同一哲学（"本命令不是把红灯按绿"）：
+    - 任何状态可记；写入侧只校验自洽（effect 合法、hash 格式、rationale 非空）；
+    - 后果由 validate 消费：命中的 error 降 advisory 并**强制公示**在 receipt 的
+      waivers[] 与 render 里——豁免不隐身，是变成公开账目；
+    - SCHEMA_INVALID / LEDGER_TAMPERED 不可豁免（完整性底线）。
+    """
+    effect = str(args.effect or "")
+    if not effect.startswith("waive:"):
+        die("DECISION_EFFECT_INVALID: effect 须为 waive:<诊断码>（枚举复用 CANONICAL_ORDER）")
+    code = effect[len("waive:"):]
+    if code in NON_WAIVABLE_CODES:
+        die("DECISION_EFFECT_INVALID: %s 不可豁免——完整性底线（豁免它等于给伪造发许可证）"
+            % code)
+    if code not in CANONICAL_ORDER:
+        die("DECISION_EFFECT_INVALID: 未知诊断码 %s；合法取值见 CANONICAL_ORDER" % code)
+    if args.initiator not in DECISION_INITIATORS:
+        die("DECISION_INITIATOR_INVALID: 须为 user-initiated | agent-proposed")
+    if not _HASH64_RE.match(str(args.approval_hash or "")):
+        die("USER_APPROVAL_REQUIRED: decision 须绑用户批准原话的 64 位 SHA-256"
+            "（agent-proposed 也要——提案获批的那句话）")
+    if not isinstance(args.rationale, str) or len(args.rationale.strip()) < 10:
+        die("DECISION_RATIONALE_REQUIRED: rationale ≥10 字——判「豁免」尤其要写清依据")
+    record = {
+        "effect": effect,
+        "subject": str(args.subject or "*"),
+        "initiator": args.initiator,
+        "approval_hash": args.approval_hash,
+        "rationale": args.rationale,
+        "recorded_at": now_iso(),
+    }
+
+    def mutate(ledger):
+        ledger.setdefault("decisions", []).append(record)
+
+    _append(args.run_dir, mutate, op="record_decision")
+    print("DECISION_RECORDED: %s subject=%s initiator=%s" % (
+        effect, record["subject"], args.initiator))
+    print("注意：该豁免将出现在 receipt 的 waivers 与 render 报告中，公开可追责。")
+
+
 def cmd_record_challenge_control(args):
     ledger = load_ledger(args.run_dir)
     loop = _challenge_loop(ledger, args.loop_id)
@@ -5081,9 +5251,20 @@ def cmd_record_challenge_control(args):
         "user-review": "USER_REVIEW_REQUIRED",
         "scope-change-approved": "USER_SCOPE_APPROVAL_REQUIRED",
     }[args.action]
-    if current_state != required_state:
-        die("CONTROL_NOT_REQUIRED: action=%s 仅在 %s 可记录；当前=%s" % (
-            args.action, required_state, current_state))
+    # W3-10 入口无条件化（决策 A，业主批准 2026-08-29）：此前"只有门先开口才能记录
+    # 回应"——用户主动拍板在账本里没有合法落点，rollout 实测 28 次调用失败 14 次
+    # （四个动作全中 7/3/2/2），代理被拒后换 run-dir 重来。改为与同文件
+    # record_challenge_round / re-attest / acknowledge 同一哲学：入口无条件、
+    # 留痕可追责、权力在机器推导的后果上。
+    #   - 门要求的状态下记录 → initiator=gate-requested（满足门的要求）；
+    #   - 其他任何状态 → initiator=user-initiated，**必须**绑用户批准原话 hash，
+    #     且不满足门此前/此后的任何 pending 要求（防预授权，见 _has_control）。
+    initiator = "gate-requested" if current_state == required_state else "user-initiated"
+    if initiator == "user-initiated" and not _HASH64_RE.match(
+            str(args.approval_hash or "")):
+        die("CONTROL_APPROVAL_REQUIRED: 门当前未要求 %s（当前状态 %s，要求态 %s）；"
+            "用户主动记录须绑批准原话的 64 位 SHA-256（--approval-hash）" % (
+                args.action, current_state, required_state))
     if args.action not in CHALLENGE_CONTROL_ACTIONS:
         die("CONTROL_ACTION_INVALID: %s" % args.action)
     if not isinstance(args.evidence, str) or not args.evidence.strip():
@@ -5101,6 +5282,8 @@ def cmd_record_challenge_control(args):
         "outcome": args.outcome,
         "evidence": args.evidence,
         "approval_hash": args.approval_hash,
+        "initiator": initiator,
+        "triggering_state": current_state,
         "recorded_at": now_iso(),
     }
     if args.action == "architecture-reset":
@@ -5470,6 +5653,22 @@ def main(argv=None):
                        help="输出 findings 载荷的合法字段、枚举值与可复制模板")
     p.add_argument("--format", choices=("human", "template"), default="human")
     p.set_defaults(fn=cmd_print_schema)
+
+    p = sub.add_parser("record-decision",
+                       help="记录人的决定（W3：任何状态可记；必须绑批准原话 hash；"
+                            "豁免强制公示在 receipt/render）")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--effect", required=True,
+                   help="waive:<诊断码>（枚举复用 CANONICAL_ORDER；SCHEMA_INVALID/"
+                        "LEDGER_TAMPERED 不可豁免）")
+    p.add_argument("--subject", default="*",
+                   help="作用对象：scenario_id / loop_id / 路径 hint；* = run 级")
+    p.add_argument("--initiator", required=True,
+                   choices=("user-initiated", "agent-proposed"))
+    p.add_argument("--approval-hash", required=True,
+                   help="用户批准原话的 SHA-256（64 位小写十六进制）")
+    p.add_argument("--rationale", required=True)
+    p.set_defaults(fn=cmd_record_decision)
 
     p = sub.add_parser("compile-manifest",
                        help="从结构化 verification spec 编译并冻结 gate manifest")
