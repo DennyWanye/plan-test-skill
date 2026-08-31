@@ -12,32 +12,39 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 规则的历史原因放在冷路径 `rationale.md`；正常执行不要加载它。修改规则或做 gate 退休评审时再读。
 
 **核心原则**
+- **围绕主要矛盾（总纲，先跑通再加固）**：acceptance 必写一句话主要矛盾 + 最小验证动作
+  （phase-A 1a，格式硬约束见 phase-1）；任务排序按**最短价值路径优先**而非单纯依赖拓扑
+  （phase-1）；价值验证里程碑未 PASS 前禁止投入任何昂贵加固步骤（phase-3 A / config
+  `VALUE_SMOKE_GATE`）；里程碑 PASS 后主要矛盾转化，后半段围绕"稳定安全交付"排。
+  challenger 对主要矛盾有固定质询（写成复合句、防御排第一优先 = P0 打回）。
+  （出处见 rationale.md「2026-08-31 DGX 双机部署复盘」）
+- **任务类型先于风险分档**：先判 `TASK_TYPE`（delivery / ops）——运维/部署任务走 OPS 路径，
+  不套软件交付仪式（路径内容见 config"流程路径"）。
+- **禁止自造防御系统 / 复验粒度跟随变更粒度**：见 config `SELF_BUILT_DEFENSE`、`REVALIDATION_SCOPE`。
 - **唯一真相来源**：一切回溯到用户批准的 `acceptance.md` + `assurance-contract.json`。
   后者冻结保障等级、可信假设、范围内失败/对手和最大影响；challenger 不得自行扩大。
-- **机器门是唯一完成 authority**（见 `gate/PROTOCOL.md` + `config.md`"机器门禁"）：Markdown 是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `scripts/plan_test_gate.py` 重算；**最终交付判定只接受 `finalize` 的 exit code**，没有有效 `gate-receipt.json` 的手写 SHIP/100% 一律无效。qualitative auditor 负责发现未知问题，deterministic validator 负责阻止已知违规，两者不可互替。
-- **条件门的适用性判定是 fact，不是口头判断**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 gate manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），由 init 冻结进账本与 receipt。判"不适用"合法，但**理由留痕、事后可追责**；判"适用"则场景矩阵必须真的兑现，否则 `APPLICABILITY_GATE_UNSATISFIED`。此前判一句"这是确定性 UI"就能让四道门合法消失且无人知晓。
+- **机器门是唯一完成 authority**（全文见 config"机器门禁"与 `gate/PROTOCOL.md`）：Markdown 是给人读的视图；测试事实记入 run-dir 唯一账本、状态由 validator 重算，**最终交付判定只接受 `finalize` 的 exit code**，没有有效 receipt 的手写 SHIP/100% 一律无效。qualitative auditor 负责发现未知问题，deterministic validator 负责阻止已知违规，两者不可互替。
+- **条件门的适用性判定是 fact，不是口头判断**：三维判定必须写进 manifest 的 `applicability`（声明格式与兑现要求见 config `APPLICABILITY_DECLARATION`）；判"不适用"合法但留痕可追责，判"适用"则必须真兑现。
 - **机器门要真的被调用才存在**：`hooks/` 提供 Stop hook、git pre-push 适配器与 CI 片段（三个锚点按外部性排序，见 `hooks/README.md`），把"必须跑 finalize"从纪律变成强制。未启用任一种时，交付说明里要如实写"机器门为自愿调用"。
-- **门禁登记纪律（防规则集只进不出）**：新增任何门必须声明它防的诊断码、防的实测逃逸和复审日期（见 `config.md` `GATE_REGISTRY_DISCIPLINE`）；退休评审的数据来源是 `plan_test_gate.py stats`。
+- **门禁登记纪律（防规则集只进不出）**：见 config `GATE_REGISTRY_DISCIPLINE`。
 - **每个声明可验证**：不说"看起来做完了"，而是逐条核对可追溯矩阵。
-- **testcase 是项目资产，不是一次性产物**：设计用例前先读取 `{TESTCASE_DIR}/index.md` 与
-  机器 inventory，再阅读候选用例原文并记录 reuse decision；可直接复用就不重复创建，
-  但复用只复用 oracle，当前 run 仍必须重新执行并取证。
-- **每个失败有出口**：plan challenge 使用 3/5/8 的 scope-audit/user-review/hard-stop；
-  其他循环使用 `MAX_ROUNDS`。任何 reset 都不清零历史。
-- **已批准行为不缩水**（`BEHAVIOR_POLICY = preserve-approved`）：不得静默减少用户已批准的外部行为；
-  可以删除、替换或重构内部实现，也可以删除 acceptance 明确批准删除的旧行为。下限之上的最小化
-  统一按 `policies/acceptance-preserving-ponytail.md` 执行。
-- **小 slice 交付**：交付体量超 `RELEASE_UNIT_LIMITS`（默认 8 条 MUST AC / 10 个 Task /
-  2000 行 plan / 3 个高风险子系统）→ validator 直接 `RELEASE_UNIT_TOO_LARGE`，拆 program plan +
-  垂直 slice，每个 slice 独立验收。
+- **testcase 是项目资产，不是一次性产物**：设计用例前先读 inventory 与候选原文并记录 reuse
+  decision（见 `references/testcase-lifecycle.md`）；复用只复用 oracle，当前 run 仍必须重新执行并取证。
+- **每个失败有出口**：plan challenge 用 3/5/8 出口，其他循环用 `MAX_ROUNDS`（阈值见 config
+  "轮次与出口"）；任何 reset 都不清零历史。
+- **已批准行为不缩水**：`BEHAVIOR_POLICY = preserve-approved`（全文见 config"行为开关"）；下限
+  之上的最小化统一按 `policies/acceptance-preserving-ponytail.md` 执行。
+- **小 slice 交付**：交付体量超 `RELEASE_UNIT_LIMITS`（阈值见 config）→ validator 直接
+  `RELEASE_UNIT_TOO_LARGE`，拆 program plan + 垂直 slice，每个 slice 独立验收。
 
 ## 开场（每次必做）
 
 1. **Announce**：输出 "I'm using the plan-test skill to run the full plan→execute→test workflow."
 2. **读配置**：读取本 skill 的 `config.md`；若项目根存在 `.claude/plan-test.config.md`，用它覆盖默认值。本文档中所有 `{大写变量}` 在运行时用配置值替换。
-3. **判路径并宣布**（`FLOW_TIER`，见 config.md“流程路径”）：按风险与可逆性判
-   DIRECT / LEAN / FULL，明确依据和跳过的阶段。DIRECT = 不启动本流程。疑义往高风险路径判。
-   LEAN 仍保留“primary 主挑战 → 按 cluster 专项挑战”的顺序，只压缩无新增关键问题后的轮次。
+3. **判任务类型与路径并宣布**（`TASK_TYPE` + `FLOW_TIER`，判据与各路径内容见 config.md"流程路径"）：
+   先判 delivery / ops；delivery 再按风险与可逆性判 DIRECT / LEAN / FULL，明确依据和跳过的阶段。
+   疑义往高风险路径判（但 ops 误判成 delivery-FULL 的代价是仪式压垮任务，类型判定按交付物本质，
+   不按"风险高就加仪式"）。
 4. **建 TodoWrite**：把该路径要跑的阶段建成 todo，逐项 in_progress → completed 推进。
 
 ## 阶段全景
@@ -53,17 +60,15 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 | 5 | testcase 收尾维护（编写与挑战已前移至 phase-4 昂贵层前；**独立 full-audit 在本阶段末尾**） | `phase-5-testcase.md` | `{TESTCASE_DIR}/` + index.md + audit 入账 |
 | █ | 收尾 DoD + 文档回写 | `phase-final-dod.md` | `finalize` exit 0 + gate receipt + DoD 清单全绿 |
 
-**推进规则：依赖图，不是全局串行**（DeskPet 2026-08-03 复盘 P1-6：testcase/fixture/gate
-准备耗时 3h27m，几乎全部本可与 2h30m 的实现段重叠；全局串行是那次 10h20m 里最大的可压缩项）。
+**推进规则：依赖图，不是全局串行**（病根见 rationale.md「全局串行的代价」）。
 
 阶段间真正的硬依赖只有这几条，**其余允许并行**：
 
 1. **A → 1 → 2 → 用户批准** 必须串行（唯一真相与行为契约没定，后面全是沙上建塔）；
 2. 用户批准后分**双轨并行**：
    - **代码轨**：phase-3 实现 + 完成度审计（A/A2/B/C 节）；
-   - **验证准备轨**：testcase inventory 读取与候选复用评估、必要用例编写与 challenger 迭代、fixture/种子数据、冒烟脚本、
-     测试环境准备脚本、gate manifest 草案（场景矩阵/impact_paths/applicability）——
-     见 phase-3 D 节与 `checklists/parallel-verification-track.md`。
+   - **验证准备轨**：testcase 复用评估与编写、fixture、冒烟脚本、gate manifest 草案等
+     （清单见 phase-3 D 节与 `checklists/parallel-verification-track.md`）。
      **black-box 纪律**：本轨只准读 acceptance/plan/行为契约，**禁止读实现代码与 diff**
      ——oracle 在实现落地前定稿，才防得住"照着实现写测试、bug 被测成预期行为"；
 3. **汇合闸**：两轨都收尾 → testcase 冻结 + gate init（phase-4 昂贵层前置）→ 便宜门序 →
@@ -78,13 +83,12 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 - **⚠️ 末尾警戒**：越接近收尾越容易用便宜的代码审计替昂贵的真机测试来"尽快合上"。**`MANUAL_TEST=required` 的 UI 测试不许降级**，测不了就 BLOCKED 升级（见 phase-4 ①b 兑现表）。**"主流程通过"≠"每条 AC 都测了"。**
 - **会话续接先复验**：压缩/跨会话/换 agent 后，推进前先重跑当前路径声明范围的分级冒烟；
   旧的脏工作树 PASS 不得沿用。
-- **增量 AC 不许绕流程**：新 AC 必须先进 acceptance；可只跑受影响兑现表，但提交态硬门不得豁免，
-  smoke 按 config 分级执行。
+- **增量 AC 不许绕流程**：见 config `INCREMENTAL_AC_MODE`。
 
 ## 子代理用法
 
 - 挑战/评估/审计/迭代类子代理：各自的提示词在 `prompts/` 下，派发时把对应文件内容作为子代理 prompt，引擎用配置里指定的值。
-- 执行类子代理：用 `{EXECUTOR_ENGINE}` 并行派发（默认 `current` = 继承当前会话模型，不指定 model 参数；用户当前用什么模型，执行子代理就用什么模型）。
+- 执行类子代理：用 `{EXECUTOR_ENGINE}` 并行派发（默认 `current` = 继承当前会话模型、不指定 model 参数，语义见 config"子代理引擎"）。
 - 终审（完成度/测试覆盖最终确认）：用 `{AUDITOR_ENGINE}`（默认 opus-4.8）。
 - 调研类步骤（phase-0/1/2）遵循 `methods/research-method.md` 的调研纪律。
 
@@ -107,8 +111,8 @@ description: 端到端"需求澄清→架构基线→写plan→子代理挑战�
 
 ## 何时不要用（= DIRECT 路径）
 
-- 低风险且可快速回滚、不涉及权限/资金/身份/迁移/新持久化状态/公共协议/信任边界/新依赖的
-  单点小改、一次性脚本、纯问答 → 不启动阶段流程，直接做；仍保留一句 AC 和提交态硬门。
+- 单点小改、一次性脚本、纯问答（DIRECT 判据见 config"流程路径"）→ 不启动阶段流程，直接做；
+  仍保留一句 AC 和提交态硬门。
 - 没有明确"项目"上下文（不在仓库里）→ 先确认工作目录。
 - **只想要一份实现计划、不需要执行与测试**（"帮我写个plan""写个计划"）→ 用 `writing-plans`，不要用本 skill。本 skill 的"写计划"只是全流程中的一步。
 - **想和用户对话讨论、共创出 plan 再说**（"头脑风暴""一起想想怎么做"）→ 用 `plan-bs`。

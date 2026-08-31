@@ -4,11 +4,8 @@
 
 ## ⓪ 收尾顺序（先文档、后 receipt——顺序错了会死锁）
 
-> **此前的死结**：先 `finalize` 拿 receipt，再做"文档回写"必然改文件——提交则 `RECEIPT_STALE`
-> （tested HEAD 变了），不提交则违反 `COMMIT_STATE_GATE`（工作树不干净），两边都堵死。
-> **真正的修法在 validator 里**（schema 1.2.0）：阻塞判据从"提交身份（HEAD + dirty patch）"
-> 改成"**被测内容**指纹"——`git add`/`git commit` 一个字节都不改，指纹就不变，门照样绿；
-> 改一个字节则照拦不误。仅靠调整文档顺序解不开这个死结，那只是把它挪到下一步。
+> 阻塞判据是"**被测内容**指纹"（schema 1.2.0）：`git add`/`git commit` 一个字节都不改，指纹就
+> 不变，门照样绿；改一个字节则照拦不误。（此前"先 receipt 后文档"的死结见 rationale.md「提交态与内容身份」。）
 
 1. **先做文档回写**（下面"文档回写"节）：ARCHITECTURE.md / README / changelog / testcase index。
    文档也是交付内容——改完内容指纹就变了，**不能直接 finalize**（会 `TESTED_RUNTIME_MISMATCH`）。
@@ -32,9 +29,8 @@
 6. **提交**：内容不变，所以先 finalize 后提交、或先提交后 finalize 都行；重跑 `finalize`
    与 `render` 仍然通过（`RealRepoAttestationTestCase` 有回归用例锁住这个行为）。
 7. run-dir 内的产物（`plan-test-run.json` / `artifacts/` / `gate-receipt.json` / `report.md`）
-   **不参与内容指纹，也不参与 `COMMIT_STATE_GATE`**——提交态检查要写成
-   `git status --porcelain -- . ':(exclude)<run-dir>'`，否则刚写完的 receipt 会让提交态门
-   自己失败。
+   **不参与内容指纹，也不参与 `COMMIT_STATE_GATE`**——提交态检查命令与排除写法见
+   config `COMMIT_STATE_GATE`（不排除 run-dir 的话，刚写完的 receipt 会让门自己失败）。
 8. 若第 5 步 FAIL 后又改了代码：回到第 1 步重来——**修完代码不能只重跑 finalize，
    文档可能又过期了，而且内容指纹已变，相关场景必须重测重记**。
 
@@ -45,26 +41,25 @@ python {GATE_SCRIPT} finalize --run-dir <run-dir>
 python {GATE_SCRIPT} render   --run-dir <run-dir>
 ```
 
-- **最终交付判定只接受 `finalize` 的 exit code 与结构化 stdout**（诊断码清单见 `gate/PROTOCOL.md`），不接受代理手写结论。**exit 0** + `GATE RECEIPT: <digest>` 才存在"完成"这个状态。
+- **最终交付判定只接受 `finalize` 的 exit code 与结构化 stdout**（authority 语义见 config `GATE_SCRIPT`，诊断码清单见 `gate/PROTOCOL.md`）。**exit 0** + `GATE RECEIPT: <digest>` 才存在"完成"这个状态；没有有效 receipt 的手写 `SHIP / 100% COMPLETE` = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
 - **exit 3 = fixture-only 通过，不是完成**：合成 run 跳过了全部 git 校验，receipt 标 FIXTURE-ONLY，不得用于交付措辞。exit 1 = 门禁 FAIL，exit 2 = 用法错误。
 - `finalize` 会在 auditor 结束后**重新读取并校验所有文件与 hash**（证据、testcase lock、auditor 输入输出、tested HEAD/dirty 指纹）；`render` 重新跑同一 validator 并复验 receipt digest，失效时不渲染 SHIPPABLE。
-- 没有有效 receipt 的手写 `SHIP / 100% COMPLETE` = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。下面的人工清单是对机器门的**补充复核**，不是替代——机器门 FAIL 时任何人工打勾都不算数。
-- full-audit 之后代码、配置、testcase 或结果有任何变化 → 旧 auditor PASS 与 receipt 自动失效（`AUDITOR_INPUT_STALE` / `RECEIPT_STALE`），须重审后重新 finalize。
-- receipt 的 `evidence_summary` 同时给出 evidence record、distinct artifact、distinct root run
-  数量和共享 hash；同一日志复制多份只算一个 distinct artifact，不得用 record 数量冒充独立证据。
+- 下面的人工清单是对机器门的**补充复核**，不是替代——机器门 FAIL 时任何人工打勾都不算数。
+- full-audit 之后任何输入变化 → 旧 auditor PASS 与 receipt 自动失效（见 phase-4 ④），须重审后重新 finalize。
+- receipt 的 `evidence_summary` 语义见 `references/evidence-audit-lifecycle.md` §5——不得用 record 数量冒充独立证据数量。
 - 用户后续发现生产缺陷 → `invalidate --reason` 使 receipt 失效；修复 + 永久回归 + 受影响 lane 复测完成后才生成新 receipt。
 
 ## DoD 清单（全绿才算完成——每条必须附证据，不许口头打勾）
 
 > **逐条列出并在每条后附证据位置**（文件路径 / 截图 / log 行 / 命令输出）。任何一条附不上证据 → 标 BLOCKED 升级，**不得宣布完成**。"我确认过了""逻辑上没问题""同类已验证"都不算证据。
 >
-> **验证必须针对 git 已提交状态；对未提交工作树的任何 PASS 一律不作数。**"验证通过"和"交付物通过"是两回事——脏工作树上全绿、关键文件却没提交，回退后 git 里只剩能编译的半截状态，当时的 PASS 全部作废。
+> **验证必须针对 git 已提交状态；对未提交工作树的任何 PASS 一律不作数。**"验证通过"和"交付物通过"是两回事（半截提交病根见 rationale.md「提交态与内容身份」）。
 
 - [ ] **主要矛盾对应 AC 已单独确认真达成**（业务上可用，非任务打勾）—— 证据：auditor"主要矛盾判定"栏 + 实测记录。此条 FAIL 时其余任何 PASS 都不能救场
 - [ ] **整体可用性实测通过**：按原始需求的核心使用路径整机走通 —— 证据：auditor"整体可用性"栏
 - [ ] **执行期的 plan 层回炉已全部闭环**：回炉的部分重过了 phase-2 收敛判据并回写 plan，无"用补丁掩盖 plan 缺陷"的遗留 —— 证据：auditor"plan 层缺陷清单"为空
 - [ ] `{ACCEPTANCE_FILE}` 全部"必须"条款都有测试证据通过 —— 证据：phase-4 ①b **兑现表**（每条 AC 一行；含 UI 的须有真机 MCP 证据）
-- [ ] **工作树干净且已提交（`COMMIT_STATE_GATE`）**：本轮全部改动已提交，验证针对的就是 HEAD 的代码 —— 证据：`git status --porcelain -- . ':(exclude)<run-dir>'` 空输出 + `git log -1` 的 hash（**排除 run-dir**：gate 产物写在里面，不排除的话刚生成的 receipt 会让这条自己失败）。**非空即 DoD FAIL**，尤其警惕未跟踪的路由/接线文件（服务层提交了、接线层没提交的"半截提交"正是这样漏的）
+- [ ] **工作树干净且已提交（`COMMIT_STATE_GATE`）**：本轮全部改动已提交，验证针对的就是 HEAD 的代码 —— 证据：`git status --porcelain -- . ':(exclude)<run-dir>'` 空输出 + `git log -1` 的 hash。**非空即 DoD FAIL**，尤其警惕未跟踪的路由/接线文件（"半截提交"病根见 rationale.md「提交态与内容身份」）
 - [ ] **干净态复验**（多代理/worktree 参与实现时必做）：提交后在干净态重启服务，重跑核心价值
   smoke + 当前路径声明范围的分级冒烟。目的：证明**通过的代码 == HEAD 的代码**
 - [ ] **分级冒烟通过（`FULL_SURFACE_SMOKE`）**：已记录路径、范围和升级判断；声明范围内每个入口
@@ -93,7 +88,7 @@ python {GATE_SCRIPT} render   --run-dir <run-dir>
 - [ ] 状态一致：README / 详细 testcase 头 / RESULTS / 可追溯矩阵 / Gate 报告五处口径相同 —— 证据：phase-5 状态一致性审查结论
 - [ ] 未执行项仅有两种合法来源：acceptance 预标 optional/out-of-scope，或用户 chat 显式批准缩减（已回写 acceptance；交付结论按**缩减后范围**表述，不得写成原范围全绿）—— 证据：acceptance 范围节 + 用户批准记录
 
-> **末尾自检（长任务尤其做）**：宣布完成前回看 phase-4 兑现表——有没有把 required UI 测试悄悄换成代码审计？有没有"环境受阻就找了个等价替代而没升级"？有没有把同一个问题的多次重跑写成"多场景验收充分"？**验证通过的内容是不是就是要交付的内容（`git status --porcelain -- . ':(exclude)<run-dir>'` 为空，且 `finalize` 无 `TESTED_RUNTIME_MISMATCH`）？** 只要有一条这样，就不是 100%，回去补或标 BLOCKED。
+> **末尾自检（长任务尤其做）**：宣布完成前回看 phase-4 兑现表——required UI 测试有没有被悄悄换成代码审计？受阻场景有没有未经升级的等价替代？同一问题的多次重跑有没有被写成"多场景验收充分"？**验证通过的内容是不是就是要交付的内容**（提交态门为空且 `finalize` 无 `TESTED_RUNTIME_MISMATCH`）？任一命中就不是 100%，回去补或标 BLOCKED。
 
 ## 文档回写（闭环回到 phase-0；**在 finalize 之前做**，见 ⓪）
 
@@ -106,7 +101,7 @@ python {GATE_SCRIPT} render   --run-dir <run-dir>
 - 用 `du` 检查 plans/testcase 下的大体积证据；超过项目保留策略的截图、录屏和重复日志只保留
   可追溯指针或摘要，原件移入项目约定的本地归档。不得删除 active run、唯一证据或用户要求留存的产物。
 - 清理已完成且无未提交改动的临时 worktree；不操作用户正在使用或来源不明的 worktree。
-- 定期运行 `scripts/gate_usage_report.py`，用真实触发频率评估门禁合并/降级/退休，避免规则单向膨胀。
+- 门禁退休评审：数据来源与流程见 config `GATE_REGISTRY_DISCIPLINE` 与 rationale.md「门禁退休评审」。
 
 ## 升级与交付
 

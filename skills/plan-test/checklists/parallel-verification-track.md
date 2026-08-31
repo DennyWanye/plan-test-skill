@@ -1,8 +1,7 @@
 # 并行验证准备轨清单（phase-3 D 节）
 
-与实现轨（phase-3 A）并行执行；全部勾完才到汇合闸。**本轨只准读 acceptance / plan /
-行为契约 / 既有公开接口文档，禁止读实现代码、diff、执行子代理的中间产物**——oracle
-必须在见到实现之前定稿（black-box 纪律，`ORACLE_FREEZE` 防的就是反向污染）。
+与实现轨（phase-3 A）并行执行；全部勾完才到汇合闸。**black-box 纪律**（只准读 acceptance /
+plan / 行为契约 / 既有公开接口文档，禁止读实现代码、diff、执行子代理中间产物）全文见 phase-3 D 节。
 
 ## 必做项
 

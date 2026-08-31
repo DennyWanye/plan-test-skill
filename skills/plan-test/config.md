@@ -25,11 +25,24 @@
 
 ## 流程路径（`FLOW_TIER`，默认 auto）
 
-> **病根**：此前只有二元选择——要么全套 8 阶段（一轮 15–25 万 token），要么"别用本 skill"。
-> 中等改动被迫走全套，代理跑到一半开始自行省略；**一旦学会"这条规则在我这个情况下可以变通"，
-> 其余规则的权威一起塌掉**。分档是为了让裁剪变成明示的、有边界的选择，而不是偷偷跳步。
+> 分档是为了让裁剪变成明示的、有边界的选择，而不是偷偷跳步。（病根见 rationale.md「流程分档（FLOW_TIER）的由来」）
 
-- `FLOW_TIER`: auto
+- `TASK_TYPE`: auto（**先于风险分档判定的正交维度**，2026-08-31 DGX 复盘新增）
+  - `delivery` = 软件交付：交付物是代码/功能变更 → 按下表 DIRECT/LEAN/FULL 分档。
+  - `ops` = 运维/部署：交付物是"让服务/环境处于某种目标状态"（部署、安装、升级、
+    基础设施迁移、配置变更）→ 走 **OPS 路径**，不按软件交付分档。
+  - **病根**：DGX 双机部署被"共享基础设施→FULL"推入最重的软件交付仪式（oracle 冻结、
+    提交态门、Stage A/B），而运维任务的真实风控是快照/回滚/串行锁；错配直接导致 49.5h
+    里仪式占 22%、agent 自造平行防御系统成最大故障源。
+- **OPS 路径**（模板 = 2026-08-27 dgx-200k-model-matrix 被实践验证的形态：单会话、1 轮挑战、4h 拿到 receipt）：
+  - **跑**：acceptance（含一句话主要矛盾 + 最小验证动作）；1 轮 primary 挑战（只读实测取向，
+    specialist 仅在真发现结构性风险时追加）；**回滚出口先行**（动任何共享状态前先验证快照/回滚可用）；
+    多任务共享机器时的串行部署锁；价值里程碑硬门（phase-3 A 节）；分级冒烟；
+    完成记录 = 一页 journal（目标服务在生产入口活着 + 冒烟 PASS + 回滚出口已验证 + 用户确认）。
+  - **不跑**：oracle 冻结、提交态硬门、testcase inventory/场景矩阵、Stage A/B manifest 编译、
+    finalize receipt（机器门对 OPS 为 opt-in，不作完成权威）。
+  - **铁律不变**：BLOCKED 升级纪律、`SELF_BUILT_DEFENSE: forbidden`、复验粒度跟随变更粒度。
+- `FLOW_TIER`: auto（仅 `TASK_TYPE=delivery` 时适用）
   - `auto` = 按下表自动判路径并在开场明确依据；用户可指定 `DIRECT`/`LEAN`/`FULL`。
   - 自动判定优先选择满足条件的最低成本路径：全部 DIRECT 条件满足才 DIRECT；命中任一 FULL
     条件即 FULL；其余有用户可见交付的单切面默认 LEAN。
@@ -104,8 +117,13 @@
   - 任何 required 场景处于 PENDING/PARTIAL/NOT RUN 时，门禁与 DoD 一律 FAIL/BLOCKED，不得用"核心 PASS"掩盖。
 - `MANUAL_MIN_POSITIVE_SAMPLES`: 1
   - **正向价值样本**下限：自然用户语言、走真实生产入口、真实 provider、得到**非空有效业务结果**、内容经人工检查、达到 acceptance 声明的最低质量线。所有样本都是 partial/insufficient/空结果时，**即使系统没崩也不得完成**——"诚实降级成功"只是负向安全门 PASS，不等于产品质量 PASS。
-- `VALUE_SMOKE_GATE`: required
-  - 价值优先 smoke：输入敏感功能在进入打包、全量回归、完整真人矩阵等**昂贵步骤之前**，必须先跑 2–5 个自然语言正向 smoke 验证主要矛盾（核心价值真的可用）；失败 → 立即 BLOCKED 早停，不继续投入昂贵收尾。
+- `VALUE_SMOKE_GATE`: required（**普适原则，所有任务类型与路径生效**，2026-08-31 升级）
+  - 价值优先 smoke（"先跑通，再加固"总纲的门禁形态）：进入打包、封存、全量回归、审计仪式、
+    完整真人矩阵等**任何昂贵步骤之前**，必须先执行 acceptance 声明的"最小验证动作"证明主要矛盾
+    成立（输入敏感功能为 2–5 个自然语言正向 smoke）；失败 → 立即 BLOCKED 早停，不继续投入昂贵收尾。
+  - 适用性不再由 `input_sensitive` 判定——此前部署类任务判"不适用"使本门合法消失，
+    价值时刻被推迟到第 46 小时（2026-08-31 DGX 复盘；总纲出处：用户 08-30 原话
+    "先试着跑起来先，先把主要任务做好，主要矛盾处理好"）。
 
 ## LLM 载荷对抗门禁（只对"LLM 生成结构化载荷驱动 UI/状态机"的功能生效）
 
@@ -127,7 +145,7 @@
 
 ## 交付一致性门禁（防"半截提交"：验证过的代码 ≠ 提交了的代码）
 
-> **病根**：多代理 + git worktree 工作法下，验证可以在一棵脏工作树上全绿，而关键文件（尤其"把服务层接到端点上"的路由接线层）未提交，随后被 worktree 清理 / `git clean` / 硬 reset 抹掉——git 里留下**能编译、能过类型检查、单测也绿**的"半截健康"状态，但用户路径根本没接通。以下门专堵这条路。
+> 以下门专堵"半截提交"这条路。（病根见 rationale.md「提交态与内容身份」）
 
 - `COMMIT_STATE_GATE`: required
   - 提交态硬门：宣布完成前 `git status --porcelain -- . ':(exclude)<run-dir>'` 必须为空（**排除 gate run-dir**，否则刚写入的 receipt/report 会让本门自己失败），且验证针对的是 HEAD 的代码；
@@ -159,9 +177,8 @@
 
 ## 机器门禁（唯一状态 authority，见 `gate/PROTOCOL.md`）
 
-> **病根**：此前所有严格规则只是 Markdown——代理仍可以在详细 testcase 写着
-> `PARTIAL/BLOCKED/NOT RUN` 时手工写出 `100% COMPLETE / SHIP`。Markdown 从此只是
-> 给人读的视图；状态 authority 是结构化账本 + deterministic validator。
+> Markdown 只是给人读的视图；状态 authority 是结构化账本 + deterministic validator。
+> （病根见 rationale.md「Markdown 不是状态 authority」）
 
 - `GATE_SCRIPT`: `${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py`
   - 路径解析：装为插件时 `${CLAUDE_PLUGIN_ROOT}` 由 harness 注入；在源码仓库内开发或
@@ -201,8 +218,7 @@
   - 判「不适用」合法且不拦截——但理由留痕、可追责；判「适用」则场景矩阵必须真的兑现
     （input_class 去重 ≥ `MANUAL_MIN_DISTINCT_CLASSES` 且含 positive-value 场景 /
     至少一条 `min_root_runs ≥ 2` / 含 `cold_start` 场景），否则 `APPLICABILITY_GATE_UNSATISFIED`。
-  - **病根**：判一句"这是确定性 UI"，场景矩阵、正向价值门、随机采样、冷启动四道门就合法消失，
-    而 validator 完全不知道发生过这件事——这是本 skill 此前最大的一个洞。
+  - （病根见 rationale.md「适用性判定为何必须入账」）
 - `LEDGER_INTEGRITY`: on
   - 账本每次 CLI 写入追加 integrity 链条目；手工改一行 `runs[].result` → `LEDGER_TAMPERED`。
     防的是顺手改，不是有决心的伪造（见 `gate/PROTOCOL.md` §5.13）。
@@ -275,6 +291,20 @@
 
 ## 行为开关
 
+- `SELF_BUILT_DEFENSE`: forbidden（2026-08-31 DGX 复盘新增）
+  - **禁止为单次任务自造防御系统**：不得新造 receipt 协议、锁协议、自写校验器/审计器，
+    除非 acceptance 显式要求；优先用现成工具（systemd、sha256sum、flock、git）。
+  - **病根**：DGX 部署中约 15 个连环 fail-closed 全是任务内自造校验器的 bug，42 张自造
+    receipt 无终态，自造 receipt 两次拒绝了控制器自己的失败清理——防御系统的主要交战对象是它自己。
+- `REVALIDATION_SCOPE`: change-scoped（2026-08-31 DGX 复盘新增）
+  - **复验粒度跟随变更粒度**：已通过的资格/验证（网络资格、镜像封存、trust 配置、冒烟）是
+    内容寻址的——**输入没变就不过期**；修一处只复验受影响面，禁止"改一行配置重走全链封存"。
+  - **病根**：DGX 部署为修一行 Nginx 配置重跑"提交→117 项回归→重封存→NCCL 复验→冷启动"
+    全链，同一资格动作重复 23 次。
+- `PROGRESS_REPORTING`: user-language（2026-08-31 DGX 复盘新增）
+  - 每个里程碑用一句**用户语言**汇报进度 + 预计剩余时间；长任务（下载/资格测试）必报速率与 ETA。
+  - **用户可感知的标的/行为差异必须复述确认**：模型版本、端口、默认模式等在 plan 定稿前
+    用一句人话向用户复述（病根：H3 用户要越狱版、计划静默换成官方版，部署完才被发现）。
 - `EXECUTE_AUTONOMY`: high
   - high = 执行阶段遇分歧按最佳实践自决、不打断用户（BLOCKED 例外）。
 - `BEHAVIOR_POLICY`: preserve-approved

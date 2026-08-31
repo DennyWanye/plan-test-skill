@@ -13,6 +13,7 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 
 1. **Announce**：输出 "I'm using the plan-task skill to execute and test the finalized plan."
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
+2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
 3. **建 TodoWrite**：按下面 6 步建 todo。
 
 ## 流程

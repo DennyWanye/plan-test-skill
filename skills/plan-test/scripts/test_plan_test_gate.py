@@ -204,6 +204,31 @@ class GateTestCase(GateHarness):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("READY_FOR_AUDIT", r.stdout)
 
+    def test_in_place_amend_fail_then_pass_finalizes(self):
+        """2026-08-31 DGX 复盘出口成本 AC：原地修账必须比作废重开便宜。
+
+        端到端锚定 W4-15（fail 非粘性）在 finalize 全链上真的走得通：
+        真实失败 → 修复 → **同一 run-dir** 补 root pass → audit → finalize
+        必须发 receipt；失败史保留在账本里（留痕与出账不再二选一——
+        优化前 run log 实证 56% 测试执行因换 run-dir 作废）。"""
+        self.init([{"scenario_id": "S-1", "required": True, "ui": True,
+                    "gate_type": "positive-value", "expected_run_created": True}])
+        self.record("S-1", result="fail")  # 第一次真实失败入账
+        self.artifact("artifacts/s1-click.png", "screenshot-bytes")
+        self.attach("artifacts/s1-click.png", scenario="S-1", ui_action=True)
+        self.record("S-1", business_terminal="completed+valid",
+                    run_id_under_test="run-uuid-1", session_id="sess-new")
+        self.audit_pass()
+        r = self.finalize()
+        self.assertEqual(r.returncode, FIXTURE_EXIT, r.stdout + r.stderr)
+        self.assertIn("GATE RECEIPT:", r.stdout)
+        with open(os.path.join(self.run_dir, "plan-test-run.json"),
+                  encoding="utf-8") as f:
+            ledger = json.load(f)
+        fails = [x for x in ledger.get("runs", [])
+                 if x.get("scenario_id") == "S-1" and x.get("result") == "fail"]
+        self.assertEqual(len(fails), 1, "失败史必须保留在账本，不得因出账被抹")
+
     # ---------- FAIL fixtures (handoff §8) ----------
 
     def test_required_scenario_not_run(self):
@@ -1526,6 +1551,19 @@ class ClosingWorkflowTestCase(RealRepoAttestationTestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "ship")
         self.assertEqual(self.finalize().returncode, 0, self.finalize().stdout)
+
+    def test_check_only_after_ship_clarifies_historical_receipt(self):
+        """2026-08-31 复盘：历史 receipt 复验 NOT_READY 曾被误读为"历史交付失败"
+        （08-28 收集实测 18/18 命中 TESTED_RUNTIME_MISMATCH）。check-only 在
+        receipt 存在时必须声明：漂移诊断不推翻签发时刻的判定。"""
+        self.full_green_run()
+        self.assertEqual(self.finalize().returncode, 0)
+        self.write("src.py", "print('v2 after ship')\n")
+        r = self.gate("finalize", "--check-only")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("TESTED_RUNTIME_MISMATCH", r.stdout)
+        self.assertIn("HISTORICAL RECEIPT PRESENT", r.stdout)
+        self.assertIn("不推翻", r.stdout)
 
     def test_code_change_at_closing_forces_retest(self):
         """收尾期改代码 → re-attest 判 behavioral → 必须重跑，不能靠 re-attest 洗白。"""

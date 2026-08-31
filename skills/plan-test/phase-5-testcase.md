@@ -2,24 +2,20 @@
 
 **目的**：把本次功能写成可长期复用的手工/脚本测试用例，分步骤、含预期结果，纳入回归。
 
-> **时序说明（防先测后定义）**：testcase 的**编写与 challenger 迭代定稿必须发生在 phase-4 昂贵真人验收之前**——正常应在 phase-3 D 节的**并行验证准备轨**与实现同步完成（black-box 纪律），phase-4 昂贵层前只做核对与冻结。不许拿临时、未经挑战的用例跑昂贵验收，测完再回来补定义。本阶段收尾时做的是：把**实际执行结果回写**、修正与现实的出入、登记回归套件、同步 index/README。
+> **时序说明（防先测后定义）**：编写与 challenger 迭代定稿必须发生在 phase-4 昂贵真人验收之前（见 phase-4"昂贵层前置：testcase 冻结"与 phase-3 D 节）。本阶段收尾时做的是：把**实际执行结果回写**、修正与现实的出入、登记回归套件、同步 index/README。
 
 > **回写去哪（防与 `ORACLE_FREEZE` 打架）**：被 `testcase_lock` 冻结的是 **oracle 文件本身**
-> ——步骤与预期结果。**实际执行结果一律写在冻结集之外**：`{TESTCASE_DIR}/<组>/results/<run-id>.md`
-> 或 run-dir 的 `report.md`。往冻结文件里回填"实际结果/状态"会直接触发 `FROZEN_ORACLE_CHANGED`
-> ——这不是误报，是设计：**测完回头改期望文件正是最该防的那个动作**。
-> 冻结集在 phase-4 `init` 的 manifest `testcase_files` 里显式列出；不列进去的文件（index.md、
-> results/、README）不受冻结约束，随便改。确需修改期望本身 → 走 `behavior_changes` 用户批准，
-> 不许绕。
+> （步骤与预期结果）。**实际执行结果一律写在冻结集之外**：`{TESTCASE_DIR}/<组>/results/<run-id>.md`
+> 或 run-dir 的 `report.md`——往冻结文件里回填"实际结果/状态"会触发 `FROZEN_ORACLE_CHANGED`，
+> 这不是误报，是设计：**测完回头改期望文件正是最该防的那个动作**。冻结集在 phase-4 `init` 的
+> manifest `testcase_files` 里显式列出；不列进去的文件（index.md、results/、README）不受冻结
+> 约束。确需修改期望本身 → 走 `behavior_changes` 用户批准（见 config `ORACLE_FREEZE`），不许绕。
 
 ## 步骤
 
 1. **写分步 testcase**
    - 每个 testcase 一步一步来，**每步给出预期结果**。
-   - **每个 testcase 必须明确绑定至少一个 test obligation**（来自 `acceptance.md` 的 Test Obligation Matrix）：
-     * 在 testcase 文件头部标注 `**绑定**: TO-xxx (类型)`
-     * 说明它证明哪个 AC 或防范哪个风险
-     * 无法绑定 obligation 的测试应标记为 exploratory（不 required）
+   - **每个 testcase 必须明确绑定至少一个 test obligation**（来自 `acceptance.md` 的 Test Obligation Matrix）：头部标注 `**绑定**: TO-xxx (类型)`，说明它证明哪个 AC 或防范哪个风险；无法绑定的标记为 exploratory（不 required）。格式示例见 `checklists/test-obligation-matrix.md`。
    - 存放：`{TESTCASE_DIR}/<按测试范围命名的新文件夹>/`。
    - 维护 `{TESTCASE_DIR}/index.md`：把本组 testcase 的测试范围与目的更新进去。
    - 检查根 `README`：若未引用 `{TESTCASE_DIR}/index.md`，补进去。
@@ -42,46 +38,30 @@
    - **本步任何文件改动都会让内容指纹变化**（结果回写、README 同步都算），所以顺序固定为：
      改完文件 → `re-attest --reason "状态同步"` → 再跑预检。**跳过 re-attest 直接跑预检必定
      `TESTED_RUNTIME_MISMATCH`，与有没有 STATUS_CONFLICT 无关**（独立审计实测）。
-   - **登记完立刻重跑一次预检**——`declare-status` 是 `STATUS_CONFLICT` 的唯一来源，phase-4 那次 check-only 检不到它：
-
-     ```bash
-     python {GATE_SCRIPT} finalize --run-dir <run-dir> --check-only
-     ```
-
+   - **登记完立刻重跑一次预检** `python {GATE_SCRIPT} finalize --run-dir <run-dir> --check-only`
+     ——`declare-status` 是 `STATUS_CONFLICT` 的唯一来源，phase-4 那次 check-only 检不到它。
      有 `STATUS_CONFLICT` → 改文档到与账本一致（**不是改账本**），再走一次上面的
      「改完 → re-attest → 预检」，直到 `READY_FOR_AUDIT`；这一步过了才做第 5 步的 full-audit（审计前输入必须已定型，否则 audit 完又变即 `AUDITOR_INPUT_STALE`）。
 
 4. **子代理迭代**
-   - 派 `{CHALLENGER_ENGINE}`，用 `prompts/testcase-iterator.md` 挑战并迭代 testcase（最少 `{TESTCASE_ITERATIONS}` 轮），直到覆盖率能测出各种 bug 与边界情况。
+   - 派 `{CHALLENGER_ENGINE}`，用 `prompts/testcase-iterator.md` 挑战并迭代 testcase，直到覆盖率能测出各种 bug 与边界情况。轮次策略、收敛条件与继续条件见 config `TESTCASE_ITERATIONS`；重点检查项见该 prompt。
    - 按 SKILL.md"上下文包"规则派发（附 acceptance.md 条款、Test Obligation Matrix 与上轮已补齐的场景清单）；以末行 `VERDICT` 判定去留，缺结论行按 FAIL 处理。
-   - **重点检查**（见 `prompts/testcase-iterator.md` 新增要求）：
-     * 所有 MUST AC 是否都有 required testcase 覆盖
-     * 所有 required testcase 是否都有明确的 obligation 绑定（TO-xxx）
-     * 是否存在无法说明必要性的 required testcase（应降级为 exploratory）
-     * 测试集是否为最小充分集（没有冗余测试）
-   - **收敛条件**（优先于固定轮数）：
-     * 所有 MUST AC 都有 required testcase 覆盖
-     * 所有 required testcase 都有明确的 AC 或 risk 绑定
-     * 没有新增 required obligation
-     * 只能新增 exploratory testcase 时，不阻断定稿
 
 5. **独立 full-audit（时序：本阶段最后一步——结果回写、状态一致性修正、证据冻结全部完成之后）**
    - 先把审计输入冻结进 run-dir：`auditor-input.json`（acceptance/testcase/账本摘要与 hash）；
    - 派 `{AUDITOR_ENGINE}`，用 `prompts/completion-auditor.md` 声明 `MODE: full-audit`：每条 AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 场景 ↔ root run ↔ 证据 ↔ 业务终态逐条闭环，含场景计数、状态一致性、整体可用性、"是否真按 testcase 跑全"核查；同时确认 testcase 覆盖 `{ACCEPTANCE_FILE}` 全部条款。auditor 原始输出存 `auditor-output.json`。
-   - compiled 1.5 workflow 的 auditor **必须**输出结构化 JSON：顶层含 `verdict` 与 `findings`；每条 finding 至少有
-     `id/severity/status/type/summary`，需要重测时再带 `scenario_ids` 与 `required_retest=true`。
-     完整格式见 `references/evidence-audit-lifecycle.md`。Markdown + 末行 VERDICT 仅为旧 raw ledger
-     保留兼容读取，不能用于新的 compiled 交付。
+   - compiled 1.5 workflow 的 auditor **必须**输出结构化 JSON（字段格式与旧 raw ledger 的兼容规则
+     见 `references/evidence-audit-lifecycle.md` §3；Markdown + 末行 VERDICT 不能用于新的 compiled 交付）。
    - 结果入账；JSON findings 会在同一次 `audit` 中原子导入（此后任何 fact 变化审计即 stale）：
 
      ```bash
      python {GATE_SCRIPT} audit --run-dir <run-dir> --verdict PASS|FAIL --engine {AUDITOR_ENGINE} --input auditor-input.json --output auditor-output.json
      ```
 
-   - FAIL 后先跑 `list-audit-findings`。修复、补证据，并在 `required_retest=true` 时给绑定 scenario
-     追加 fresh root PASS，然后用 `resolve-audit-finding --finding-id ... --resolution ...
-     --evidence-ids ...` 闭环。resolution 会使旧 audit stale，必须重新生成审计产物并再次 audit。
-     open/deferred P0/P1 会触发 `OPEN_AUDIT_FINDINGS`；PASS 产物不能同时保留这类 finding。
+   - FAIL 后按 `references/evidence-audit-lifecycle.md` §3 的整改循环处理：`list-audit-findings` →
+     修复/补证据（`required_retest=true` 时给绑定 scenario 追加 fresh root PASS）→
+     `resolve-audit-finding` 闭环 → 旧 audit 已 stale，重新生成审计产物并再次 `audit`。
+     open/deferred P0/P1 触发 `OPEN_AUDIT_FINDINGS`；PASS 产物不能同时保留这类 finding。
    - 缺 verdict 按 FAIL 处理。有断点 → 补完 → 复审（只核上轮断点与新改动）；超
      `{MAX_ROUNDS}` → BLOCKED 升级。
    - auditor 是 qualitative reviewer，负责发现未知问题；它的 PASS **不能替代**机器 validator——final DoD 只认 `finalize` 的 receipt。

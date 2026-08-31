@@ -3128,8 +3128,19 @@ def cmd_finalize(args):
     diags, computed = validate(args.run_dir, ledger, mode=mode, fixture=fixture)
     if args.check_only:
         ok = not blocking(diags)
-        emit(diags, computed,
-             ["CHECK-ONLY RESULT: %s" % ("READY_FOR_AUDIT" if ok else "NOT_READY")])
+        lines = ["CHECK-ONLY RESULT: %s" % ("READY_FOR_AUDIT" if ok else "NOT_READY")]
+        # 历史 receipt 语义澄清（2026-08-31 复盘：18/18 历史 receipt 复验命中
+        # TESTED_RUNTIME_MISMATCH 曾被误读为"历史交付全部失败"——漂移诊断针对的是
+        # 仓库此后的演进，不推翻 receipt 签发时刻的判定；receipt 本就是一次性快照）。
+        existing = load_receipt(args.run_dir)
+        if (not ok and existing
+                and any(d.code == "TESTED_RUNTIME_MISMATCH" for d in diags)):
+            lines.append(
+                "HISTORICAL RECEIPT PRESENT（finalized_at=%s）：本次 NOT_READY 反映的是"
+                "仓库在签发后的内容漂移，不推翻该 receipt 当时的 SHIPPABLE 判定；"
+                "如需对当前内容交付，须重测后重新 finalize。"
+                % existing.get("finalized_at"))
+        emit(diags, computed, lines)
         sys.exit(0 if ok else 1)
     if blocking(diags):
         emit(diags, computed, ["FINALIZE: FAIL（不生成 receipt）"])

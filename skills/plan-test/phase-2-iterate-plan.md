@@ -9,20 +9,15 @@ contract、scope hash、threat-model hash 和 plan baseline：
 
 ```bash
 loop_id=$(python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" start-challenge-loop \
-  --run-dir <run-dir> \
-  --loop-type plan-iteration \
-  --orchestration clustered \
-  --target-file <plan.md> \
-  --assurance-contract <assurance-contract.json> \
+  --run-dir <run-dir> --loop-type plan-iteration --orchestration clustered \
+  --target-file <plan.md> --assurance-contract <assurance-contract.json> \
   --baseline-hash $(sha256sum <plan.md> | cut -d' ' -f1))
 ```
 
-每轮挑战前调用：
+每轮挑战前调用（下同，`python3` 与脚本路径同上，简写为 `GATE`）：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-loop-limit \
-  --run-dir <run-dir> \
-  --loop-id $loop_id
+GATE check-loop-limit --run-dir <run-dir> --loop-id $loop_id
 ```
 
 - exit 0：允许进入下一轮；
@@ -33,28 +28,20 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check
 开始本节前完整读取 `references/challenge-orchestration.md`。派发时把该 reference、对应 role prompt
 和最小上下文包一起交给子代理，不把规则复制进多份临时 prompt。
 
-**LEAN 的 2-lite**：四阶段顺序不变。先跑一次 Primary，再只对 `specialist_required=true` 的
-cluster fan-out，随后 synthesis；plan 被修改或仍有 open P0/P1 时跑一次 closure。若 closure 仍有
-open P0/P1、出现新主要结构根因或需要 architecture reset，立即升级 FULL，不在 LEAN 中反复压缩。
+**LEAN 的 2-lite**：四阶段顺序不变、只压缩轮次（见 config LEAN 行）；plan 被修改或仍有 open
+P0/P1 时跑一次 closure。若 closure 仍有 open P0/P1、出现新主要结构根因或需要 architecture
+reset，立即升级 FULL，不在 LEAN 中反复压缩。
 
 #### Stage 1：Primary breadth challenge
 
-派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-primary-challenger.md`。它必须在一轮内完成固定
-八维 coverage、报告当前可发现的全部范围内 P0/P1、指出主要矛盾，并按结构根因输出 clusters。
-主 agent 将其唯一 JSON 输出中的 `round` 与 `clusters` 原样拆成两个文件，先后入账：
+派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-primary-challenger.md`（职责范围见
+orchestration reference 的“固定流程”节）。主 agent 将其唯一 JSON 输出中的 `round` 与
+`clusters` 原样拆成两个文件，先后入账：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-round \
-  --run-dir <run-dir> \
-  --loop-id $loop_id \
-  --round 1 \
-  --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) \
-  --findings primary-round.json
-
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-clusters \
-  --run-dir <run-dir> \
-  --loop-id $loop_id \
-  --input primary-clusters.json
+GATE record-challenge-round --run-dir <run-dir> --loop-id $loop_id --round 1 \
+  --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) --findings primary-round.json
+GATE record-challenge-clusters --run-dir <run-dir> --loop-id $loop_id --input primary-clusters.json
 ```
 
 Gate 校验 coverage、finding ID、AC/assurance binding、parent finding、plan/contract hash，并拒绝
@@ -64,38 +51,28 @@ Gate 校验 coverage、finding ID、AC/assurance binding、parent finding、plan
 
 为每个 `specialist_required=true` 的 cluster 分别派一个 `{CHALLENGER_ENGINE}`，使用
 `prompts/plan-specialist-challenger.md`。每个代理只获得该 cluster、parent findings、相关 contract 原文
-和 `required_evidence`；最多同时运行 4 个，超出时分批。每项完成后立即入账：
+和 `required_evidence`（并发上限与分批规则见 orchestration reference）。每项完成后立即入账：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-specialist-challenge \
-  --run-dir <run-dir> \
-  --loop-id $loop_id \
-  --cluster-id <cluster-id> \
-  --status completed \
-  --output specialist-<cluster-id>.json
+GATE record-specialist-challenge --run-dir <run-dir> --loop-id $loop_id \
+  --cluster-id <cluster-id> --status completed --output specialist-<cluster-id>.json
 ```
 
-已被 primary 标成 `specialist_required=false` 的 cluster 不派子代理。不得事后自行降级 required cluster；
-确需跳过时必须取得用户明确批准并记录原始消息 hash：
+`specialist_required=false` 的 cluster 不派子代理；required cluster 不得事后自行降级（见
+orchestration reference）。确需跳过时必须取得用户明确批准并记录原始消息 hash：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-specialist-challenge \
-  --run-dir <run-dir> --loop-id $loop_id \
-  --cluster-id <cluster-id> --status waived \
-  --waiver-reason "<reason>" --approval-hash <64-char-message-sha256>
+GATE record-specialist-challenge --run-dir <run-dir> --loop-id $loop_id --cluster-id <cluster-id> \
+  --status waived --waiver-reason "<reason>" --approval-hash <64-char-message-sha256>
 ```
 
 #### Stage 3：Synthesis
 
 主 agent 按 `prompts/plan-synthesis-reviewer.md` 合并 primary 与全部 specialist 结果；这一步不是再派一个
-reviewer 投票。按 stable ID/结构根因去重，裁决冲突，并把结论分类为 plan 修改、补证据、required
-spike 或 scope-change proposal。生成 synthesis JSON 后入账：
+reviewer 投票（去重/裁决/分类规则见 orchestration reference）。生成 synthesis JSON 后入账：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-synthesis \
-  --run-dir <run-dir> \
-  --loop-id $loop_id \
-  --input challenge-synthesis.json
+GATE record-challenge-synthesis --run-dir <run-dir> --loop-id $loop_id --input challenge-synthesis.json
 ```
 
 Synthesis 入账前不得修改 plan 后直接进入 closure。入账后完成 plan 修订；关键技术假设先运行真代码
@@ -105,21 +82,13 @@ spike，并把命令与实际输出回写 plan。意见冲突未解决时 canoni
 
 修订后派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-closure-challenger.md`。它只复核 open findings、
 当前 diff、专项冲突、patch-induced 风险和 primary 不可知的新事实；不得无理由重做全量 breadth。
+入账命令同 Stage 1 的 `record-challenge-round`，round 用 `$N`、findings 用 `closure-round-$N.json`，
+另加 `--based-on-plan-hash <上一轮-plan-hash>`。
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-round \
-  --run-dir <run-dir> \
-  --loop-id $loop_id \
-  --round $N \
-  --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) \
-  --based-on-plan-hash <上一轮-plan-hash> \
-  --findings closure-round-$N.json
-```
-
-通常使用 `review_mode=diff`。architecture/scope/trust-boundary/high-risk-entry 重大变化并已记录对应
-control 后使用 `consolidated`；仍保留历史 finding ID 与轮次。Closure 仍有 open P0/P1 时修订 plan
-并继续 closure round，不重跑无关 specialist；若暴露新的主要结构根因，按 gate 状态做 scope audit 或
-architecture reset，不用局部补丁强行收敛。
+通常使用 `review_mode=diff`；改用 `consolidated` 的条件与 ID/轮次保留规则见 orchestration
+reference（需已记录对应 control）。Closure 仍有 open P0/P1 时修订 plan 并继续 closure round，
+不重跑无关 specialist；若暴露新的主要结构根因，按 gate 状态做 scope audit 或 architecture
+reset，不用局部补丁强行收敛。
 
 ### 控制状态
 
@@ -128,19 +97,16 @@ architecture reset，不用局部补丁强行收敛。
 - `SPECIALIST_CHALLENGE_REQUIRED`：完成所有 required cluster 的专项挑战；
 - `SYNTHESIS_REQUIRED`：完成并记录统一 synthesis；
 - `CLOSURE_REVIEW_REQUIRED`：修订 plan 后执行统一 closure diff review；
-- `SCOPE_AUDIT_REQUIRED`：第 3 轮仍有新增关键问题，先审计范围/根因；
+- `SCOPE_AUDIT_REQUIRED` / `USER_REVIEW_REQUIRED` / `BLOCKED`：3/5/8 轮出口（阈值与语义见
+  config"轮次与出口"）——先审计范围/根因 / 向用户报告原因 / 当前 loop 阻断；
 - `ARCHITECTURE_RESET_REQUIRED`：连续两轮 patch-induced P0 或 scope audit 判定结构重置；
-- `USER_REVIEW_REQUIRED`：第 5 轮仍有新增问题，向用户报告原因；
-- `USER_SCOPE_APPROVAL_REQUIRED`：需要改变 profile/scope/trusted boundary；
-- `BLOCKED`：第 8 轮仍有 open in-scope P0/P1。
+- `USER_SCOPE_APPROVAL_REQUIRED`：需要改变 profile/scope/trusted boundary。
 
 控制动作必须入账，例如：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-challenge-control \
-  --run-dir <run-dir> --loop-id $loop_id \
-  --action scope-audit --outcome <continue|architecture-reset|scope-change> \
-  --evidence "<审计证据>"
+GATE record-challenge-control --run-dir <run-dir> --loop-id $loop_id \
+  --action scope-audit --outcome <continue|architecture-reset|scope-change> --evidence "<审计证据>"
 ```
 
 用户批准 scope change 时使用 `--action scope-change-approved --approval-hash <消息 SHA-256>`；
@@ -158,18 +124,17 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
    （命令 + 实际输出）回写在 plan 里。“读过源码应该支持 / 理论上可行”不算闭环；spike 代码即弃，
    不滚成实现。
 5. Closure review 已完成，且 open in-scope P0/P1 为零。
-6. **相对于已批准范围的 100% 代码可执行** —— 即：
-   - 已**认真调研过当前代码层**：相关文件、函数、调用链、依赖、现有实现方式都已读过并写进 plan；
-   - 已**确认代码级别的修改方式**：每个改动点明确到"改哪个文件/哪段/怎么改/改成什么样"，不是假设；
-   - 若调研中发现问题/不确定项（接口不清、改动牵连别处、最佳实践存疑），**不允许带着模糊收尾**——必须**继续调研该如何解决**，把结论补回 plan，直到该问题闭环。
-7. 功能可达预期，且 `BEHAVIOR_POLICY = preserve-approved`（不静默减少已批准外部行为；
-   内部实现可删可换可重构）。
+6. **相对于已批准范围的 100% 代码可执行**：已**认真调研过当前代码层**（相关文件、函数、调用链、
+   依赖、现有实现方式都已读过并写进 plan）；每个改动点已**确认代码级别的修改方式**（改哪个文件/
+   哪段/怎么改/改成什么样，不是假设）；调研中发现的问题/不确定项（接口不清、改动牵连别处、
+   最佳实践存疑）**不允许带着模糊收尾**——必须继续调研到闭环，把结论补回 plan。
+7. 功能可达预期，且满足 `BEHAVIOR_POLICY = preserve-approved`（全文见 config“行为开关”）。
 8. plan 含实现细节调研结论（"怎么做、为什么这样做"）。
 9. **无"绕过真架构问题的补丁式收尾"**（见下方强约束）。
 10. acceptance/assurance contract 没有未经批准的变化。
 
 > 收敛不是 reviewer 写 PASS，也不是迭代满 N 轮；它是 gate 从 finding ledger 推导出的
-> `CONVERGED`。第 8 轮仍有范围内阻断项则当前 plan loop `BLOCKED`。
+> `CONVERGED`（3/5/8 轮出口见 config“轮次与出口”）。
 
 ### 强约束：真架构问题优先重构，不许小修小补
 
@@ -209,14 +174,12 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
 ### black-box oracle 冻结（P0：防测试被反转成验证错误行为）
 
 - 定稿后、实现前，把外部 black-box testcase 的逐文件 hash 冻结进 gate 账本
-  （init manifest 的 `testcase_files` → `testcase_lock`）。
-- **frozen oracle 任何 byte 变化默认 FAIL**（`FROZEN_ORACLE_CHANGED`），不能以"看起来只是
-  重写文案"自动放行。唯一例外：`behavior_changes` 批准 artifact——绑定 exact old/new、
-  原始用户消息 hash、acceptance revision、scope 与 expiry。
+  （init manifest 的 `testcase_files` → `testcase_lock`）。冻结语义与唯一例外
+  （`behavior_changes` 批准 artifact）见 config `ORACLE_FREEZE`；"看起来只是重写文案"
+  不得自动放行。
 - 实现后**新增**测试可单独记录；**删除、反转、放宽** frozen oracle 必须走上述批准。
-  失败后不许把 expected result 改成当前实现结果。repo 内部 unit/integration test 的
-  mutation report 只能作审计信号，不能替代冻结的 black-box oracle，也不能单独证明行为
-  变更获得授权。
+  repo 内部 unit/integration test 的 mutation report 只能作审计信号，不能替代冻结的
+  black-box oracle，也不能单独证明行为变更获得授权。
 
 ### Ponytail minimality pass（正确性收敛后、用户 review 前，只跑一次）
 

@@ -10,6 +10,10 @@
 ## 步骤
 
 1. **抽取需求条目**：把需求拆成可独立验收的功能点列表。
+1a. **写主要矛盾（必做，一等公民字段）**：一句话回答"这个需求决定成败的核心价值是什么"，
+   并写出它的**最小验证动作**（用最小代价证明它成立的那一步）。格式硬约束见 phase-1"主要矛盾"节：
+   单一矛盾、价值在前防御在后、复合句打包视为未写。用户确认 acceptance 时同时确认这句话——
+   它决定后续全部任务排序与审计优先级（phase-1 排序 / phase-3 审计 / phase-4 价值 smoke 都以它为锚）。
 1b. **Ponytail lite**：发现更简单的方案可能满足需求时，按
    `policies/acceptance-preserving-ponytail.md` 作为选项提给用户，不得自行删减需求或将条目标为 OUT。
 2. **为每条写验收条件**：每条必须**可验证**（能被一次手工操作或一段脚本断言判定通过/失败）。
@@ -29,35 +33,20 @@
    - **门分两类，缺一不可**：每个场景标注 `gate_type`——
      - `positive-value`（正向价值门）：普通高证据问题确实能接纳证据、生成**非空有效业务结果**且达到本表声明的最低质量线。required 场景中至少 `{MANUAL_MIN_POSITIVE_SAMPLES}` 个。
      - `negative-safety`（负向安全门）：没有证据/异常输入时诚实失败、不编造。
-     - **只有负向安全门通过，不能宣布功能完成**——durable、fail-closed、诚实降级都只是安全行为 PASS。
+     - **只有负向安全门通过，不能宣布功能完成**（见 config `MANUAL_MIN_POSITIVE_SAMPLES`）。
    - **正向价值场景必须声明最低质量线**（terminal_expectation 之外再写一行"quality_bar"：什么样的结果算可用，人工按它 review）。
    - **exact_input 用自然用户语言**：写真实用户会打的话（口语、简写、中英混合、"最强/前10/优缺点"这类表达），**禁止照实现关键词写"容易通过"的 prompt**（latest/compare/benchmark 这类贴 fixture 的措辞）。
    - **计数纪律**：重试、重放、同一意图的改写、continuation 都**不增加** distinct scenario 数——换领域/难度/风险形态才算新类别。
    - 确定性 UI（设置页/开关/CRUD/导航）不适用此矩阵，常规 AC 覆盖即可。
-   - **冷路径场景**（`COLD_START_SCENARIO`，功能依赖异步注册服务/远程配置/登录态时必含）：矩阵中加 1 条"全新安装（或清数据）→ 首次登录 → 直达功能页"的场景，断言功能在该路径可用；暖重启（杀进程重进）不算冷路径。
-4b. **LLM 行为变异清单**（`LLM_PAYLOAD_ADVERSARIAL`，功能含"LLM 输出驱动端侧状态机/卡片/流程推进"时必做，判定见 config"LLM 载荷对抗门禁"）：
-   - 在 acceptance 中列出五类 LLM 行为变异，每类至少一条**端侧容错断言**（容错/自救/降级出口，可验证）：
+   - **冷路径场景**（`COLD_START_SCENARIO` 适用时必含，判定与场景定义见 config）：矩阵中加 1 条"全新安装（或清数据）→ 首次登录 → 直达功能页"场景，断言功能在该路径可用；暖重启不算冷路径。
+4b. **LLM 行为变异清单**（`LLM_PAYLOAD_ADVERSARIAL` 适用时必做，判定与门禁待遇见 config"LLM 载荷对抗门禁"——缺失此清单 → plan-task 开工即 BLOCKED）：
+   - 在 acceptance 中列出五类 LLM 行为变异，每类至少一条**可验证的端侧容错断言**（容错/自救/降级出口）：
      ① 乱序响应（出题/推进顺序 ≠ 注入顺序）；② 重复输出同一项；③ schema 违约（必填字段缺失、内容写错位置、字段值与枚举不符）；④ 超长文本/极端载荷（整句选项、超长题干的 UI 边界）；⑤ 拒不调用工具/跳过注入指令。
-   - 缺失此清单 → plan-task 开工即 BLOCKED（同场景矩阵门禁待遇）。
 4c. **测试义务矩阵（Test Obligation Matrix）**（所有任务必做）：
-   - 在 acceptance 中定义测试义务矩阵，明确每个 required testcase 的必要性。
-   - 每个 test obligation 必须说明：
-     * `obligation_id`：唯一标识（TO-xxx）
-     * `type`：delivery（证明 AC）/ change-risk（防范受影响范围内风险）/ exploratory（探索性，不 required）
-     * `ac_id`：绑定的 AC ID（delivery 类型必填）
-     * `risk`：防范的具体风险（change-risk 类型必填）
-     * `min_decisive_test`：最小决定性测试描述
-     * `required_reason`：为什么这个测试是 required 的
-   - **目标导向原则**：
-     * delivery 测试：直接证明 MUST AC 的正常路径、错误处理、边界行为
-     * change-risk 测试：只针对本次改动的受影响范围（入口层、共享基础设施、关键不变量）
-     * exploratory 测试：与当前目标或受影响范围无直接关系的测试（并发、性能、恢复、迁移等），不应标记为 required
-   - **适用性判断**（见 `checklists/test-obligation-matrix.md`）：
-     * 并发测试：仅当存在共享可变状态时为 required
-     * 幂等测试：仅当有副作用且未实现幂等机制时为 required
-     * 边界值测试：仅当在 AC 声明的边界内时为 required
-     * LLM 对抗测试：仅当 `llm_payload_driven=true` 时为 required
-     * 冷启动测试：仅当 `stateful_init=true` 时为 required
+   - 在 acceptance 中定义测试义务矩阵，明确每个 required testcase 的必要性。字段见下方模板表
+     （obligation_id / type / ac_id / risk / min_decisive_test / required_reason，其中 ac_id 为
+     delivery 类型必填、risk 为 change-risk 类型必填）；类型定义、目标导向原则与适用性判断
+     见 `checklists/test-obligation-matrix.md`。
    - 缺失此矩阵或 required testcase 无法说明必要性 → gate 返回 `ORPHAN_REQUIRED_SCENARIO` 或 `UNJUSTIFIED_TEST_SCOPE`。
 5. **和用户确认**：把 `{ACCEPTANCE_FILE}` 草稿（**含场景矩阵和测试义务矩阵**）给用户过一遍，确认后才进 phase-0。用户确认 acceptance 即同时确认了场景矩阵的范围和测试义务的必要性。
 
@@ -65,6 +54,10 @@
 
 ```markdown
 # 验收标准：<需求名>
+
+## 主要矛盾（必填，单一矛盾）
+- 核心价值：……（一句话，一个问题；价值在前，防御在后）
+- 最小验证动作：……（一条命令/一次请求/一个最短调用链）
 
 ## 范围
 - 包含：……
