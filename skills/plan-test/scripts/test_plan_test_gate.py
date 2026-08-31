@@ -1513,6 +1513,54 @@ class StopHookTestCase(RealRepoAttestationTestCase):
         self.assertEqual(run().returncode, 0, run().stderr)
 
 
+class PortableRepoRootTestCase(RealRepoAttestationTestCase):
+    """v0.6.1 路径可移植（2026-09-01 实测复盘）：账本此前存开账机器的绝对
+    repo_root 与 testcase abs_path，换机器/挪目录后 TESTED_RUNTIME_MISMATCH /
+    FROZEN_ORACLE_CHANGED / ACTIVE_RUN_MISMATCH 全成假阳性（Windows 开账的
+    C:\\... 账本在 Mac 上实锤）。resolver：存储值可达用存储值，否则从 run-dir
+    向上找 .git。"""
+
+    def test_ledger_survives_repo_relocation(self):
+        self.write("testcase/tc-1.md", "# oracle\n断言：脚本输出 v1\n")
+        self.init_real_run(testcase_files=["testcase/tc-1.md"])
+        with open(os.path.join(self.run_dir, "plan-test-run.json"),
+                  encoding="utf-8") as f:
+            led = json.load(f)
+        # 写入端：path 必须是仓库相对 POSIX 形式，不再是调用者原文/绝对路径
+        self.assertEqual(led["testcase_lock"]["files"][0]["path"], "testcase/tc-1.md")
+        self.assertEqual(self.check().returncode, 0, self.check().stdout)
+        # 整仓搬家：存储的绝对 repo_root 与 abs_path 全部失效
+        moved = os.path.join(self.tmp, "repo-moved")
+        os.rename(self.repo, moved)
+        run_dir2 = os.path.join(moved, "plans", "p", "verification", "run-1")
+        r = run_gate(["finalize", "--run-dir", run_dir2, "--check-only"], cwd=moved)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("TESTED_RUNTIME_MISMATCH", r.stdout)
+        self.assertNotIn("FROZEN_ORACLE_CHANGED", r.stdout)
+
+    def test_die_messages_carry_codes(self):
+        """v0.6.1：出口成本要有度量——高频摩擦有专码，其余 die 自动冠 USAGE_ERROR，
+        refusal log/stats 从此能区分"门抓到违规"与"代理在门前摔跤"。"""
+        self.init_real_run()
+        r = run_gate(["record-timing", "--run-dir", self.run_dir, "--phase", "phase-3",
+                      "--activity-class", "testing",
+                      "--declared-start", "2026-09-01T00:00:00Z",
+                      "--declared-end", "2026-09-01T00:10:00Z"], cwd=self.repo)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("TIMING_CLASS_INVALID", r.stderr)
+        self.assertIn("automated_test", r.stderr)  # 直觉词对照要给出合法出口
+        r2 = run_gate(["record-timing", "--run-dir", self.run_dir, "--phase", "phase-3",
+                       "--activity-class", "implementation", "--wait-reason", "user_review",
+                       "--declared-start", "2026-09-01T00:00:00Z",
+                       "--declared-end", "2026-09-01T00:10:00Z"], cwd=self.repo)
+        self.assertEqual(r2.returncode, 2)
+        self.assertIn("USAGE_ERROR", r2.stderr)  # 无专码的拒绝由兜底码接住
+        r3 = run_gate(["attach-evidence", "--run-dir", self.run_dir,
+                       "--path", '{"inline": "json"}', "--kind", "primary"], cwd=self.repo)
+        self.assertEqual(r3.returncode, 2)
+        self.assertIn("EVIDENCE_PATH_NOT_FOUND", r3.stderr)
+
+
 class ClosingWorkflowTestCase(RealRepoAttestationTestCase):
     """按 phase-final-dod ⓪ 的收尾四步逐字执行，必须真的能走完。
 
@@ -1583,6 +1631,20 @@ class ClosingWorkflowTestCase(RealRepoAttestationTestCase):
         self.assertIn("TESTED_RUNTIME_MISMATCH", r.stdout)
         self.assertIn("HISTORICAL RECEIPT PRESENT", r.stdout)
         self.assertIn("不推翻", r.stdout)
+
+    def test_check_only_after_ship_distinguishes_unreachable_repo(self):
+        """v0.6.1 修正归因：仓库不可达 ≠ 内容漂移。把不可达说成漂移是安抚性的
+        错误解释（exec-004 实测：Windows 账本在 Mac 上被解释成"漂移"）。"""
+        self.full_green_run()
+        self.assertEqual(self.finalize().returncode, 0)
+        orphan = os.path.join(self.tmp, "orphan-run")
+        shutil.copytree(self.run_dir, orphan)
+        os.rename(self.repo, os.path.join(self.tmp, "repo-gone-elsewhere"))
+        r = run_gate(["finalize", "--check-only", "--run-dir", orphan], cwd=self.tmp)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("TESTED_RUNTIME_MISMATCH", r.stdout)
+        self.assertIn("读不到被测仓库", r.stdout)
+        self.assertNotIn("反映的是仓库在签发后的内容漂移", r.stdout)
 
     def test_code_change_at_closing_forces_retest(self):
         """收尾期改代码 → re-attest 判 behavioral → 必须重跑，不能靠 re-attest 洗白。"""

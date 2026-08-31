@@ -299,6 +299,13 @@ def _record_refusal(msg):
 
 
 def die(msg, code=2):
+    # v0.6.1：无码拒绝自动冠 USAGE_ERROR——实测 36 条真实 refusal 里 18 条无码，
+    # 全是人机工程摩擦；无码在 stats 里只剩一个"（无诊断码）"桶，出口成本没有度量。
+    # 高频摩擦另有专码（TIMING_CLASS_INVALID 等），USAGE_ERROR 是兜底不是替代。
+    msg = str(msg)
+    first = msg.splitlines()[0] if msg else ""
+    if not _REFUSAL_CODE_RE.match(first):
+        msg = "USAGE_ERROR: " + msg
     _record_refusal(msg)  # s1a：先记后打——打印/退出路径若异常，记录已落盘
     print("ERROR: %s" % msg, file=sys.stderr)
     sys.exit(code)
@@ -314,6 +321,44 @@ def sha256_file(path):
 
 def sha256_text(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def resolve_repo_root(ledger, run_dir=None):
+    """repo_root 的可移植解析（v0.6.1，2026-09-01 实测复盘）。
+
+    账本存的是开账机器上的绝对路径，换机器/挪目录后不可达——实测 Windows 开账的
+    `C:\\projects\\...` 在 Mac 上把 TESTED_RUNTIME_MISMATCH / FROZEN_ORACLE_CHANGED /
+    ACTIVE_RUN_MISMATCH 全打成假阳性，且 stats 数据被同一根因污染。
+    解析顺序：① 存储值可达（目录存在）→ 原样用；② 从 run_dir 向上找含 .git 的目录
+    →（run-dir 依契约在仓库内）用该仓库根；③ 都不行 → 返回存储值原文，让调用方按
+    既有语义失败并留证——本函数只补可达性，不发明新真相。"""
+    stored = (ledger or {}).get("repo_root")
+    if stored and os.path.isdir(stored):
+        return stored
+    if run_dir:
+        d = os.path.abspath(run_dir)
+        while True:
+            if os.path.exists(os.path.join(d, ".git")):
+                return d
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+    return stored
+
+
+def repo_rel_posix(path, repo):
+    """把文件路径规范化为仓库相对 POSIX 形式；仓库外/不可比（跨盘）时退回
+    原文的正斜杠形式。testcase_lock 此前存调用者原文 + abs_path，跨机器即废
+    （evidence 路径在 1D-delta 就改过同款问题，本函数把 testcase_lock 拉齐）。"""
+    try:
+        rel = os.path.relpath(os.path.abspath(path), os.path.abspath(repo))
+    except ValueError:
+        return str(path).replace("\\", "/")
+    rel = rel.replace(os.sep, "/")
+    if rel.startswith("../"):
+        return str(path).replace("\\", "/")
+    return rel
 
 
 def normalize_run_relative_path(path):
@@ -1507,7 +1552,7 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
                    run_dir),
                 hint=sib["dir"]))
     if ledger.get("active_run_required"):
-        repo = os.path.abspath(ledger.get("repo_root") or "")
+        repo = os.path.abspath(resolve_repo_root(ledger, run_dir) or "")
         registry_path = os.path.join(repo, ".plan-test", "active-run.json")
         registry = None
         try:
@@ -1665,11 +1710,24 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
                                   severity="error"))
 
     # 5. 冻结 black-box oracle 变异审计
+    #    路径解析可移植（v0.6.1）：优先按"解析后的仓库根 + 存储的相对路径"，
+    #    再退 abs_path / run_dir 相对——此前优先 abs_path，账本换机器后
+    #    Windows 绝对路径在 Mac 不可达，明明存在的 testcase 被判"缺失"（假阳性实测）。
+    repo_for_oracle = resolve_repo_root(ledger, run_dir)
     for tc in (ledger.get("testcase_lock") or {}).get("files") or []:
-        p = tc.get("abs_path") or tc.get("path")
-        if p and not os.path.isabs(p):
-            p = os.path.join(run_dir, p)
-        if not p or not os.path.exists(p):
+        raw = str(tc.get("path") or "").replace("\\", "/")
+        candidates = []
+        if raw:
+            if os.path.isabs(raw) or re.match(r"^[A-Za-z]:", raw):
+                candidates.append(raw)
+            else:
+                if repo_for_oracle:
+                    candidates.append(os.path.join(repo_for_oracle, raw))
+                candidates.append(os.path.join(run_dir, raw))
+        if tc.get("abs_path"):
+            candidates.append(tc["abs_path"])
+        p = next((c for c in candidates if os.path.exists(c)), None)
+        if not p:
             diags.append(Diag("FROZEN_ORACLE_CHANGED",
                               "冻结 testcase 文件缺失: %s" % tc.get("path")))
             continue
@@ -1861,11 +1919,13 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
     att = ledger.get("runtime_attestation") or {}
     baseline = ledger.get("baseline") or {}
     if not fixture:
-        repo = ledger.get("repo_root") or os.getcwd()
+        repo = resolve_repo_root(ledger, run_dir) or os.getcwd()
         head = repo_head(repo)
         if head is None:
             diags.append(Diag("TESTED_RUNTIME_MISMATCH",
-                              "无法读取当前 git HEAD（repo_root=%s）" % repo))
+                              "无法读取当前 git HEAD（repo_root=%s 不可达或非 git 仓库）——"
+                              "这不是内容漂移；若账本在另一台机器创建，属路径不可移植，"
+                              "先修复仓库可达性再重算" % repo))
         else:
             # 阻塞判据 = **被测内容**是否变了，不是提交身份变没变。
             # git add/commit 不改内容 → 门不该拦（否则「测完→提交→finalize」是死结）；
@@ -2525,10 +2585,12 @@ def cmd_init(args):
     acc = manifest.get("acceptance_file")
     if acc:
         ledger["acceptance"] = {"path": acc, "sha256": sha256_file(acc)}
-    # 冻结 black-box testcase oracle
+    # 冻结 black-box testcase oracle。path 存仓库相对 POSIX 形式（v0.6.1，
+    # 与 evidence 路径同款处理）；abs_path 保留为本机便利与旧读端兼容。
     for tc in manifest.get("testcase_files") or []:
         ledger["testcase_lock"]["files"].append(
-            {"path": tc, "abs_path": os.path.abspath(tc), "sha256": sha256_file(tc)})
+            {"path": repo_rel_posix(tc, repo), "abs_path": os.path.abspath(tc),
+             "sha256": sha256_file(tc)})
     if ledger["testcase_lock"]["files"]:
         ledger["testcase_lock"]["locked_at"] = now_iso()
     # required rows 由 init 自动创建为 NOT_RUN（不可由调用者直接置 PASS）
@@ -2586,7 +2648,7 @@ def cmd_init(args):
 
 def cmd_activate_run(args):
     ledger = load_ledger(args.run_dir)
-    repo = os.path.abspath(ledger.get("repo_root") or "")
+    repo = os.path.abspath(resolve_repo_root(ledger, args.run_dir) or "")
     try:
         rel = os.path.relpath(os.path.realpath(args.run_dir), os.path.realpath(repo))
     except ValueError:
@@ -2727,7 +2789,8 @@ def cmd_attach_evidence(args):
         die(str(exc))
     p = run_relative_abspath(args.run_dir, rel_path)
     if not os.path.exists(p):
-        die("证据文件不存在: %s（路径须相对 run-dir）" % p)
+        die("EVIDENCE_PATH_NOT_FOUND: 证据文件不存在: %s（参数是相对 run-dir 的文件路径，"
+            "不接受内联 JSON——先把内容写成文件再 attach）" % p)
     imported_from = getattr(args, "from_run", None)
     metadata = {}
     if getattr(args, "metadata", None):
@@ -2808,12 +2871,13 @@ def _utc_iso(epoch):
 
 def cmd_record_timing(args):
     if args.activity_class not in ACTIVITY_CLASSES:
-        die("activity_class=%r 非法（合法：%s）" % (args.activity_class,
-                                                  "/".join(sorted(ACTIVITY_CLASSES))))
+        die("TIMING_CLASS_INVALID: activity_class=%r 非法（合法：%s；直觉词对照："
+            "testing→automated_test/manual_e2e，coding/tooling→implementation）"
+            % (args.activity_class, "/".join(sorted(ACTIVITY_CLASSES))))
     if args.activity_class in WAIT_CLASSES:
         wr = args.wait_reason or ""
         if wr not in WAIT_REASONS and not wr.startswith("other:"):
-            die("%s 类必须给受控 --wait-reason（%s 或 other:<说明>）"
+            die("WAIT_REASON_REQUIRED: %s 类必须给受控 --wait-reason（%s 或 other:<说明>）"
                 % (args.activity_class, "/".join(sorted(WAIT_REASONS))))
     elif args.wait_reason:
         die("--wait-reason 只用于 %s" % "/".join(sorted(WAIT_CLASSES)))
@@ -2855,7 +2919,8 @@ def cmd_record_timing(args):
         fixture = bool(ledger.get("fixture_only"))
         identity = {}
         if not fixture:
-            identity["head"] = repo_head(ledger.get("repo_root") or os.getcwd())
+            identity["head"] = repo_head(resolve_repo_root(ledger, args.run_dir)
+                                         or os.getcwd())
         rec = {
             "timing_id": "t-%04d" % (len(ledger.get("timing") or []) + 1),
             "phase": args.phase,
@@ -2937,7 +3002,7 @@ def cmd_checkpoint(args):
         ev = {"type": "checkpoint", "slice": args.slice, "note": args.note,
               "at": _utc_iso(time.time())}
         if not fixture:
-            repo = ledger.get("repo_root") or os.getcwd()
+            repo = resolve_repo_root(ledger, args.run_dir) or os.getcwd()
             ev["head"] = repo_head(repo)
             dirty, _err = repo_dirty_digest(repo, args.run_dir)
             ev["dirty_patch_sha256"] = dirty
@@ -2963,7 +3028,7 @@ def cmd_re_attest(args):
     ledger = load_ledger(args.run_dir)
     if ledger.get("fixture_only"):
         die("fixture-only run 无 git 运行时身份，无需 re-attest")
-    repo = ledger.get("repo_root") or os.getcwd()
+    repo = resolve_repo_root(ledger, args.run_dir) or os.getcwd()
     prev = (ledger.get("runtime_attestation") or ledger.get("baseline") or {})
     scope = declared_exclusion_scope(ledger, repo, args.run_dir)
     changed, err = changed_paths_since(repo, scope, prev.get("content_entries"))
@@ -3129,17 +3194,28 @@ def cmd_finalize(args):
     if args.check_only:
         ok = not blocking(diags)
         lines = ["CHECK-ONLY RESULT: %s" % ("READY_FOR_AUDIT" if ok else "NOT_READY")]
-        # 历史 receipt 语义澄清（2026-08-31 复盘：18/18 历史 receipt 复验命中
-        # TESTED_RUNTIME_MISMATCH 曾被误读为"历史交付全部失败"——漂移诊断针对的是
-        # 仓库此后的演进，不推翻 receipt 签发时刻的判定；receipt 本就是一次性快照）。
+        # 历史 receipt 语义澄清（2026-08-31 复盘 + 2026-09-01 v0.6.1 修正归因：
+        # TESTED_RUNTIME_MISMATCH 有多个成因分支，"内容漂移"与"仓库不可达"必须分开说——
+        # 把不可达说成漂移是安抚性的错误解释，会让下一个人停止追问真实根因）。
         existing = load_receipt(args.run_dir)
-        if (not ok and existing
-                and any(d.code == "TESTED_RUNTIME_MISMATCH" for d in diags)):
-            lines.append(
-                "HISTORICAL RECEIPT PRESENT（finalized_at=%s）：本次 NOT_READY 反映的是"
-                "仓库在签发后的内容漂移，不推翻该 receipt 当时的 SHIPPABLE 判定；"
-                "如需对当前内容交付，须重测后重新 finalize。"
-                % existing.get("finalized_at"))
+        mismatch_details = [d.detail for d in diags
+                            if d.code == "TESTED_RUNTIME_MISMATCH"]
+        if not ok and existing and mismatch_details:
+            unreachable = any(("不可达" in d or "无法读取当前 git HEAD" in d
+                               or "无法重算" in d) for d in mismatch_details)
+            if unreachable:
+                lines.append(
+                    "HISTORICAL RECEIPT PRESENT（finalized_at=%s）：本次 NOT_READY 是"
+                    "**当前环境读不到被测仓库**（repo_root 不可达/指纹不可算，常见于账本"
+                    "在另一台机器创建）——不是内容漂移，也不推翻该 receipt 当时的判定；"
+                    "先修复仓库可达性，再判断是否需要重测。"
+                    % existing.get("finalized_at"))
+            else:
+                lines.append(
+                    "HISTORICAL RECEIPT PRESENT（finalized_at=%s）：本次 NOT_READY 反映的是"
+                    "仓库在签发后的内容漂移，不推翻该 receipt 当时的 SHIPPABLE 判定；"
+                    "如需对当前内容交付，须重测后重新 finalize。"
+                    % existing.get("finalized_at"))
         emit(diags, computed, lines)
         sys.exit(0 if ok else 1)
     if blocking(diags):
@@ -3158,7 +3234,7 @@ def cmd_finalize(args):
         receipt["fixture_only"] = True
     atomic_write_json(os.path.join(args.run_dir, RECEIPT_NAME), receipt)
     if ledger.get("active_run_required") and not fixture:
-        repo = os.path.abspath(ledger.get("repo_root") or "")
+        repo = os.path.abspath(resolve_repo_root(ledger, args.run_dir) or "")
         registry_path = os.path.join(repo, ".plan-test", "active-run.json")
         try:
             with open(registry_path, "r", encoding="utf-8") as f:
@@ -3625,11 +3701,10 @@ def cmd_retire_status(args):
     if not any(e.get("op") == "retire" for e in (ledger.get("integrity", {}).get("log") or [])):
         print("INVALID: integrity 链里没有 retire 操作——retired 字段是手写的")
         sys.exit(1)
+    succ_repo = resolve_repo_root(ledger, args.run_dir) or os.getcwd()
     succ_ok_pending, _ = successor_receipt_status(
-        ledger.get("superseded_by") or "", ledger.get("repo_root") or os.getcwd(),
-        allow_pending=True)
-    ok, detail = successor_receipt_status(ledger.get("superseded_by") or "",
-                                          ledger.get("repo_root") or os.getcwd())
+        ledger.get("superseded_by") or "", succ_repo, allow_pending=True)
+    ok, detail = successor_receipt_status(ledger.get("superseded_by") or "", succ_repo)
     if not ok and succ_ok_pending:
         print("PENDING: 继任 run %s 已全绿但尚未 finalize——退役待其盖章后生效"
               % ledger.get("superseded_by"))
@@ -5233,7 +5308,8 @@ def cmd_record_specialist_challenge(args):
     cluster = next((c for c in (loop.get("challenge_clusters") or [])
                     if c.get("cluster_id") == args.cluster_id), None)
     if not cluster:
-        die("找不到 cluster_id: %s" % args.cluster_id)
+        die("CLUSTER_ID_NOT_FOUND: 找不到 cluster_id: %s（合法出口：用 primary-clusters"
+            " 记录里的真实 id，或先 record-challenge-clusters 入账）" % args.cluster_id)
     if any(i.get("cluster_id") == args.cluster_id
            for i in (loop.get("specialist_challenges") or [])):
         die("SPECIALIST_CHALLENGE_ALREADY_RECORDED: %s" % args.cluster_id)

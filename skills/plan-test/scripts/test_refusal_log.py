@@ -43,7 +43,9 @@ class RefusalRecordTestCase(unittest.TestCase):
                              "die 之后 refusals.jsonl 应恰好多一条")
             rec = json.loads(lines[-1])
             self.assertEqual(rec["cmd"], "checkpoint")
-            self.assertIsNone(rec["code"])
+            # v0.6.1 契约变更：无码消息由 die() 自动冠 USAGE_ERROR 兜底码——
+            # 实测 50% refusal 无码，stats 里只剩一个不可区分的桶，出口成本没有度量。
+            self.assertEqual(rec["code"], "USAGE_ERROR")
             self.assertEqual(rec["run_dir"], empty, "run_dir 记用户所给原文，不加工")
             self.assertIn("plan-test-run.json", rec["detail"])
             self.assertTrue(rec.get("cwd"), "cwd 必有且为原文")
@@ -155,8 +157,9 @@ class RefusalFailureSafetyTestCase(unittest.TestCase):
             self.assertEqual(r.returncode, 2, "退出码不得因写入失败而变")
             self.assertEqual(
                 r.stderr.strip(),
-                "ERROR: run-dir 缺少 plan-test-run.json，先执行 init",
-                "stderr 必须与无 refusal 机制时逐字节一致")
+                "ERROR: USAGE_ERROR: run-dir 缺少 plan-test-run.json，先执行 init",
+                "stderr 必须与无 refusal 机制时逐字节一致"
+                "（v0.6.1 起 die 对无码消息统一冠 USAGE_ERROR，写入失败不改变这一点）")
             self.assertTrue(os.path.isdir(
                 os.path.join(self.home, "refusals.jsonl")), "占位目录原样保留")
         finally:

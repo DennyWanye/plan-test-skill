@@ -165,6 +165,28 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
   仅 9 本有阶段事件，档位压缩效果无法评估（"再实践"环节断裂）。出口：各阶段
   phase-start/end 配对记录。复审 2026-11-29。
 
+**v0.6.1 refusal 专码（2026-09-01，登记四问）**——这批不是新增门，是给**既有拒绝**上码：
+实测 36 条真实 refusal 里 18 条（50%）无码，全是人机工程摩擦而非策略违规；无码在 stats
+里只剩一个"（无诊断码）"桶，"降出口成本"没有度量。防的逃逸：出口成本不可见 → 下轮优化
+只能拍脑袋。均为 die() 即时拒绝（exit 2），不进 validate 诊断序。复审 2026-12-01。
+- `USAGE_ERROR`（兜底，die() 对无码消息自动冠）：出口 = 按消息文本修正调用。
+- `TIMING_CLASS_INVALID`（实测 6 次）：activity_class 猜错。出口 = 消息附直觉词对照表
+  （testing→automated_test/manual_e2e，coding/tooling→implementation）。
+- `WAIT_REASON_REQUIRED`（实测 2 次）：wait 类缺 --wait-reason。出口 = 消息列出受控枚举
+  与 other:<说明> 逃生口。
+- `CLUSTER_ID_NOT_FOUND`（实测 6 次）：cluster_id 不存在。出口 = 用 primary-clusters
+  记录里的真实 id，或先 record-challenge-clusters 入账。
+- `EVIDENCE_PATH_NOT_FOUND`（实测 3 次）：把内联 JSON 当路径传。出口 = 先写文件再 attach。
+
+**v0.6.1 路径可移植（2026-09-01，非新码，修既有码的假阳性面）**：账本此前存开账机器的
+绝对 `repo_root` 与 testcase `abs_path`，跨机器/挪目录后 `TESTED_RUNTIME_MISMATCH` /
+`FROZEN_ORACLE_CHANGED` / `ACTIVE_RUN_MISMATCH` 全成假阳性且污染 stats（Windows 账本在
+Mac 复验实锤）。修法：`resolve_repo_root`（存储值可达用存储值，否则从 run-dir 向上找
+.git，都不行按原语义失败留证）；`testcase_lock.files[].path` 改存仓库相对 POSIX（与
+evidence 路径 1D-delta 同款处理），读端按"仓库相对 → run-dir 相对 → abs_path"顺序解析，
+旧账本兼容。check-only 的 HISTORICAL RECEIPT 提示自此区分"内容漂移"与"仓库不可达"两种
+成因——把不可达说成漂移是安抚性错误解释。
+
 **退休记录（2026-08-29）**：`LOOP_LIMIT_EXCEEDED` / `LOOP_REGRESSION` / `LOOP_NO_PROGRESS`
 - 三码自 2026-08-14 登记以来**从未有产生点**（第 5 轮审计实证：全文件仅 `CANONICAL_ORDER`
   声明处 1 次引用；1888 次真实调用零触发）。它们从未防住过任何东西——
