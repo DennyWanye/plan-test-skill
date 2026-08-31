@@ -26,6 +26,25 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 GATE = os.path.join(HERE, "plan_test_gate.py")
 
 
+def expected_plugin_version():
+    """与 plan_test_gate._plugin_version 同一发现算法：沿脚本路径向上找
+    .claude-plugin/plugin.json；找不到（如手工复制安装）时为空串。
+    动态读取而非硬编码——否则每次 release 升版本都会打红这两条测试。"""
+    d = HERE
+    while True:
+        candidate = os.path.join(d, ".claude-plugin", "plugin.json")
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, encoding="utf-8") as f:
+                    return str(json.load(f).get("version") or "")
+            except (OSError, ValueError):
+                return ""
+        parent = os.path.dirname(d)
+        if parent == d:
+            return ""
+        d = parent
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -2962,7 +2981,7 @@ class ToolchainRecordingTestCase(GateHarness):
         # gate_sha256 是这里最硬的一条：版本号可以忘了升，文件哈希不会。
         self.assertRegex(tc["gate_sha256"], r"^[0-9a-f]{64}$")
         self.assertTrue(tc["gate_path"].endswith("plan_test_gate.py"))
-        self.assertEqual(tc["plugin_version"], "0.5.1")
+        self.assertEqual(tc["plugin_version"], expected_plugin_version())
 
     def test_toolchain_is_frozen_by_the_integrity_chain(self):
         """工具链写在链首 init 之前，事后改它 → LEDGER_TAMPERED。
@@ -2989,7 +3008,8 @@ class ToolchainRecordingTestCase(GateHarness):
         report = self._render_report()
         self.assertIn("TOOLCHAIN", report)
         self.assertIn("gate_sha256", report)
-        self.assertIn("0.5.1", report)
+        ver = expected_plugin_version()
+        self.assertIn(ver if ver else "plugin ?", report)
 
     def test_ledger_without_toolchain_still_renders(self):
         """加字段不能让上一版 validator 建的账本集体作废（迁移断裂是本仓明令禁止的）。"""
