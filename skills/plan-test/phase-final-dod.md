@@ -22,7 +22,13 @@
    （config `GATE_REGISTRY_DISCIPLINE`）的数据源——规则集只进不出是本套流程的病，
    数据从这里来。
 5. **提交**：全部改动提交，工作树干净。
-6. **FULL（`MACHINE_GATE` 启用）额外**，固定顺序（顺序错了会死锁）：文档回写 →
+6. **push 前 code review 硬门**（`CODE_REVIEW`，适用判定同 phase-3 A4；仅在本次交付要推送
+   远程时做，不推送则跳过并留一句理由）：对将要推送的 diff 再过一遍 code review——A4 之后
+   新增的改动（审计补漏、收尾期的代码修补）都在此照见。**P0/P1 修完再推**；修复动了代码 →
+   按 phase-3 A4 第 4 步分层复验，且触及 UI/用户可见行为时按 phase-4 ③4 广度规则重跑
+   受影响场景 + 至少 1 个未受影响类别（FULL 路径由 `re-attest` 的 behavioral 判定机器强制）。
+   review 结论与处理入 journal。
+7. **FULL（`MACHINE_GATE` 启用）额外**，固定顺序（顺序错了会死锁）：文档回写 →
    `re-attest --reason "收尾文档回写"`（`kind=behavioral` 时 required 场景须重跑入账）→
    启用 active-run 绑定时重新 `activate-run` → 重跑独立 full-audit 并 `audit` 入账
    （re-attest 改变了 fact，旧审计已 stale）→ `finalize` exit 0 拿 receipt → `render`。
@@ -52,6 +58,8 @@
 - [ ] 可追溯矩阵无断点：AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 证据 —— 证据：审计 VERDICT
 - [ ] testcase 已存盘、index 已同步、脚本已纳入回归套件 —— 证据：文件路径
 - [ ] journal 终态行已写且与 DoD 结论一致（`JOURNAL_VERDICT`）—— 证据：journal.md 末行
+- [ ] code review 已按适用判定执行（phase-3 A4 + 要推送时的 push 前硬门），P0/P1 findings
+  全部闭环且各有决定性测试 —— 证据：journal 的 review 记录行（不适用时留一句理由）
 - [ ] retro.md 已写自我批评一行 —— 证据：文件路径
 
 **输入语义敏感功能追加硬门**（任一不满足 → DoD FAIL；确定性 UI 不适用）：

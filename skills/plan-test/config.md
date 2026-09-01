@@ -116,6 +116,21 @@
 
 ## 测试
 
+- `CODE_REVIEW`: required-for-code（2026-09-01 新增；四样登记按 `GATE_REGISTRY_DISCIPLINE`——
+  防的实测逃逸 = 2026-09-01 v0.7.1 实测：执行者自写的归档代码经独立 review 查出 5 个
+  数据丢失级正确性 bug（并发 TOCTOU / 残缺归档 / 重复归档 / utf-8 毒丸 / 读取层缺失），
+  自审全部漏过；防的诊断码 = 无（流程门，非账本门）；复审日期 = 2026-12-01；
+  **合法出口** = review 环境不可用 → BLOCKED 升级，或用户在 chat 显式批准跳过并在
+  journal 留痕）
+  - 适用：`TASK_TYPE = delivery` 且本次改动含非平凡代码；OPS 与纯文档改动不适用
+    （开场门清单声明，一句话理由留痕）。
+  - 两个挂点：**phase-3 A4**（便宜门后、昂贵门前——主战场，bug 在进昂贵层前修掉）＋
+    **phase-final push 前硬门**（照见 A4 之后新增的改动，P0/P1 修完再推）。
+  - **引擎独立性（执行者不自审）**：优先用 harness 自带 code review 能力，否则派独立
+    `{CHALLENGER_ENGINE}` 子代理。
+  - review 修复后的复验分层见 phase-3 A4 第 4 步：便宜层全量 + 受影响 AC 决定性测试 +
+    价值 smoke 一枪；触及 UI/用户可见行为才回昂贵层（含 ①c 复测广度规则）。
+    每个 P0/P1 修复必配一条决定性测试并入回归套件。
 - `MANUAL_TEST`: required
   - MCP 真人点击/输入测试。对有 UI 的被测对象不可省略、不可降级。
 - `MCP_DRIVER`: auto

@@ -34,7 +34,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 - **已批准行为不缩水**：`BEHAVIOR_POLICY = preserve-approved`；最小化按 `policies/acceptance-preserving-ponytail.md`。
 - **小 slice 交付**：超 `RELEASE_UNIT_LIMITS` → 拆 program plan + 垂直 slice，每个 slice 独立验收。
 - **testcase 是项目资产**：设计用例前先查已有资产并记录 reuse decision（`references/testcase-lifecycle.md`）；复用只复用 oracle，当前 run 仍须重新执行取证。
-- **批评与自我批评**：challenger 子代理是批评；收尾的 retro 一行是自我批评（config `SELF_CRITICISM`）——它是门禁退休评审的数据源，防规则集只进不出。
+- **批评与自我批评**：challenger 子代理是对 plan 的批评；**代码 review 是对实现的批评（`CODE_REVIEW`，执行者不自审）**——delivery 且含非平凡代码时必做，挂 phase-3 A4 与 push 前两道，深度按矛盾地位路由，修复后按分层复验（便宜层全量 + 受影响决定性测试 + 价值 smoke）；收尾的 retro 一行是自我批评（config `SELF_CRITICISM`）——门禁退休评审的数据源，防规则集只进不出。
 
 ## 开场（每次必做）
 
@@ -51,7 +51,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 | A | 矛盾分析与验收标准 | `phase-A-acceptance.md` | `{ACCEPTANCE_FILE}`（矛盾四问 + 决定性/次要 AC） |
 | 1 | 调查与写 plan | `phase-1-plan.md` | `{PLANS_DIR}/<feature>/plan.md`（含现状调查与 spike 证据） |
 | 2 | 挑战与定稿（含锁定绿色基线） | `phase-2-iterate-plan.md` | 定稿 plan + 基线快照 |
-| 3 | 执行（集中/分兵自决 + 里程碑 demo + 完成度审计） | `phase-3-execute.md` | 代码 + 矛盾再分析 + 审计报告 |
+| 3 | 执行（集中/分兵自决 + 里程碑 demo + 代码 review + 完成度审计） | `phase-3-execute.md` | 代码 + 矛盾再分析 + review 闭环 + 审计报告 |
 | 4 | 验收（重点论测试 + testcase 收尾） | `phase-4-stage-gate.md` | journal / 机器账本 + 兑现表 + testcase 归档 |
 | █ | 收尾 DoD + 文档回写 + 自我批评 | `phase-final-dod.md` | DoD 全绿 + journal 终态行 + retro 一行（FULL：receipt） |
 
@@ -61,7 +61,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 2. 用户批准后进入 phase-3 执行（模式自决见 phase-3 开场；oracle 先于实现贯穿始终）；
 3. **价值里程碑是执行中段的战略节点**：PASS → demo + 矛盾转化再分析，然后推进剩余任务；FAIL → A2 回炉或 BLOCKED；
 4. phase-4 验收：便宜门 → 核心价值 smoke（FAIL 即停）→ 决定性场景深测 → 次要各一遍 → testcase 收尾；
-5. final：文档回写 → DoD → journal 终态行（`JOURNAL_VERDICT`）→ 自我批评 → 提交（FULL 加 re-attest/full-audit/finalize）。
+5. final：文档回写 → DoD → journal 终态行（`JOURNAL_VERDICT`）→ 自我批评 → 提交 →（要推送时）push 前 code review，P0/P1 修完再推（FULL 加 re-attest/full-audit/finalize）。
 
 - **每阶段先读文档（防跳步硬闸）**：进入每个阶段前，先完整读该阶段的 `phase-X.md` 并列出必做项清单，逐项打勾——不许凭"我大概懂了"跳过子步骤（漏测几乎都源于此）。
 - **⚠️ 末尾警戒**：越接近收尾越容易用便宜的代码审计替昂贵的真机测试。**决定性 AC 的 UI 测试不许降级**，测不了就 BLOCKED 升级。"主流程通过"≠"每条 AC 都测了"。

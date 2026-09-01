@@ -39,6 +39,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 - 按 `../plan-test/phase-3-execute.md` 执行：**执行模式自决**（任务真独立且量大→分兵并行子代理 + worktree 隔离；环环相扣或量小→集中兵力当前 session 串行打歼灭战，决策一行留痕）、与本机 hook 共处、`{AUDITOR_ENGINE}` 可追溯矩阵审计（主要矛盾优先）、回归门对照 baseline。
 - **oracle 先于实现**（普适铁律）：动手写某条 AC 的实现前，先写下它的"什么算对"（plan 验证栏 / testcase 草稿）；禁止实现后照实现补预期。
+- **代码 review（phase-3 A4，`CODE_REVIEW = required-for-code`）**：便宜检查绿后、完成度审计前，对累计 diff 做正确性 review（执行者不自审——harness 自带 code review 或独立 challenger）；P0/P1 修完、每个修复配决定性测试、并按 A4 第 4 步分层复验（便宜层全量 + 受影响决定性测试 + 价值 smoke）才进审计。
 - **价值里程碑 PASS 后**：demo 给用户（跑起来的实物 + 一句用户语言汇报）+ 矛盾转化再分析（重答三问、重排剩余任务）。
 
 ### 4. 验收（重点论测试 + testcase 收尾）
@@ -51,7 +52,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 ### 5. 收尾 DoD + 文档回写 + 自我批评
 
-- 按 `../plan-test/phase-final-dod.md` 执行：文档回写（README / changelog / testcase index）→ DoD 清单逐条附证据核对 → **journal 终态行**（`JOURNAL_VERDICT`，格式见 phase-final；没有终态行 = run 未闭环）→ **自我批评一行**写进 `{PLANS_DIR}/<feature>/retro.md`（本次哪些门空转、哪里被仪式拖慢）→ 提交。
+- 按 `../plan-test/phase-final-dod.md` 执行：文档回写（README / changelog / testcase index）→ DoD 清单逐条附证据核对 → **journal 终态行**（`JOURNAL_VERDICT`，格式见 phase-final；没有终态行 = run 未闭环）→ **自我批评一行**写进 `{PLANS_DIR}/<feature>/retro.md`（本次哪些门空转、哪里被仪式拖慢）→ 提交 →（要推送远程时）**push 前 code review 硬门**：对外发 diff 再过一遍 review，P0/P1 修完并按分层复验后再推（phase-final 第 6 步）。
 - **默认路径**：完成判定 = DoD 清单全绿（每条附证据位置），交付措辞如实写"完成判定依据 journal 与 DoD 清单，无机器 receipt"。
 - **FULL（`MACHINE_GATE` 启用）**：额外按固定顺序过机器门——文档回写 → `re-attest` → 重新 full-audit 入账 → `python {GATE_SCRIPT} finalize --run-dir <run-dir>`。**最终交付状态只取该命令的 exit code**（exit 0 + `GATE RECEIPT` 才是完成；exit 3 = fixture-only 不是完成）；跳过 re-attest 会 `TESTED_RUNTIME_MISMATCH`，跳过重新 audit 会 `AUDITOR_INPUT_STALE`；没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。交付措辞用 receipt 模板。
 - 任何 DoD 项达不成 → BLOCKED 升级，**不谎报完成**。
