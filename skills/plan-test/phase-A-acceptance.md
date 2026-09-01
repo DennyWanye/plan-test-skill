@@ -1,6 +1,6 @@
-# Phase A — 需求澄清 & 验收标准
+# Phase A — 矛盾分析与验收标准
 
-**目的**：产出唯一真相来源 `{ACCEPTANCE_FILE}`。之后所有阶段（plan 收敛、完成度审计、testcase 覆盖）都引用它。没有它，"100% 完成"是没有定义的。
+**目的**：产出唯一真相来源 `{ACCEPTANCE_FILE}`，以**矛盾分析**为骨架——先回答主要矛盾的三问（是什么/为什么/怎么解决），再从中推导验收标准。之后所有阶段（plan 收敛、执行排序、完成度审计、测试力度分配）都引用它。没有它，"100% 完成"是没有定义的。
 
 ## 输入
 
@@ -9,118 +9,73 @@
 
 ## 步骤
 
-1. **抽取需求条目**：把需求拆成可独立验收的功能点列表。
-1a. **写主要矛盾（必做，一等公民字段）**：一句话回答"这个需求决定成败的核心价值是什么"，
-   并写出它的**最小验证动作**（用最小代价证明它成立的那一步）。格式硬约束见 phase-1"主要矛盾"节：
-   单一矛盾、价值在前防御在后、复合句打包视为未写。用户确认 acceptance 时同时确认这句话——
-   它决定后续全部任务排序与审计优先级（phase-1 排序 / phase-3 审计 / phase-4 价值 smoke 都以它为锚）。
+1. **矛盾分析（必做，文档第一节，一等公民）**——依次回答四问：
+   - **主要矛盾是什么**：一句话回答"这个需求决定成败的核心价值是什么"。格式硬约束：
+     **单一矛盾**（一句话只许一个核心问题，"A+B+C+D 同时成立"的复合句 = 没写，challenger 必须打回）；
+     **价值在前，防御在后**（主要矛盾必须是"用户要的核心价值能不能成立"，不许把边界/诚实性/防御性关切写成第一优先——那些是价值成立之后的次要矛盾）。
+   - **矛盾产生的原因**：用户的真实处境与技术约束是什么，为什么现状满足不了（挖到"为什么"，防解错题——原因判断错了，解法方向必然错）。
+   - **怎么解决**：解法方向一句话 + **最小验证动作**（用最小代价证明矛盾被解决的那一步：一条命令、一次请求、一个最短调用链）。这一步就是后续任务清单里的**价值验证里程碑**。
+   - **矛盾的主要方面**：主要矛盾内部决定性的那一侧是什么（例："用户能否在线完成下单"这个矛盾里，主要方面是"下单业务链路能否跑通"而非"页面观感"）。它决定 plan 的第一仗打哪里。
+   - 用户确认 acceptance 时同时确认这一节——它决定后续全部任务排序、挑战力度与测试深度。
 1b. **Ponytail lite**：发现更简单的方案可能满足需求时，按
    `policies/acceptance-preserving-ponytail.md` 作为选项提给用户，不得自行删减需求或将条目标为 OUT。
-2. **为每条写验收条件**：每条必须**可验证**（能被一次手工操作或一段脚本断言判定通过/失败）。
-   - 反例："登录要好用"。
-   - 正例："用 OAuth 登录成功后跳转到 /dashboard，且旧短信验证码入口仍可用"。
-3. **标注边界与非功能要求**：错误态、空态、并发、幂等、性能阈值、兼容性。
-3b. **冻结 assurance contract**：在 acceptance 同目录生成 `assurance-contract.json`，作为
-   challenge gate 的结构化输入。所有任务都声明 failure/assumption/impact；只有安全敏感任务才需要
-   adversary/asset/trust-boundary 细化。
-   - 默认 `profile=standard`；不得因为 challenger 想到更强攻击者而自行升级。
-   - 每条 asset、assumption、failure、adversary、out-of-scope condition 使用稳定 ID。
-   - `hardened` / `hostile-host`、可信边界变化或扩大最大影响必须由用户明确确认。
-   - assurance contract 的 scope/threat hash 在 challenge loop 启动时冻结；变化走
-     `scope-change-proposal → user approval`，不能静默覆盖。
-4. **测试场景矩阵**（输入语义敏感功能必做，判定见 config"真人测试广度门禁"）：
-   - 为真人测试预先定义**语义不等价的输入类别**，至少 `{MANUAL_MIN_DISTINCT_CLASSES}` 个代表类别；适用时额外含 1 个错误态/低证据/对抗场景（`{MANUAL_REQUIRE_NEGATIVE_CLASS}`）。
-   - **门分两类，缺一不可**：每个场景标注 `gate_type`——
-     - `positive-value`（正向价值门）：普通高证据问题确实能接纳证据、生成**非空有效业务结果**且达到本表声明的最低质量线。required 场景中至少 `{MANUAL_MIN_POSITIVE_SAMPLES}` 个。
-     - `negative-safety`（负向安全门）：没有证据/异常输入时诚实失败、不编造。
-     - **只有负向安全门通过，不能宣布功能完成**（见 config `MANUAL_MIN_POSITIVE_SAMPLES`）。
-   - **正向价值场景必须声明最低质量线**（terminal_expectation 之外再写一行"quality_bar"：什么样的结果算可用，人工按它 review）。
-   - **exact_input 用自然用户语言**：写真实用户会打的话（口语、简写、中英混合、"最强/前10/优缺点"这类表达），**禁止照实现关键词写"容易通过"的 prompt**（latest/compare/benchmark 这类贴 fixture 的措辞）。
-   - **计数纪律**：重试、重放、同一意图的改写、continuation 都**不增加** distinct scenario 数——换领域/难度/风险形态才算新类别。
-   - 确定性 UI（设置页/开关/CRUD/导航）不适用此矩阵，常规 AC 覆盖即可。
-   - **冷路径场景**（`COLD_START_SCENARIO` 适用时必含，判定与场景定义见 config）：矩阵中加 1 条"全新安装（或清数据）→ 首次登录 → 直达功能页"场景，断言功能在该路径可用；暖重启不算冷路径。
-4b. **LLM 行为变异清单**（`LLM_PAYLOAD_ADVERSARIAL` 适用时必做，判定与门禁待遇见 config"LLM 载荷对抗门禁"——缺失此清单 → plan-task 开工即 BLOCKED）：
-   - 在 acceptance 中列出五类 LLM 行为变异，每类至少一条**可验证的端侧容错断言**（容错/自救/降级出口）：
-     ① 乱序响应（出题/推进顺序 ≠ 注入顺序）；② 重复输出同一项；③ schema 违约（必填字段缺失、内容写错位置、字段值与枚举不符）；④ 超长文本/极端载荷（整句选项、超长题干的 UI 边界）；⑤ 拒不调用工具/跳过注入指令。
-4c. **测试义务矩阵（Test Obligation Matrix）**（所有任务必做）：
-   - 在 acceptance 中定义测试义务矩阵，明确每个 required testcase 的必要性。字段见下方模板表
-     （obligation_id / type / ac_id / risk / min_decisive_test / required_reason，其中 ac_id 为
-     delivery 类型必填、risk 为 change-risk 类型必填）；类型定义、目标导向原则与适用性判断
-     见 `checklists/test-obligation-matrix.md`。
-   - 缺失此矩阵或 required testcase 无法说明必要性 → gate 返回 `ORPHAN_REQUIRED_SCENARIO` 或 `UNJUSTIFIED_TEST_SCOPE`。
-5. **和用户确认**：把 `{ACCEPTANCE_FILE}` 草稿（**含场景矩阵和测试义务矩阵**）给用户过一遍，确认后才进 phase-0。用户确认 acceptance 即同时确认了场景矩阵的范围和测试义务的必要性。
+2. **从矛盾分析推导验收条款**：把需求拆成可独立验收的功能点，每条必须**可验证**（能被一次手工操作或一段脚本断言判定通过/失败）。
+   - 反例："登录要好用"。正例："用 OAuth 登录成功后跳转到 /dashboard，且旧短信验证码入口仍可用"。
+   - **每条 AC 标注矛盾地位**：`决定性`（直接支撑主要矛盾的解决）或 `次要`（其余必须项）。
+     这个标注是后续所有力度分配的依据——挑战轮次（phase-2）、执行排序（phase-3）、测试深度（phase-4）都按它路由。
+   - **两点论兜底**：次要 AC 不许因为"不是主要矛盾"被删掉或不测——它们的下限是"一轮挑战、一遍测试"，不是零。
+3. **标注边界与非功能要求**：错误态、空态、并发、幂等、性能阈值、兼容性。只写与本需求真实相关的，不套模板凑满。
+3b. **assurance 摘要（按路径分档）**：
+   - **LEAN**：在 acceptance 里写摘要节即可（受保护资产 / 可信假设 / 范围内失败 / 最大可接受影响，各一两行）。
+   - **FULL**：额外生成同目录 `assurance-contract.json`（机器可读结构见下），每条使用稳定 ID；
+     默认 `profile=standard`，challenger 不得自行升级；`hardened`/`hostile-host`、可信边界变化必须用户明确确认。
+4. **条件矩阵（具体问题具体分析——只有命中判定才写，不许套模板）**：
+   - **测试场景矩阵**（输入语义敏感功能必做，判定见 config"真人测试广度门禁"）：预先定义语义不等价的输入类别（≥ `{MANUAL_MIN_DISTINCT_CLASSES}` 个），区分 `positive-value` / `negative-safety` 两类门，正向门声明 quality_bar，exact_input 用自然用户语言。**决定性 AC 对应的场景排在最前。** 计数纪律：重试/改写/continuation 不增加 distinct 数。确定性 UI（设置页/开关/CRUD/导航）不适用。
+   - **LLM 行为变异清单**（`LLM_PAYLOAD_ADVERSARIAL` 适用时必做）：乱序/重复/schema 违约/超长载荷/拒不调工具五类，每类至少一条端侧容错断言。
+   - **冷路径场景**（`COLD_START_SCENARIO` 适用时必含）：全新安装→首次登录→直达功能页；暖重启不算。
+   - **测试义务矩阵**：为每条 required testcase 说明必要性（绑定 AC 或明确风险）；LEAN 路径可简化为在 AC 表加一列"最小决定性测试"。
+5. **和用户确认**：把 `{ACCEPTANCE_FILE}` 草稿给用户过一遍（矛盾分析节逐句确认；**用户可感知的标的/行为差异必须用人话复述**——模型版本、端口、默认模式等），确认后才进 phase-1。
 
 ## `acceptance.md` 模板
 
 ```markdown
 # 验收标准：<需求名>
 
-## 主要矛盾（必填，单一矛盾）
-- 核心价值：……（一句话，一个问题；价值在前，防御在后）
-- 最小验证动作：……（一条命令/一次请求/一个最短调用链）
+## 矛盾分析（必填，全文档的骨架）
+- **主要矛盾**：……（一句话，单一矛盾；价值在前，防御在后）
+- **产生原因**：……（用户处境 + 技术约束，为什么现状不行）
+- **解决方向**：……（一句话）
+- **最小验证动作**：……（一条命令/一次请求/一个最短调用链 = 价值验证里程碑）
+- **矛盾的主要方面**：……（矛盾内部决定性的一侧，决定第一仗打哪里）
 
 ## 范围
 - 包含：……
 - 明确不包含：……
 
 ## 功能验收条款
-| ID | 功能点 | 验收条件（可验证） | 优先级 |
-|----|--------|-------------------|--------|
-| AC-1 | …… | 当 …… 时，应 …… | 必须 |
-| AC-2 | …… | …… | 必须 |
+| ID | 功能点 | 验收条件（可验证） | 矛盾地位 | 优先级 |
+|----|--------|-------------------|----------|--------|
+| AC-1 | …… | 当 …… 时，应 …… | 决定性 | 必须 |
+| AC-2 | …… | …… | 次要 | 必须 |
 
 ## 非功能 / 边界
-- 错误态：……
-- 幂等：……
-- 性能：……
-- 兼容：……
+（只写真实相关的：错误态 / 幂等 / 性能 / 兼容）
 
-## Assurance contract 摘要
-- Profile：standard（默认）/ hardened / hostile-host
-- 受保护资产：……
-- 可信假设：……
-- 范围内失败/对手：……
-- 明确范围外条件：……
-- 最大可接受影响：……
+## Assurance 摘要
+- Profile：standard（默认）
+- 受保护资产 / 可信假设 / 范围内失败 / 最大可接受影响：……
+（FULL 路径另附 assurance-contract.json）
 
-## 测试场景矩阵（输入语义敏感功能必填；确定性 UI 删除本节）
-| scenario_id | input_class（语义类别） | exact_input（自然用户语言） | primary_risk（验证什么） | gate_type | required | manual_required | terminal_expectation | quality_bar（正向门必填） |
-|-------------|------------------------|------------------------------|--------------------------|-----------|----------|-----------------|----------------------|---------------------------|
-| S-1 | 例：教育知识类 | …… | 常规链路正确性 | positive-value | 是 | 是 | completed + 非空有效报告 | 例：≥N 条有效证据、结论人工可用 |
-| S-2 | 例：时效新闻类 | …… | 搜索链路时效性 | positive-value | 是 | 是 | completed + 非空有效报告 | …… |
-| S-3 | 例：跨域比较决策类（口语表达） | 例："这几个哪个最强？优缺点呢" | 多源综合 + 自然表达路由 | positive-value | 是 | 是 | completed + 非空有效报告 | …… |
-| S-N | 例：冷门低证据类 | …… | 诚实降级不编造 | negative-safety | 是 | 是 | insufficient_evidence 是预期 | 不适用 |
-
-## 测试义务矩阵（Test Obligation Matrix）（所有任务必填）
-| obligation_id | type | ac_id | risk | min_decisive_test | required_reason |
-|---------------|------|-------|------|-------------------|-----------------|
-| TO-A1 | delivery | AC-1 | — | 正常路径执行一次 | 直接证明 AC-1 的主要功能 |
-| TO-A2 | delivery | AC-1 | — | 错误输入返回预期错误 | 证明 AC-1 的错误处理 |
-| TO-R1 | change-risk | AC-1 | FAIL-ROUTE | 新增路由可达性 | 本次改动涉及入口层 |
-| TO-R2 | change-risk | — | FAIL-REGRESSION | 受影响的既有功能 smoke | 修改共享序列化层 |
-| TO-E1 | exploratory | — | 潜在性能问题 | 高并发压测 | 未来风险探索（不阻断交付） |
-
-**类型说明**：
-- `delivery`：直接证明 MUST AC，required
-- `change-risk`：防范本次改动的受影响范围内风险，有明确风险时 required
-- `exploratory`：探索性测试，不 required
-
-**风险适用性判断**：
-- 并发/幂等：仅当有共享可变状态/副作用时
-- 边界值：仅当在 AC 声明的边界内时
-- LLM 对抗：仅当 `llm_payload_driven=true` 时
-- 冷启动：仅当 `stateful_init=true` 时
-- 性能/恢复/迁移：仅当 AC 明确要求时
+## 测试场景矩阵（仅输入语义敏感功能；确定性 UI 删除本节）
+| scenario_id | input_class | exact_input（自然用户语言） | 矛盾地位 | gate_type | required | terminal_expectation | quality_bar |
+|-------------|------------|------------------------------|----------|-----------|----------|----------------------|-------------|
 
 ## 完成的定义（DoD 摘要）
-- 全部"必须"条款通过测试
-- 所有 delivery 类型的 test obligation 都有对应的 PASS testcase
-- 所有 change-risk 类型的 test obligation 都有对应的 PASS testcase
-- 无回归
-- 文档已同步
+- 主要矛盾对应的决定性 AC 实测达成（此条 FAIL 时其余 PASS 不能救场）
+- 全部"必须"条款通过对应测试；无回归；文档已同步
 ```
 
-同目录 `assurance-contract.json` 使用机器可读结构：
+FULL 路径的 `assurance-contract.json` 结构：
 
 ```json
 {
@@ -137,5 +92,5 @@
 
 ## 出口
 
-- `{ACCEPTANCE_FILE}` 与 `assurance-contract.json` 已生成且用户确认 → 进入 phase-0。
+- `{ACCEPTANCE_FILE}`（含矛盾分析节）已生成且用户确认（FULL 路径含 `assurance-contract.json`）→ 进入 phase-1。
 - 用户无法澄清关键条款 → 标记 BLOCKED，说明缺哪条信息。

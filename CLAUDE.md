@@ -8,7 +8,9 @@ This is a Claude Code **plugin** containing three skills that orchestrate a comp
 
 - **`/plan-bs`**: Brainstorm & co-create plan → challenge & iterate → user review (does NOT implement business code)
 - **`/plan-task`**: Execute a finalized plan → 100% completion audit → testing → delivery
-- **`/plan-test`**: End-to-end automated version of the above two (requirements → architecture → plan → execute → test → DoD)
+- **`/plan-test`**: End-to-end automated version of the above two (contradiction analysis → investigate & plan → challenge → execute → verify around the principal contradiction → DoD)
+
+Since v0.7.0 the workflow skeleton is Mao-methodology-based: acceptance opens with a principal-contradiction analysis (what / why / how + minimal verification action + principal aspect), every AC is tagged 决定性 (decisive) or 次要 (secondary), and challenge rounds, execution firepower, and test depth all route on that tag. The machine gate is now opt-in (`MACHINE_GATE: full-high-externality-only`); the default completion record is a one-page journal. Design decisions D1–D13 are recorded in `plans/2026-09-01-mao-methodology-refactor/plan.md`; retired phase docs live in `skills/plan-test/retired/`.
 
 The skills share phase documents, prompts, and configuration from `skills/plan-test/`.
 
@@ -19,9 +21,11 @@ worktrees unless the repository owner explicitly overrides this policy for a spe
 
 ## Core Architecture Principles
 
-### Machine Gate as Single Authority
+### Machine Gate as Single Authority (when enabled)
 
-**Markdown is the human-readable view, NOT the state authority.** Test facts are recorded in `plan-test-run.json` (the unique ledger), and all status/state is recomputed by the deterministic validator. 
+**Since v0.7.0 the gate machinery below applies only when `MACHINE_GATE` is enabled (FLOW_TIER=FULL with high externality — permissions/identity/payments, schema/migrations, public providers/APIs, shared infrastructure, irreversible side effects). On the default path the completion authority is the DoD checklist with per-item evidence plus a one-page journal, and receipt/SHIP wording must not be used.**
+
+When enabled: **Markdown is the human-readable view, NOT the state authority.** Test facts are recorded in `plan-test-run.json` (the unique ledger), and all status/state is recomputed by the deterministic validator. 
 
 - Final delivery decisions ONLY accept the exit code from `python skills/plan-test/scripts/plan_test_gate.py finalize --run-dir <run-dir>`
 - Exit codes: **0** = real delivery pass, **1** = gate fail, **2** = usage error, **3** = fixture-only pass (not shippable)
@@ -294,25 +298,23 @@ Key configuration variables:
 - `CHALLENGER_ENGINE`: claude
 - `AUDITOR_ENGINE`: opus-4.8
 - `FLOW_TIER`: auto (DIRECT/LEAN/FULL based on risk and reversibility)
-- `ARCH_DIR`: ./ARCHITECTURE
+- `MACHINE_GATE`: full-high-externality-only (v0.7.0; default completion record is a one-page journal)
 - `PLANS_DIR`: ./plans
 - `TESTCASE_DIR`: ./testcase
 - `ACCEPTANCE_FILE`: ./acceptance.md
 
 ## Phases
 
-The full workflow (L tier) has 8 phases:
+The full workflow has 6 phases (v0.7.0; phase-0 and phase-5 retired to `skills/plan-test/retired/`):
 
 | Phase | Document | Key Output |
 |-------|----------|------------|
-| A | `phase-A-acceptance.md` | acceptance.md (single source of truth) |
-| 0 | `phase-0-architecture.md` | ARCHITECTURE.md + index |
-| 1 | `phase-1-plan.md` | Executable plan.md |
-| 2 | `phase-2-iterate-plan.md` | Finalized plan + green baseline |
-| 3 | `phase-3-execute.md` | Code + completion audit |
-| 4 | `phase-4-stage-gate.md` | Test facts in ledger + READY_FOR_AUDIT |
-| 5 | `phase-5-testcase.md` | Testcases + full-audit results |
-| final | `phase-final-dod.md` | exit 0 + gate receipt + DoD checklist |
+| A | `phase-A-acceptance.md` | acceptance.md (contradiction analysis + decisive/secondary ACs) |
+| 1 | `phase-1-plan.md` | Executable plan.md (with investigation results + spike evidence) |
+| 2 | `phase-2-iterate-plan.md` | Finalized plan + green baseline (challenge scope narrowed by contradiction status) |
+| 3 | `phase-3-execute.md` | Code + milestone demo + contradiction re-analysis + completion audit |
+| 4 | `phase-4-stage-gate.md` | Journal (or ledger when MACHINE_GATE enabled) + testcase closure |
+| final | `phase-final-dod.md` | DoD checklist + retro self-criticism line (FULL: exit 0 + gate receipt) |
 
 Phases have dependencies but allow parallelism where possible (see `SKILL.md` for dependency graph).
 

@@ -1,127 +1,80 @@
-# Phase 收尾 — Definition of Done + 文档回写
+# Phase 收尾 — Definition of Done + 文档回写 + 自我批评
 
-**目的**：合上闭环。全部勾选才宣布完成；并把文档回写，让下次从最新基线起步。
+**目的**：合上闭环。全部勾选才宣布完成；文档回写让下次从最新基线起步；一行自我批评让流程自身持续瘦身。
 
-## ⓪ 收尾顺序（先文档、后 receipt——顺序错了会死锁）
+## 收尾顺序
 
-> 阻塞判据是"**被测内容**指纹"（schema 1.2.0）：`git add`/`git commit` 一个字节都不改，指纹就
-> 不变，门照样绿；改一个字节则照拦不误。（此前"先 receipt 后文档"的死结见 rationale.md「提交态与内容身份」。）
+1. **文档回写**：README / changelog / `{TESTCASE_DIR}/index.md`；项目自己维护架构文档的顺手更新
+   （本 skill 不再强制维护独立架构文档）。
+2. **DoD 清单逐条核对**（下节）。
+3. **自我批评一行**（`SELF_CRITICISM = required`）：回答"本次哪些门空转了、哪里被仪式拖慢了、
+   哪个环节真拦住了问题"，一两行写进 `{PLANS_DIR}/<feature>/retro.md`。这是门禁退休评审
+   （config `GATE_REGISTRY_DISCIPLINE`）的数据源——规则集只进不出是本套流程的病，
+   数据从这里来。
+4. **提交**：全部改动提交，工作树干净。
+5. **FULL（`MACHINE_GATE` 启用）额外**，固定顺序（顺序错了会死锁）：文档回写 →
+   `re-attest --reason "收尾文档回写"`（`kind=behavioral` 时 required 场景须重跑入账）→
+   启用 active-run 绑定时重新 `activate-run` → 重跑独立 full-audit 并 `audit` 入账
+   （re-attest 改变了 fact，旧审计已 stale）→ `finalize` exit 0 拿 receipt → `render`。
+   **最终交付判定只接受 `finalize` 的 exit code**（exit 3 = fixture-only 不是完成）；
+   没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
+   FAIL 后又改了代码 → 回第 1 步重来。run-dir 产物不参与内容指纹与提交态检查。
 
-1. **先做文档回写**（下面"文档回写"节）：ARCHITECTURE.md / README / changelog / testcase index。
-   文档也是交付内容——改完内容指纹就变了，**不能直接 finalize**（会 `TESTED_RUNTIME_MISMATCH`）。
-2. **`re-attest` 重新采集运行时身份**（这一步不能省，独立审计实测过：跳过它照文档逐字执行仍然 exit 1）：
+## DoD 清单（全绿才算完成——每条附证据位置，不许口头打勾）
 
-   ```bash
-   python {GATE_SCRIPT} re-attest --run-dir <run-dir> --reason "收尾文档回写"
-   ```
+> "我确认过了""逻辑上没问题""同类已验证"都不算证据。任何一条附不上证据 → BLOCKED 升级，不得宣布完成。
+> **验证必须针对 git 已提交状态；对未提交工作树的任何 PASS 一律不作数。**
 
-   - 输出 `kind=doc-only`（变更全是叙述性文档）→ 既有测试结论继续有效，进第 3 步；
-   - 输出 `kind=behavioral`（动了代码、提示词、skill、依赖清单等任何行为文本）→
-     **每条 required 场景都要重跑并 `record-run`**，否则 `RETEST_REQUIRED_AFTER_CHANGE`。
-     注意 `prompts/**`、`skills/**`、`requirements.txt` 一律算行为文本，不算文档。
-3. **若启用了 active-run 绑定，重新 activate**：manifest 的 `active_run_required=true` 时执行
-   `python {GATE_SCRIPT} activate-run --run-dir <run-dir>`。registry 绑定候选内容 digest；re-attest
-   后不更新会触发 `ACTIVE_RUN_MISMATCH`。未启用时不创建 registry。
-4. **重新跑独立 full-audit 并 `audit` 入账**：re-attest 改变了账本 fact，旧审计已 stale
-   （`AUDITOR_INPUT_STALE`）——**这一步同样不能省**。
-5. **跑机器门**：`finalize` → exit 0 + receipt。存在 open/deferred P0/P1 时先按
-   `references/evidence-audit-lifecycle.md` 的整改循环处理，不得绕过 `OPEN_AUDIT_FINDINGS`。
-6. **提交**：内容不变，所以先 finalize 后提交、或先提交后 finalize 都行；重跑 `finalize`
-   与 `render` 仍然通过（`RealRepoAttestationTestCase` 有回归用例锁住这个行为）。
-7. run-dir 内的产物（`plan-test-run.json` / `artifacts/` / `gate-receipt.json` / `report.md`）
-   **不参与内容指纹，也不参与 `COMMIT_STATE_GATE`**——提交态检查命令与排除写法见
-   config `COMMIT_STATE_GATE`（不排除 run-dir 的话，刚写完的 receipt 会让门自己失败）。
-8. 若第 5 步 FAIL 后又改了代码：回到第 1 步重来——**修完代码不能只重跑 finalize，
-   文档可能又过期了，而且内容指纹已变，相关场景必须重测重记**。
-
-## ① 机器门（唯一完成 authority——先过这道，再看清单）
-
-```bash
-python {GATE_SCRIPT} finalize --run-dir <run-dir>
-python {GATE_SCRIPT} render   --run-dir <run-dir>
-```
-
-- **最终交付判定只接受 `finalize` 的 exit code 与结构化 stdout**（authority 语义见 config `GATE_SCRIPT`，诊断码清单见 `gate/PROTOCOL.md`）。**exit 0** + `GATE RECEIPT: <digest>` 才存在"完成"这个状态；没有有效 receipt 的手写 `SHIP / 100% COMPLETE` = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
-- **exit 3 = fixture-only 通过，不是完成**：合成 run 跳过了全部 git 校验，receipt 标 FIXTURE-ONLY，不得用于交付措辞。exit 1 = 门禁 FAIL，exit 2 = 用法错误。
-- `finalize` 会在 auditor 结束后**重新读取并校验所有文件与 hash**（证据、testcase lock、auditor 输入输出、tested HEAD/dirty 指纹）；`render` 重新跑同一 validator 并复验 receipt digest，失效时不渲染 SHIPPABLE。
-- 下面的人工清单是对机器门的**补充复核**，不是替代——机器门 FAIL 时任何人工打勾都不算数。
-- full-audit 之后任何输入变化 → 旧 auditor PASS 与 receipt 自动失效（见 phase-4 ④），须重审后重新 finalize。
-- receipt 的 `evidence_summary` 语义见 `references/evidence-audit-lifecycle.md` §5——不得用 record 数量冒充独立证据数量。
-- 用户后续发现生产缺陷 → `invalidate --reason` 使 receipt 失效；修复 + 永久回归 + 受影响 lane 复测完成后才生成新 receipt。
-
-## DoD 清单（全绿才算完成——每条必须附证据，不许口头打勾）
-
-> **逐条列出并在每条后附证据位置**（文件路径 / 截图 / log 行 / 命令输出）。任何一条附不上证据 → 标 BLOCKED 升级，**不得宣布完成**。"我确认过了""逻辑上没问题""同类已验证"都不算证据。
->
-> **验证必须针对 git 已提交状态；对未提交工作树的任何 PASS 一律不作数。**"验证通过"和"交付物通过"是两回事（半截提交病根见 rationale.md「提交态与内容身份」）。
-
-- [ ] **主要矛盾对应 AC 已单独确认真达成**（业务上可用，非任务打勾）—— 证据：auditor"主要矛盾判定"栏 + 实测记录。此条 FAIL 时其余任何 PASS 都不能救场
-- [ ] **整体可用性实测通过**：按原始需求的核心使用路径整机走通 —— 证据：auditor"整体可用性"栏
-- [ ] **执行期的 plan 层回炉已全部闭环**：回炉的部分重过了 phase-2 收敛判据并回写 plan，无"用补丁掩盖 plan 缺陷"的遗留 —— 证据：auditor"plan 层缺陷清单"为空
-- [ ] `{ACCEPTANCE_FILE}` 全部"必须"条款都有测试证据通过 —— 证据：phase-4 ①b **兑现表**（每条 AC 一行；含 UI 的须有真机 MCP 证据）
-- [ ] **工作树干净且已提交（`COMMIT_STATE_GATE`）**：本轮全部改动已提交，验证针对的就是 HEAD 的代码 —— 证据：`git status --porcelain -- . ':(exclude)<run-dir>'` 空输出 + `git log -1` 的 hash。**非空即 DoD FAIL**，尤其警惕未跟踪的路由/接线文件（"半截提交"病根见 rationale.md「提交态与内容身份」）
-- [ ] **干净态复验**（多代理/worktree 参与实现时必做）：提交后在干净态重启服务，重跑核心价值
-  smoke + 当前路径声明范围的分级冒烟。目的：证明**通过的代码 == HEAD 的代码**
-- [ ] **分级冒烟通过（`FULL_SURFACE_SMOKE`）**：已记录路径、范围和升级判断；声明范围内每个入口
-  各打一枪，无 404/500/未接通 —— 证据：phase-4 ② 冒烟脚本输出
+- [ ] **主要矛盾对应的决定性 AC 已实测达成**（业务上可用，非任务打勾）—— 证据：核心价值 smoke
+  输出 + 审计结论。**此条 FAIL 时其余任何 PASS 都不能救场**
+- [ ] **整体可用性实测通过**：按原始需求的核心使用路径整机走通 —— 证据：journal / 审计记录
+- [ ] 全部"必须" AC 有测试证据通过 —— 证据：phase-4 兑现表（含 UI 的须真机 MCP 证据；
+  无 ❌、无未经用户批准的降级）
+- [ ] **执行期 plan 层回炉已全部闭环**：无"用补丁掩盖 plan 缺陷"的遗留 —— 证据：`a2-events.md`
+  全部标记已回炉闭环
+- [ ] **工作树干净且已提交（`COMMIT_STATE_GATE`）** —— 证据：`git status --porcelain`
+  （FULL 排除 run-dir）空输出 + `git log -1` hash。尤其警惕未跟踪的路由/接线文件
+- [ ] **干净态复验**（多代理/worktree 参与实现时必做）：提交后干净态重启服务，重跑核心价值
+  smoke + 声明范围分级冒烟——证明**通过的代码 == HEAD 的代码**
+- [ ] 分级冒烟通过 —— 证据：冒烟脚本输出（范围与升级判断已记录）
 - [ ] 无回归：构建/测试/lint/类型检查不低于 phase-2 绿色基线 —— 证据：命令输出对比
-- [ ] 测试已按策略路由完成：UI 走 MCP 真人测试，逻辑走脚本，两者皆有则都做 —— 证据：兑现表**无 ❌、无未经用户批准的降级**
-- [ ] 幂等性审查清单已逐条过 —— 证据：`checklists/idempotency-review.md` 逐条结论
-- [ ] 可追溯矩阵无断点：AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 场景 ↔ root run ↔ 证据 ↔ 终态 —— 证据：终审 auditor VERDICT（含场景计数摘要）
-- [ ] auditor 的 open/deferred P0/P1 为零；历史 FAIL finding 有 resolution、证据和必要的 fresh retest —— 证据：`list-audit-findings`
-- [ ] receipt 中 `distinct_artifacts` / `distinct_root_runs` 与实际独立证据相符，共享 artifact 已解释 —— 证据：`gate-receipt.json.evidence_summary`
-- [ ] testcase 已存盘、index.md 与 README 已同步、脚本已纳入回归套件 —— 证据：文件路径
+- [ ] 幂等性审查已逐条过 —— 证据：审查结论
+- [ ] 可追溯矩阵无断点：AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 证据 —— 证据：审计 VERDICT
+- [ ] testcase 已存盘、index 已同步、脚本已纳入回归套件 —— 证据：文件路径
+- [ ] retro.md 已写自我批评一行 —— 证据：文件路径
 
-**正向价值硬门**（输入语义敏感功能，任一不满足 → DoD FAIL）：
+**输入语义敏感功能追加硬门**（任一不满足 → DoD FAIL；确定性 UI 不适用）：
 
-- [ ] 至少 `{MANUAL_MIN_POSITIVE_SAMPLES}` 个 positive-value 场景达成：自然语言输入 + 真实入口 + 真实 provider + **非空有效业务结果** + 人工检查达 quality_bar —— 证据：①c 账本业务终态列 + 人工 review 记录
-- [ ] 没有任何正向 AC 是靠负向安全行为（诚实降级/fail-closed/durable）作证的 —— 证据：auditor 不合格证据清单核查结论
-- [ ] engine 终态与业务终态已分别核对，无"workflow completed 即算成功"的判定 —— 证据：账本双终态列
-- [ ] acceptance 要求的人工报告 review 已对真实生成的报告执行；生成不出报告的正向场景已判 BLOCKED 而非"不适用" —— 证据：review 记录
+- [ ] 至少 `{MANUAL_MIN_POSITIVE_SAMPLES}` 个 positive-value 场景达成（自然语言 + 真实入口 +
+  真实 provider + 非空有效结果 + 人工检查达 quality_bar）—— 证据：广度账本业务终态列
+- [ ] 没有任何正向 AC 是靠负向安全行为（诚实降级/fail-closed）作证的
+- [ ] required 场景无 PENDING/PARTIAL/NOT RUN；distinct 计数达标且 retry/改写未混入
+- [ ] 未执行项仅两种合法来源：acceptance 预标 optional/out-of-scope，或用户 chat 显式批准缩减
+  （已回写 acceptance；结论按缩减后范围表述）
 
-**真人测试广度硬门**（输入语义敏感功能，任一不满足 → DoD FAIL；确定性 UI 不适用）：
+**FULL 追加**：
 
-- [ ] 场景矩阵中全部 required 场景 100% 执行，每个至少 1 次真实 UI root run —— 证据：phase-4 ①c **覆盖账本** + 截图/log
-- [ ] distinct scenario 执行数 ≥ 矩阵 required 数，且 ≥ `{MANUAL_MIN_DISTINCT_CLASSES}` —— 证据：账本汇总计数行
-- [ ] retry/重放/改写/continuation 未被计入 distinct 数 —— 证据：账本分列计数（auditor 已复核）
-- [ ] required 行无 PENDING/PARTIAL/NOT RUN —— 证据：账本状态列全 ✅
-- [ ] 状态一致：README / 详细 testcase 头 / RESULTS / 可追溯矩阵 / Gate 报告五处口径相同 —— 证据：phase-5 状态一致性审查结论
-- [ ] 未执行项仅有两种合法来源：acceptance 预标 optional/out-of-scope，或用户 chat 显式批准缩减（已回写 acceptance；交付结论按**缩减后范围**表述，不得写成原范围全绿）—— 证据：acceptance 范围节 + 用户批准记录
+- [ ] `finalize` exit 0 + `GATE RECEIPT: <digest>` —— 证据：`gate-receipt.json`
+- [ ] auditor open/deferred P0/P1 为零 —— 证据：`list-audit-findings`
 
-> **末尾自检（长任务尤其做）**：宣布完成前回看 phase-4 兑现表——required UI 测试有没有被悄悄换成代码审计？受阻场景有没有未经升级的等价替代？同一问题的多次重跑有没有被写成"多场景验收充分"？**验证通过的内容是不是就是要交付的内容**（提交态门为空且 `finalize` 无 `TESTED_RUNTIME_MISMATCH`）？任一命中就不是 100%，回去补或标 BLOCKED。
+> **末尾自检（长任务尤其做）**：宣布完成前回看兑现表——required UI 测试有没有被悄悄换成代码
+> 审计？受阻场景有没有未经升级的等价替代？同一问题多次重跑有没有被写成"多场景验收充分"？
+> 验证通过的内容是不是就是要交付的内容？任一命中就不是 100%，回去补或标 BLOCKED。
 
-## 文档回写（闭环回到 phase-0；**在 finalize 之前做**，见 ⓪）
+## 升级与交付措辞（硬规则）
 
-- 代码改完后，`{ARCH_DIR}/ARCHITECTURE.md` 可能又过期：更新它，使其反映新架构。
-- 更新 README / changelog（若项目维护）。
-- 文档改动同样计入内容指纹：改完要重跑受影响的门，再 finalize（提交与 finalize 的先后不影响判定）。这样下次跑本 skill 时 phase-0 从最新基线开始，闭环真正合上。
+- 任一必须 AC 为 FAIL/PENDING/无证据 → 总体结论只能写 BLOCKED/FAIL；局部 PASS 必须标注作用域
+  （"安装链路 PASS"）；**禁止用多个基础设施 PASS 稀释一个核心产品 FAIL**。
+- 总体 BLOCKED 时用户要求"启动让我测试"→ 必须先告知：这是已知失败版本、启动目的是复现/补证据、
+  已知会失败的场景清单。不许只说"已启动"。
+- 默认路径交付措辞：如实写明"完成判定依据 journal 与 DoD 清单（无机器 receipt）"+ 测试范围 +
+  证据位置 + KNOWN GAPS。FULL 路径用 receipt 模板（TESTED HEAD/SCOPE/各 lane/KNOWN GAPS/
+  GATE RECEIPT，见 `gate/PROTOCOL.md`）。"100%" 只表示声明范围内 required 门全绿。
+- 全绿 → 最终总结：做了什么、主要矛盾如何被验证、覆盖哪些 AC、证据在哪、文档更新在哪、
+  回归套件新增了什么。
 
 ## 存储卫生
 
-- 用 `du` 检查 plans/testcase 下的大体积证据；超过项目保留策略的截图、录屏和重复日志只保留
-  可追溯指针或摘要，原件移入项目约定的本地归档。不得删除 active run、唯一证据或用户要求留存的产物。
-- 清理已完成且无未提交改动的临时 worktree；不操作用户正在使用或来源不明的 worktree。
-- 门禁退休评审：数据来源与流程见 config `GATE_REGISTRY_DISCIPLINE` 与 rationale.md「门禁退休评审」。
-
-## 升级与交付
-
-- 任何 DoD 项无法达成 → 标记 BLOCKED，说明卡点，交给用户决策，**不谎报完成**。
-- **汇总措辞硬规则**：任一必须 AC 为 FAIL/PENDING/无证据 → 总体结论只能写 BLOCKED/FAIL；局部 PASS 必须标注作用域（"安装链路 PASS"）；**禁止用多个基础设施 PASS 稀释一个核心产品 FAIL**——不许写成"核心功能完成，只剩少量待办"。
-- **交付措辞模板（有有效 receipt 才能填；禁止无作用域的"100% COMPLETE，DECISION: SHIP"）**：
-
-  ```text
-  REQUIRED GATES: PASS
-  TESTED HEAD: <sha>
-  TESTED SCOPE: <AC / slice>
-  FRESH LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
-  HISTORY/UPGRADE LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
-  TEMPORAL/FAULT LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
-  EXPLORATORY LANE: PASS | NOT_REQUIRED(<risk/policy ref>)
-  KNOWN GAPS: 0 / 明确列表
-  GATE RECEIPT: <content_digest>
-  TIME BREAKDOWN: 见 report.md"耗时分解"节（七类 activity_class；measured 与 declared 分列）
-  ```
-
-  "100%" 只表示 **TESTED SCOPE 内 required gates 全绿**，不表示未来绝无缺陷。
-- **已知失败版本的交付警告**：总体为 BLOCKED 时用户要求"启动让我测试"，必须先明确告知——①这是**已知失败版本**；②启动目的是复现/补证据，**不是修复后的验收版本**；③已知会失败的场景清单。不许只说"已启动，可以测试"。
-- 全绿 → 输出最终总结：做了什么、覆盖哪些 AC、测试证据在哪、文档更新在哪、回归套件新增了什么。
+- `du` 检查 plans/testcase 下的大体积证据；超保留策略的截图/录屏/重复日志只留可追溯指针或摘要。
+  不删除 active run、唯一证据或用户要求留存的产物。
+- 清理已完成且无未提交改动的临时 worktree；不动用户正在使用或来源不明的 worktree。

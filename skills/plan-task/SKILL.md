@@ -1,6 +1,6 @@
 ---
 name: plan-task
-description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定绿色基线 → 并行执行 + 100% 完成度审计 → 阶段门禁（测试策略路由：MCP 真人测试/自动化脚本）→ testcase 维护 → 收尾 DoD + 文档回写。当用户说"执行这份 plan""按计划执行并测试""把 plans/xxx 跑了""实施这个计划""/plan-task"时使用。输入是一份现成的 plan（通常由 plan-bs 产出）。注意：还没有 plan、需要先讨论或先写 → 用 plan-bs 或 plan-test；只想写 plan 不执行 → writing-plans。
+description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色基线 → 执行（集中/分兵自决）+ 100% 完成度审计 → 围绕主要矛盾的验收（测试策略路由：MCP 真人测试/自动化脚本）+ testcase 收尾 → 收尾 DoD + 文档回写。当用户说"执行这份 plan""按计划执行并测试""把 plans/xxx 跑了""实施这个计划""/plan-task"时使用。输入是一份现成的 plan（通常由 plan-bs 产出）。注意：还没有 plan、需要先讨论或先写 → 用 plan-bs 或 plan-test；只想写 plan 不执行 → writing-plans。
 ---
 
 # plan-task — 执行 plan + 测试闭环
@@ -14,11 +14,11 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 1. **Announce**：输出 "I'm using the plan-task skill to execute and test the finalized plan."
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
 2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
-3. **建 TodoWrite**：按下面 6 步建 todo。
+3. **建 TodoWrite**：按下面 5 步建 todo。
 
 ## 流程
 
-> **每阶段开工前必做（防跳步硬闸）**：进入下面每一步前，**先完整读该步引用的 `../plan-test/phase-X.md`**，并列出这一阶段的必做项清单（例：phase-5 = 分步 testcase / 幂等审查 / challenger 迭代 / 终审 / index 同步），逐项打勾推进。**不许凭"我大概懂了"跳过子步骤**——本 skill 的漏测几乎都源于没读阶段文档就动手。
+> **每阶段开工前必做（防跳步硬闸）**：进入下面每一步前，**先完整读该步引用的 `../plan-test/phase-X.md`**，并列出这一阶段的必做项清单（例：phase-4 ⑤ = 分步 testcase / 结果回写 / 幂等审查 / 语义等价审查 / index 同步），逐项打勾推进。**不许凭"我大概懂了"跳过子步骤**——本 skill 的漏测几乎都源于没读阶段文档就动手。
 
 ### 1. 定位并校验输入（不许带病开工）
 
@@ -35,34 +35,25 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 
 - 按 `../plan-test/phase-2-iterate-plan.md` 的 **B 节**执行：跑现有构建/测试/lint/类型检查，快照记入 plan 文件夹 `baseline.md`；基线本身是红的要先如实告知用户。
 
-### 3. 并行执行 + 完成度审计
+### 3. 执行 + 完成度审计
 
-- 按 `../plan-test/phase-3-execute.md` 执行：`{EXECUTOR_ENGINE}` 并行派发、worktree 隔离、与本机 hook 共处、`{AUDITOR_ENGINE}` 可追溯矩阵审计、VERDICT 判定、回归门对照 baseline。
-- **同时启动并行验证准备轨**（phase-3 D + `checklists/parallel-verification-track.md`）：testcase 编写与挑战、fixture/冒烟脚本、gate manifest 草案与实现**并行**做，别等实现结束才开始（black-box 纪律：本轨不读实现代码）。下面步骤 4 的"昂贵层前置"只做核对与冻结。
+- 按 `../plan-test/phase-3-execute.md` 执行：**执行模式自决**（任务真独立且量大→分兵并行子代理 + worktree 隔离；环环相扣或量小→集中兵力当前 session 串行打歼灭战，决策一行留痕）、与本机 hook 共处、`{AUDITOR_ENGINE}` 可追溯矩阵审计（主要矛盾优先）、回归门对照 baseline。
+- **oracle 先于实现**（普适铁律）：动手写某条 AC 的实现前，先写下它的"什么算对"（plan 验证栏 / testcase 草稿）；禁止实现后照实现补预期。
+- **价值里程碑 PASS 后**：demo 给用户（跑起来的实物 + 一句用户语言汇报）+ 矛盾转化再分析（重答三问、重排剩余任务）。
 
-### 4. 验收门禁（测试策略路由）
+### 4. 验收（重点论测试 + testcase 收尾）
 
 - 按 `../plan-test/phase-4-stage-gate.md` 执行：便宜门在前（类型检查→lint→接线断言→脚本测试→
   核心价值 smoke→按路径分级冒烟→provider 契约门），贵的真实环境测试在后。
-- **⚠️ 时序：进入昂贵层（真人完整矩阵）之前，先完成 phase-5 的步骤 1–3b + 4**（testcase 编写 + 幂等/语义等价审查 + challenger 迭代定稿；**3c 状态一致性审查不在此时做**——那时还没有执行结果可对账，它属于 phase-5 收尾），并执行 **gate run-dir init**（冻结 acceptance/testcase/场景矩阵，required 场景自动 NOT_RUN）。测试期间每条执行 `record-run` + `attach-evidence` 当场入账。
-- 测试全部执行完 → `finalize --check-only` 输出 `READY_FOR_AUDIT` 才进下一步；full-audit 已移到 phase-5 末尾（结果回写与证据冻结之后），不在本步执行。
-- **本步的 check-only 检不到 `STATUS_CONFLICT`**：文档口径要到 phase-5 3c 才 `declare-status` 登记，那里会再跑一次 check-only——那次才是它的检查点（此前把它写成本步出口条件是个假前置）。
-- **gate init 的 manifest 必须含 `applicability` 三维判定**（值 + 理由 + 判定人），否则 `APPLICABILITY_UNDECLARED` 直接拦截；判「适用」还要矩阵真的兑现（见 phase-4 昂贵层前置 2）。
+- **重点论排布**：决定性 AC 场景先测深测——任一 FAIL 立即停止一切收尾动作（BLOCKED）；次要 AC 各过一遍；兑现表逐条照见每条必须 AC。
+- **完成记录按路径分档**（config `MACHINE_GATE`）：默认记一页 journal（核心价值 smoke 结果 + 兑现表 + 冒烟输出 + 遗留清单）；FULL 且高外部性 → gate 机器账本全流程（`compile-manifest` + `init` 开账、`applicability` 三维判定、每条测试 `record-run` + `attach-evidence` 当场入账、测完 `finalize --check-only` 出 `READY_FOR_AUDIT`、结果回写后 `declare-status` 对账、末尾独立 full-audit 入账）。
+- **testcase 收尾**（phase-4 ⑤）：分步 testcase 归档绑定 AC、实际结果回写（冻结集之外）、脚本纳入回归套件、幂等/语义等价审查、index.md/README 同步。
 
-### 5. testcase 收尾维护 + 独立 full-audit
+### 5. 收尾 DoD + 文档回写 + 自我批评
 
-- testcase 的编写与挑战已在步骤 4 前完成（见上）；本步按 `../plan-test/phase-5-testcase.md` 收尾：把**实际执行结果回写**进 testcase、修正与现实的出入（各文档口径用 `declare-status` 入账对账）、脚本登记回归套件、index.md/README 同步。
-- **最后一步跑独立 full-audit** 并 `audit` 入账——审计之后任何 fact 再变化，旧 PASS 自动 stale，须重审。
-
-### 6. 收尾 DoD + 文档回写
-
-- 按 `../plan-test/phase-final-dod.md` 执行：**先过机器门**——
-
-  ```bash
-  python {GATE_SCRIPT} finalize --run-dir <run-dir>
-  ```
-
-  **本 skill 的最终交付状态只取该命令的 exit code 与结构化 stdout**；**exit 0** + `GATE RECEIPT` 才存在"完成"（**exit 3 = fixture-only 通过，不是完成**；exit 1 = FAIL，2 = 用法错误）。**文档回写 → `re-attest` → 重新 audit → finalize** 是固定四步（见 phase-final-dod ⓪）；跳过 re-attest 会 `TESTED_RUNTIME_MISMATCH`，跳过重新 audit 会 `AUDITOR_INPUT_STALE`。没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。然后 DoD 清单全绿才宣布完成；交付措辞用 phase-final-dod 的 receipt 模板（含 TESTED HEAD/SCOPE/各 lane/KNOWN GAPS/GATE RECEIPT）。（ARCHITECTURE.md / README / changelog 的回写已在跑机器门之前完成并提交。）
+- 按 `../plan-test/phase-final-dod.md` 执行：文档回写（README / changelog / testcase index）→ DoD 清单逐条附证据核对 → **自我批评一行**写进 `{PLANS_DIR}/<feature>/retro.md`（本次哪些门空转、哪里被仪式拖慢）→ 提交。
+- **默认路径**：完成判定 = DoD 清单全绿（每条附证据位置），交付措辞如实写"完成判定依据 journal 与 DoD 清单，无机器 receipt"。
+- **FULL（`MACHINE_GATE` 启用）**：额外按固定顺序过机器门——文档回写 → `re-attest` → 重新 full-audit 入账 → `python {GATE_SCRIPT} finalize --run-dir <run-dir>`。**最终交付状态只取该命令的 exit code**（exit 0 + `GATE RECEIPT` 才是完成；exit 3 = fixture-only 不是完成）；跳过 re-attest 会 `TESTED_RUNTIME_MISMATCH`，跳过重新 audit 会 `AUDITOR_INPUT_STALE`；没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。交付措辞用 receipt 模板。
 - 任何 DoD 项达不成 → BLOCKED 升级，**不谎报完成**。
 
 ## 推进规则
@@ -76,7 +67,7 @@ description: 执行一份已定稿的 plan 并完成全套测试闭环：锁定�
 - **成本纪律**：记录各阶段耗时；复测按 change-impact 路由——只重跑受本次改动影响的层，未变化的昂贵检查（全量构建/打包/全量回归）不重复执行。
 - **已知失败版本启动警告**：总体 BLOCKED 时用户要求启动测试，必须先告知"这是已知失败版本、目的是复现/补证、非验收版本、已知这些场景会失败"，不许只说"已启动"。
 - **缩小测试范围必须用户显式批准**：批准后回写 acceptance 的范围节（标注"用户批准缩减：原 S-x 移出范围"），交付结论只能表述为**用户批准后的范围**全绿，不得写成原范围全绿。
-- 按 SKILL.md（plan-test）"推进规则"的依赖图执行：实现轨与验证准备轨并行，昂贵真人测试等两轨汇合；每阶段/轨道收尾过"100% 完成度审计 + 对应测试"才算完成，门的强度不因并行而降。
+- 按 SKILL.md（plan-test）"推进规则"执行：执行模式自决（集中兵力/分兵），oracle 先于实现贯穿始终；每阶段收尾过"100% 完成度审计 + 对应测试"才算完成，门的强度不因并行而降。
 - 所有"循环直到"受 `{MAX_ROUNDS}` 兜底，超限 → BLOCKED 升级。
 - `EXECUTE_AUTONOMY = high`：执行中的分歧按最佳实践自决（BLOCKED 例外）；
   `BEHAVIOR_POLICY = preserve-approved`：保持已批准外部行为，内部按 Ponytail policy 最小化。

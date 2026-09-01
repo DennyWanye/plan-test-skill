@@ -1,7 +1,7 @@
 {
   "name": "plan-test",
-  "version": "0.6.2",
-  "description": "三个 skill 的工作流插件：plan-bs（头脑风暴共创 plan → 挑战迭代 → review 定稿）、plan-task（执行定稿 plan → 100% 完成度审计 → 测试策略路由 → DoD）、plan-test（两段一条龙）。含主要矛盾优先（最短价值路径排序 + 价值里程碑硬门）、任务类型分流（软件交付 DIRECT/LEAN/FULL 与运维部署 OPS 路径）、机器门禁（唯一状态账本 + deterministic validator + gate receipt，手写 SHIP 无效）、冻结 black-box oracle、行为契约冻结、毛选式调研方法论、VERDICT 结构化循环判定、增量架构校准。引擎、路径、轮次均可配置。",
+  "version": "0.7.0",
+  "description": "三个 skill 的工作流插件：plan-bs（头脑风暴共创 plan → 挑战迭代 → review 定稿）、plan-task（执行定稿 plan → 100% 完成度审计 → 围绕主要矛盾的验收 → DoD）、plan-test（两段一条龙）。毛选方法论为流程骨架：矛盾分析四问（主要矛盾/成因/解法/主要方面）驱动 AC 分级（决定性/次要），挑战轮次、执行火力、测试深度按矛盾地位路由；调查并入写 plan（没有调查没有发言权、解剖麻雀）、关键假设实践先行（spike 真跑）、执行模式集中/分兵自决、里程碑 demo + 矛盾转化再分析、收尾自我批评。机器门禁（唯一状态账本 + deterministic validator + gate receipt）降级为 FULL 且高外部性 opt-in（MACHINE_GATE），默认完成记录为一页 journal——砍仪式不砍证据（战略上藐视，战术上重视）。引擎、路径、轮次均可配置。",
   "author": {
     "name": "DennyWanye"
   },

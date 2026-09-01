@@ -3,15 +3,15 @@
 一个 Claude Code **插件**，含三个 skill，把"优化 / 升级 / 重构需求"走完整闭环：
 
 ```
-需求澄清 & 验收标准  →  架构基线  →  写 plan  →  子代理挑战迭代
-  →  并行执行 + 100% 完成度审计  →  测试策略路由(MCP真人测试 / 自动化脚本)
-  →  收尾 DoD + 文档回写
+矛盾分析与验收标准  →  调查与写 plan（实践先行 spike）  →  子代理挑战迭代（重点论收窄）
+  →  执行（集中/分兵自决 + 里程碑 demo + 矛盾转化再分析）+ 100% 完成度审计
+  →  围绕主要矛盾的验收(MCP真人测试 / 自动化脚本)  →  收尾 DoD + 文档回写 + 自我批评
 ```
 
 | Skill | 覆盖范围 | 适用场景 |
 |-------|---------|---------|
-| `/plan-bs` | 头脑风暴对话 → 验收标准 → 架构基线 → 共创 plan → 挑战迭代 + spike 验证 → 用户 review 定稿 | 想先和 AI 讨论清楚再定计划；**不实现业务代码**（会跑可丢弃的验证 spike） |
-| `/plan-task` | 校验定稿 plan → 绿色基线 → 并行执行 + 审计 → 阶段门禁测试 → testcase → DoD | 已有定稿 plan（通常来自 plan-bs），只要执行 + 测试 |
+| `/plan-bs` | 头脑风暴对话（挖主要矛盾）→ 验收标准 → 调查 + 共创 plan → 挑战迭代 + spike 验证 → 用户 review 定稿 | 想先和 AI 讨论清楚再定计划；**不实现业务代码**（会跑可丢弃的验证 spike） |
+| `/plan-task` | 校验定稿 plan → 绿色基线 → 执行 + 审计 → 围绕主要矛盾的验收 + testcase 收尾 → DoD | 已有定稿 plan（通常来自 plan-bs），只要执行 + 测试 |
 | `/plan-test` | 上面两段的一条龙自动版（需求澄清不走头脑风暴对话，走快速确认） | 需求已基本清楚，直接端到端做完 |
 
 三个 skill 共享 `skills/plan-test/` 下的阶段文档、子代理提示词与配置。plan-bs 定稿时会在 `plan.md` 头部写 `<!-- plan-status: finalized -->` 标记，plan-task 开工前校验它——这是两段之间的交接契约。
@@ -20,7 +20,9 @@
 
 ## 设计原则
 
-- **机器门是唯一完成 authority**：Markdown 规则是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `skills/plan-test/scripts/plan_test_gate.py`（deterministic validator）重算；最终交付判定只接受 `finalize` 的 exit code 与 `gate-receipt.json`（**exit 0 = 交付通过；exit 3 = fixture-only 通过，不可交付**），没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为 `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。稳定诊断码、状态机与 run 目录契约见 `skills/plan-test/gate/PROTOCOL.md`；当前 schema 见 `skills/plan-test/schemas/plan-test-run.schema.json`；完整自测使用 unittest discovery。
+- **战略上藐视，战术上重视（v0.7.0 总纲）**：战略上敢裁剪仪式——默认 LEAN、默认一页 journal 收尾、挑战与测试力度按矛盾地位收窄、说不出理由的门跳过留痕；战术上每条声明必须有实测证据——决定性 AC 必须真验证、真人测试不降级、提交态必须干净。**砍的是仪式，不是证据。**
+- **围绕主要矛盾（毛选方法论为流程骨架）**：acceptance 第一节是矛盾分析四问（主要矛盾是什么/产生原因/怎么解决+最小验证动作/矛盾的主要方面）；每条 AC 标注决定性/次要，挑战轮次、执行火力、测试深度全按它路由；关键假设实践先行（写 plan 时当场 spike 真跑）；价值里程碑 PASS 后 demo 给用户 + 矛盾转化再分析；收尾写一行自我批评进 retro.md（门禁退休评审的数据源）。
+- **机器门是启用时的唯一完成 authority（`MACHINE_GATE: full-high-externality-only`，v0.7.0 起为 FULL 且高外部性的 opt-in；默认路径完成记录 = 一页 journal + DoD 逐条证据）**：启用时 Markdown 规则是给人读的视图，不是状态 authority。测试事实记入 `verification/<run-id>/plan-test-run.json` 唯一账本，状态由 `skills/plan-test/scripts/plan_test_gate.py`（deterministic validator）重算；最终交付判定只接受 `finalize` 的 exit code 与 `gate-receipt.json`（**exit 0 = 交付通过；exit 3 = fixture-only 通过，不可交付**），没有有效 receipt 的手写 `SHIP / 100% COMPLETE` 一律视为 `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。稳定诊断码、状态机与 run 目录契约见 `skills/plan-test/gate/PROTOCOL.md`；当前 schema 见 `skills/plan-test/schemas/plan-test-run.schema.json`；完整自测使用 unittest discovery。
 - **门要被调用才存在**：`hooks/` 提供三个强制层锚点——CI（最硬）、git pre-push（harness 无关）、harness 原生钩子（Claude Code Stop hook 随插件自动挂载；Codex 无阻断钩子，靠前两者兜），把"必须跑 finalize"从纪律变成强制。一个都不启用时，请如实说明机器门为自愿调用——Markdown 里写"必须跑"不构成强制。锚点 × harness 矩阵见 `hooks/README.md`。
 - **适用性判定入账**：`input_sensitive` / `llm_payload_driven` / `stateful_init` 必须在 manifest 的 `applicability` 里显式声明（值 + 理由 + 判定人），冻结进账本与 receipt。判「不适用」合法但留痕可追责；判「适用」则场景矩阵必须真的兑现（`APPLICABILITY_GATE_UNSATISFIED`）。此前判一句"这是确定性 UI"就能让场景矩阵、正向价值、随机采样、冷启动四道门合法消失且无人知晓。
 - **账本只能经 CLI 写**：每次写入追加 integrity 链，手改一行 `runs[].result` → `LEDGER_TAMPERED`（防顺手改，不防有决心的伪造）。审计产物里的 verdict 与命令行不一致 → 直接拒绝；`--engine` 与 executor 相同 → advisory 曝光自审自判。
@@ -34,7 +36,7 @@
 - **调研有方法论**：调研阶段遵循毛选式问题解决纪律（没有调查没有发言权、抓主要矛盾、具体问题具体分析、解剖麻雀、实践—认识—再实践、集中优势兵力），见 `skills/plan-test/methods/research-method.md`。
 - **循环判定结构化**：挑战/审计子代理末行统一 `VERDICT: PASS/FAIL`，编排者只按结论行判定循环去留，缺失按 FAIL 处理，不靠解读语气。
 - **子代理带上下文包冷启动**：派发时嵌入验收条款、plan 片段与上轮结论，圈定读取范围；多轮迭代只挑战未闭环项，不重复烧 token。
-- **架构文档增量校准**：ARCHITECTURE.md 带 `last-calibrated` commit 锚点，按 git diff 圈定过期章节增量更新，避免每次全仓重建。
+- **调查并入写 plan（v0.7.0 起）**：不再维护独立 ARCHITECTURE.md（原 phase-0 已退休，见 `skills/plan-test/retired/`）；现状调查围绕主要矛盾圈定范围、解剖麻雀，结论直接写进 plan 的现状栏——调查为决策服务，不为存档服务。
 
 ## 安装
 

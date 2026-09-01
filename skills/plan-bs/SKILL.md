@@ -5,7 +5,7 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 
 # plan-bs — 头脑风暴 & 计划共创
 
-和用户**对话共创**出一份定稿 plan：头脑风暴澄清需求 → 验收标准 → 架构基线 → 共创初始 plan → 子代理挑战迭代 → 关键假设真代码验证 → 用户 review 定稿。**本 skill 不改业务代码、不执行 plan**（验证用的 spike 是可丢弃代码，跑完即弃）——定稿后交给 `/plan-task`。
+和用户**对话共创**出一份定稿 plan：头脑风暴澄清需求（挖出主要矛盾）→ 验收标准 → 调查现状 + 共创初始 plan → 子代理挑战迭代（重点论：火力集中在主要矛盾）→ 关键假设真代码验证 → 用户 review 定稿。**本 skill 不改业务代码、不执行 plan**（验证用的 spike 是可丢弃代码，跑完即弃）——定稿后交给 `/plan-task`。
 
 本 skill 与 plan-test 共享阶段文档与配置，共享文件都在 `../plan-test/` 下。
 
@@ -14,7 +14,7 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 1. **Announce**：输出 "I'm using the plan-bs skill to brainstorm and co-create the plan with you."
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
 2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
-3. **建 TodoWrite**：按下面 6 步建 todo。
+3. **建 TodoWrite**：按下面 5 步建 todo。
 
 ## 流程
 
@@ -33,38 +33,36 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 
 ### 2. 收敛为验收标准
 
-- 把头脑风暴结论按 `../plan-test/phase-A-acceptance.md` 的模板收敛为 `{ACCEPTANCE_FILE}`（含主要矛盾、范围、逐条可验证的 AC、非功能边界）。
-- **给用户过目确认**后才继续。
+- 把头脑风暴结论按 `../plan-test/phase-A-acceptance.md` 的模板收敛为 `{ACCEPTANCE_FILE}`——第一节是**矛盾分析四问**（主要矛盾是什么/产生原因/怎么解决+最小验证动作/矛盾的主要方面），AC 逐条可验证并标注**决定性/次要**。
+- **给用户过目确认**后才继续（矛盾分析节逐句确认）。
 
-### 3. 架构基线
+### 3. 调查与共创初始 plan
 
-- 按 `../plan-test/phase-0-architecture.md` 执行（含 last-calibrated 锚点增量校准、子代理挑战、VERDICT 判定）。
-
-### 4. 共创初始 plan
-
-- 按 `../plan-test/phase-1-plan.md` 写初始 plan（含最佳实践调研、主要矛盾、代码级任务、AC 追溯）。
+- 按 `../plan-test/phase-1-plan.md` 执行：先**调查现状**（围绕主要矛盾圈定范围、解剖麻雀，结论直接进 plan——不维护独立架构文档），再做最佳实践调研（反本本主义），关键假设**实践先行**（当场写可丢弃 spike 真跑，命令+输出记入 plan），最后写代码级初始 plan（任务绑定 AC 及矛盾地位，最短价值路径排序）。
 - **共创原则**：方案级选择（选哪个技术方向、砍不砍某功能）在头脑风暴已和用户定了，这里不推翻；代码级细节（改哪个文件怎么改）由我调研后自主写，不逐条打扰用户。
 
-### 5. 迭代 plan（先主挑战，再按主要挑战点分派专项挑战）
+### 4. 迭代 plan（重点论：先主挑战，主要矛盾相关才分派专项挑战）
 
-- 按 `../plan-test/phase-2-iterate-plan.md` 的 **A 节四阶段编排**执行：先由 primary challenger
-  完成一轮 breadth challenge，找主要矛盾并输出 root-cause clusters；再对每个
-  `specialist_required=true` 的 cluster 分别派专项子代理；主代理统一 synthesis，最后做 closure diff
-  review。不得一开始就平铺多个无焦点 challenger，也不得跳过 primary 直接专项挑战。
-- **spike 是迭代循环的组成部分，不是迭代后的补课**：进入循环前先列**关键假设清单**（"决定方案成败、且静态阅读无法确认"的假设——三方库/API 真实能力、LLM 输出契约、数据源真实形态、性能可达性；局部细节不算，别撑成全量测试）；挑战者把"缺 spike 证据"列为致命问题时，**当轮就写可丢弃 spike 真跑验证**（真实调用/数据/provider，记录命令+实际输出），结论回写 plan 再进下一轮挑战——这就是收敛判据第 5 条的达成方式。
+- 按 `../plan-test/phase-2-iterate-plan.md` 的 **A 节**执行，挑战范围按其"重点论"节收窄：
+  **主要矛盾相关部分**走完整四阶段（primary breadth → specialist → synthesis → closure）；
+  **其余部分**一轮 breadth 无 P0 即收。不得一开始就平铺多个无焦点 challenger，也不得跳过
+  primary 直接专项挑战。记账方式按 phase-2"记账分档"（LEAN 用 plan 文件夹的 findings 文件，
+  不启用 gate CLI）。
+- 挑战中暴露的**新**关键假设（phase-1 实践先行没覆盖到的），当轮就写可丢弃 spike 真跑验证
+  （真实调用/数据/provider，记录命令+实际输出），结论回写 plan 再进下一轮。
 - 假设验证**不成立** → 方案层面改（必要时回步骤 1 和用户重新讨论方向），不许硬着头皮收敛。spike 代码即弃，不滚成实现。
 - **注意**：B 节"锁定绿色基线"不在本 skill 做——那是执行前动作，归 plan-task。
 - 正确性收敛后按 phase-2 的 Ponytail minimality pass 单独审一次；它不进入挑战循环。
 
-### 5b. 关键假设验证收口（定稿前检查，非首次验证时点）
+### 4b. 关键假设验证收口（定稿前检查，非首次验证时点）
 
 定稿前对照关键假设清单做最后核对：
 
 1. 清单覆盖了主要矛盾解法依赖的全部关键假设，无遗漏？
 2. 每条都有"真跑证据（命令+实际输出）+ 结论"？没有一条是"预计可行 / 理论上支持 / 读过源码应该行"？
-3. 有遗漏或纸上项 → **回步骤 5 补验证再来**，不许带着未验证假设定稿。
+3. 有遗漏或纸上项 → **回步骤 4 补验证再来**，不许带着未验证假设定稿。
 
-### 6. 和用户 review 定稿
+### 5. 和用户 review 定稿
 
 - 把定稿 plan 给用户 review：主要矛盾、方案选择及理由、任务清单概览、迭代中被挑战出的关键改动、**关键假设验证结果**（哪些假设、怎么验的、证据是什么）。
 - 用户通过后，在 `plan.md` 头部写入标记：`<!-- plan-status: finalized (plan-bs) -->`。

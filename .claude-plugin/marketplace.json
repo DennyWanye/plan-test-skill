@@ -7,7 +7,7 @@
     {
       "name": "plan-test",
       "source": "./",
-      "description": "plan-bs / plan-task / plan-test 三个 skill 的工作流插件，含机器门禁（唯一状态账本 + deterministic validator + gate receipt）与强制层锚点（Stop hook 随插件自动挂载；git pre-push 与 CI 锚点见 hooks/README.md）。"
+      "description": "plan-bs / plan-task / plan-test 三个 skill 的工作流插件。毛选方法论为流程骨架（矛盾分析驱动 AC 分级与力度路由、实践先行、集中/分兵自决）；机器门禁（唯一状态账本 + deterministic validator + gate receipt）为 FULL 高外部性 opt-in，默认 journal 收尾。强制层锚点：Stop hook 随插件自动挂载（仅存在 gate run-dir 时生效）；git pre-push 与 CI 锚点见 hooks/README.md。"
     }
   ]
 }

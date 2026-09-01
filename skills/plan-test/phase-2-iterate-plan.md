@@ -4,8 +4,26 @@
 
 ## A. 迭代 plan
 
-开始前必须已有用户确认的 `acceptance.md` 与同目录 `assurance-contract.json`。启动循环时冻结
-contract、scope hash、threat-model hash 和 plan baseline：
+### 挑战范围（重点论：火力集中在主要矛盾）
+
+- **主要矛盾相关部分**（决定性 AC 对应的任务、解法核心链路、矛盾的主要方面触及的模块）：
+  走完整四阶段挑战编排（primary → specialist → synthesis → closure），迭代到无 open P0/P1。
+- **其余部分**（次要 AC、外围任务）：只在 primary breadth 轮被覆盖**一次**，无 in-scope P0
+  即收——不派 specialist、不进入多轮 closure。两点论兜底：这一轮 breadth 不许跳过。
+- 例外：次要部分暴露出 in-scope P0，或与主要矛盾解法存在结构耦合 → 升入完整挑战范围。
+- challenger 对主要矛盾有固定质询：写成复合句、防御排第一优先 = P0 打回；
+  **plan 是否在用补丁绕过真架构问题**（判定见下方强约束）。
+
+### 记账方式（按路径分档，反对文牍主义）
+
+- **LEAN（默认）**：不启用 gate CLI 的 challenge loop 记账。challenger 仍输出结构化 findings
+  JSON，主 agent 把每轮产物按 `round-N-findings.json` / `closure-N.json` 存入 plan 文件夹，
+  自行维护 open/resolved 清单并核对闭环；3/5/8 轮出口照旧执行（人判，不靠机器推导）。
+- **FULL（`MACHINE_GATE` 启用时）**：用 gate CLI 全程入账，按下方命令执行——收敛由 gate 从
+  finding ledger 推导，reviewer 自报 PASS 没有 authority。
+
+开始前必须已有用户确认的 `acceptance.md`（FULL 路径含同目录 `assurance-contract.json`）。
+FULL 路径启动循环时冻结 contract、scope hash、threat-model hash 和 plan baseline：
 
 ```bash
 loop_id=$(python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" start-challenge-loop \
@@ -28,9 +46,9 @@ GATE check-loop-limit --run-dir <run-dir> --loop-id $loop_id
 开始本节前完整读取 `references/challenge-orchestration.md`。派发时把该 reference、对应 role prompt
 和最小上下文包一起交给子代理，不把规则复制进多份临时 prompt。
 
-**LEAN 的 2-lite**：四阶段顺序不变、只压缩轮次（见 config LEAN 行）；plan 被修改或仍有 open
-P0/P1 时跑一次 closure。若 closure 仍有 open P0/P1、出现新主要结构根因或需要 architecture
-reset，立即升级 FULL，不在 LEAN 中反复压缩。
+**LEAN 的 2-lite**：四阶段顺序不变，范围按上面"挑战范围"节收窄——specialist/closure 只围绕
+主要矛盾相关 cluster 展开；次要部分一轮 breadth 即收。若 closure 仍有 open P0/P1、出现新主要
+结构根因或需要 architecture reset，立即升级 FULL，不在 LEAN 中反复压缩。
 
 #### Stage 1：Primary breadth challenge
 
@@ -119,10 +137,9 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
 1. Primary breadth coverage 完整，且其所有范围内 P0/P1 已进入 root-cause cluster。
 2. 所有 required cluster 已完成专项挑战，或有理由与用户批准 hash 的显式 waiver。
 3. Synthesis 已记录，冲突已裁决，required spike 已成为显式动作。
-4. **关键技术假设已用真代码验证**：凡“决定方案成败、静态阅读无法确认”的假设（三方库/API
-   真实能力、LLM 输出契约、性能可达性、关键链路运行时行为），必须有**可运行 spike 真跑过的证据**
-   （命令 + 实际输出）回写在 plan 里。“读过源码应该支持 / 理论上可行”不算闭环；spike 代码即弃，
-   不滚成实现。
+4. **关键技术假设已用真代码验证**：phase-1"实践先行"的假设清单全部有 spike 实测证据
+   （命令 + 实际输出）在 plan 里；挑战中暴露的**新**关键假设，当轮补 spike 再进下一轮。
+   "读过源码应该支持 / 理论上可行"不算闭环；spike 代码即弃，不滚成实现。
 5. Closure review 已完成，且 open in-scope P0/P1 为零。
 6. **相对于已批准范围的 100% 代码可执行**：已**认真调研过当前代码层**（相关文件、函数、调用链、
    依赖、现有实现方式都已读过并写进 plan）；每个改动点已**确认代码级别的修改方式**（改哪个文件/
@@ -132,9 +149,13 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
 8. plan 含实现细节调研结论（"怎么做、为什么这样做"）。
 9. **无"绕过真架构问题的补丁式收尾"**（见下方强约束）。
 10. acceptance/assurance contract 没有未经批准的变化。
+11. **不打无把握之仗**：逐任务核对开工前提——该任务的关键假设已 spike 实测、改动点的现状
+    代码已真读过（plan 现状栏有证据）。任一任务"没把握"（假设未验证、现状是猜的）→ 不算
+    收敛，回去补调查/补实践，而不是开工后靠 A2 回炉兜底。
 
-> 收敛不是 reviewer 写 PASS，也不是迭代满 N 轮；它是 gate 从 finding ledger 推导出的
-> `CONVERGED`（3/5/8 轮出口见 config“轮次与出口”）。
+> 收敛不是 reviewer 写 PASS，也不是迭代满 N 轮；LEAN 由主 agent 对照 findings 清单逐条核对
+> 闭环后判定，FULL 由 gate 从 finding ledger 推导出 `CONVERGED`（3/5/8 轮出口见 config
+> "轮次与出口"）。
 
 ### 强约束：真架构问题优先重构，不许小修小补
 
@@ -165,18 +186,22 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
    - 术语表与实体关系（一个入口 ≠ 一个 Session；一个 Session 可有多个 Run……）；
    - **before / after 行为表**：现有行为 vs 目标行为逐行对照；
    - 明确**保留、删除、改变**的旧行为清单。
-2. 把原始用户消息 hash、行为契约、用户批准事件写进 gate 账本（init manifest 的
-   `behavior_contract` / `source_request`，见 `gate/PROTOCOL.md`）。acceptance 的每个行为
-   断言都要能回溯到这张表——**acceptance 事实源写错，后面 100% 只会更稳定地做错**。
+2. 行为契约与用户批准记录存 plan 文件夹；FULL（`MACHINE_GATE` 启用时）另把原始用户消息
+   hash、行为契约、批准事件写进 gate 账本（init manifest 的 `behavior_contract` /
+   `source_request`，见 `gate/PROTOCOL.md`）。acceptance 的每个行为断言都要能回溯到这张表
+   ——**acceptance 事实源写错，后面 100% 只会更稳定地做错**。
 3. 可选派 `prompts/acceptance-challenger.md`（qualitative reviewer）挑战语义遗漏；它只产出
    风险与建议，**不能替代**上述结构化批准与 deterministic gate。
 
-### black-box oracle 冻结（P0：防测试被反转成验证错误行为）
+### oracle 先于实现（P0：防测试被反转成验证错误行为）
 
-- 定稿后、实现前，把外部 black-box testcase 的逐文件 hash 冻结进 gate 账本
-  （init manifest 的 `testcase_files` → `testcase_lock`）。冻结语义与唯一例外
-  （`behavior_changes` 批准 artifact）见 config `ORACLE_FREEZE`；"看起来只是重写文案"
-  不得自动放行。
+- **普适规则（所有路径）**：任何 AC 的"什么算对"（验收断言/预期结果）必须在写它的实现
+  代码**之前**写下（plan 任务的验证栏或 testcase 草稿）；禁止实现后照实现补预期——
+  "照着实现写测试"会把 bug 测成预期行为。
+- **FULL（`MACHINE_GATE` 启用时）额外**：定稿后、实现前，把外部 black-box testcase 的
+  逐文件 hash 冻结进 gate 账本（init manifest 的 `testcase_files` → `testcase_lock`）。
+  冻结语义与唯一例外（`behavior_changes` 批准 artifact）见 config `ORACLE_FREEZE`；
+  "看起来只是重写文案"不得自动放行。
 - 实现后**新增**测试可单独记录；**删除、反转、放宽** frozen oracle 必须走上述批准。
   repo 内部 unit/integration test 的 mutation report 只能作审计信号，不能替代冻结的
   black-box oracle，也不能单独证明行为变更获得授权。

@@ -1,156 +1,96 @@
-# Phase 3 — 并行执行 + 完成度审计（+ 并行验证准备轨）
+# Phase 3 — 执行（集中兵力或分兵，agent 自决）
 
-**目的**：按定稿 plan 实现代码，并审计到 100% 完成、无回归；同时用独立的验证准备轨
-把 phase-4 昂贵层之前的一切准备工作提前做完（见 D 节）——只有昂贵真人测试必须等代码冻结，
-准备工作不必等。
+**目的**：按定稿 plan 实现代码，先打通价值验证里程碑，再稳定交付；完成度审计到 100%、无回归。
 
-## 开场硬门（每次 phase 3 必做，不可跳过）
+## 开场（每次必做）
 
-**2026-08-14 新增：把文档规则变成工具强制执行。**
+1. **Release Unit 体量检查**：对照 config `RELEASE_UNIT_LIMITS`（MUST AC ≤ 8 / Task ≤ 10 /
+   plan ≤ 2000 行 / 高风险子系统 ≤ 3）。超限 → BLOCKED，升级给用户附拆分建议
+   （拆 program plan + 垂直 slice，每个 slice 独立验收）；**禁止删 AC、合并任务或降级 MUST 绕过**。
+   FULL（`MACHINE_GATE` 启用）用 `{GATE_SCRIPT} check-release-unit` 机检并 `phase-start` 入账。
+2. **执行模式自决（集中兵力 vs 分兵，决策一行留痕在 plan 文件夹）**：
+   - **集中兵力（当前 session 串行）**：任务环环相扣（同一文件簇、有顺序依赖）、总量小
+     （≤3 个任务或单切面）、或主要矛盾链路需要连贯上下文 → 当前 session 逐任务打**歼灭战**：
+     做完一个任务就验证它、提交它，再打下一个；不齐头并进留一堆半成品。
+   - **分兵（并行子代理）**：任务**真独立**（改动文件不相交、无顺序依赖）且数量多/单任务大 →
+     用 `{EXECUTOR_ENGINE}` 并行派发，git worktree 隔离防冲突。
+   - 判断标准是任务的客观依赖结构，不是"并行显得高级"；疑义时集中兵力（串行的代价是慢，
+     错误并行的代价是冲突与半截提交）。
 
-1. **Release Unit 体量检查（P0-1）**：
-   ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-release-unit \
-     --acceptance <acceptance.md 路径> \
-     --plan <plan.md 或 implementation-tasks.md 路径>
-   ```
-   
-   - exit 0 才能继续；exit 1 → 立即 BLOCKED，升级给用户附带拆分建议。
-   - 检查项：MUST AC ≤ 8、Task ≤ 10、plan 行数 ≤ 2000、高风险子系统 ≤ 3。
-   - **禁止删除 AC、合并任务或降级 MUST 为 SHOULD 来绕过**。
+## A. 执行
 
-2. **记录 Phase 转移事件**（可追溯性）：
-   ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" phase-start \
-     --run-dir <run-dir> \
-     --phase phase-3 \
-     --note "Phase 2 收敛于第 N 轮，plan hash: <hash 前 8 位>"
-   ```
-
-3. **WIP 累积监控初始化**：记录当前基线，用于后续检查点比对。
-
-## A. 并行执行
-
-1. 用 `{EXECUTOR_ENGINE}` 子代理**并行**完成 plan 中相互独立的任务（默认 `current` = 继承当前会话模型，不指定 model 参数；用户当前用什么模型，执行子代理就用什么模型）。
-   - **最短价值路径优先**：先集中火力打通到"价值验证里程碑"（plan 主要矛盾节声明的 Task N）的最短链路；里程碑之前只做它的直接依赖，其余任务哪怕独立可并行也排后。
-   - **价值里程碑硬门**：里程碑对应的最小验证动作**真实执行并 PASS 之前，禁止进入任何昂贵加固步骤**（封存、全量回归、审计仪式、完整真人矩阵）；里程碑 FAIL → 主要矛盾没解决，立即回炉（A2）或 BLOCKED，不许先把外围任务做完"凑完成度"。
-   - 里程碑 PASS 后主要矛盾转化（跑通 → 稳定安全交付），剩余任务按依赖顺序推进；独立任务并行派发。
-   - 多代理并行写文件时用 git worktree 隔离，避免冲突。
-2. `EXECUTE_AUTONOMY = high`：遇分歧按最佳实践自决，不打断用户（BLOCKED 例外）。**自决范围仅限实现层**（换个写法、局部结构微调）；plan 层缺陷不在自决范围内，走 A2 回炉，派发执行子代理时必须把这条写进其 prompt。
-3. `BEHAVIOR_POLICY = preserve-approved`：不静默减少已批准外部行为；内部实现可删可换可重构。
-3a. **执行层最小化**：把 `policies/acceptance-preserving-ponytail.md` 写入执行子代理上下文；
-   优先删除无必要任务、复用已有实现、标准库/平台能力与已安装依赖，最后才写最小自定义实现。
-   保护清单、frozen oracle 及有 AC/risk 绑定的 required tests 不得删除。
-3b. **frozen oracle 不可动**（派发执行子代理时必须写进其 prompt）：phase-2 冻结的
-   black-box testcase 与既有 black-box 断言，执行子代理**无权删除、反转、放宽**——测试
-   失败只有两条路：改实现，或上报"疑似行为变更"走 `behavior_changes` 用户批准。私自把
-   "创建新 UUID Session"的断言改成"same-session"这类反转，会被 gate 的
-   `FROZEN_ORACLE_CHANGED` 拦截并整体 FAIL。
-4. 频繁提交（每个任务一个 commit），保留可回滚点。
-   - **接线与服务层同 commit（防半截提交）**：把服务层能力接到用户入口上的改动——路由文件、index 挂载、入参透传、运行时白名单——必须和服务层实现进**同一个 commit**。合并各 worktree 产出后，`git status --porcelain -- . ':(exclude)<run-dir>'` 必须为空再继续：只 `git add` 服务层、把未跟踪的路由文件留在工作树里，随后 worktree 清理/回退就会把它抹掉——留下能编译、能过类型检查、但用户路径根本没接通的"半截健康"状态。
-5. **WIP 累积检查点（P0-5 新增，每个子任务完成后必做）**：
-   ```bash
-   python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-wip-limit \
-     --repo-dir <仓库目录>
-   ```
-   - exit 0 → 继续下一个任务；
-   - exit 1 → BLOCKED，输出 `WIP_ACCUMULATION_UNSAFE`，必须先 checkpoint：
-     - 提交当前已完成的独立功能（有测试、可 revert）；
-     - 或拆分当前 slice 为更小的 unit。
-   - **禁止在超大 WIP 上继续叠加改动**。
-6. **与本机 hook 共处**（用户环境常挂 PostToolUse 类型检查 hook，每次编辑后自动跑 tsc/analyze）：
-   - **编辑一次成型**：同一任务对同一文件的改动合并为一次 Edit/Write，别用多次小编辑逐步逼近——每次编辑都会触发一轮类型检查，碎片化编辑等于把最贵的检查跑 N 遍。
-   - hook 报的类型错误**当场修**，不许攒到阶段门禁再统一处理（hook 会反复对同一批错误报警，越攒越贵）。
-   - hook 拦截了某个操作 → 视为用户意图，改走别的路或标记 BLOCKED，不许绕过。
+1. **最短价值路径优先**：先集中火力打通到"价值验证里程碑"（plan 矛盾分析节声明的 Task N）的
+   最短链路；里程碑之前只做它的直接依赖，其余任务哪怕独立可并行也排后。
+2. **价值里程碑硬门**（`VALUE_SMOKE_GATE`，所有路径生效）：里程碑对应的最小验证动作**真实执行
+   并 PASS 之前，禁止进入任何昂贵加固步骤**（封存、全量回归、审计仪式、完整真人矩阵）；
+   里程碑 FAIL → 主要矛盾没解决，立即回炉（A2）或 BLOCKED，不许先把外围任务做完"凑完成度"。
+3. **里程碑 PASS 后的两个强制动作**：
+   - **到群众中去（demo）**：把跑起来的实物给用户看一眼——一个 URL、一张截图、一条可复制的
+     命令，配一句用户语言的进度汇报。让用户在半成品上纠偏，比 plan 文字批准防返工能力强得多。
+     用户明确说过不用看的可只发汇报。
+   - **矛盾转化再分析**：主要矛盾已解决，重答 phase-A 三问——现在决定成败的问题是什么
+     （通常从"能不能跑通"转为"能不能稳定安全交付"，但也可能发现需求该收缩）；按新答案重排
+     剩余任务。一段话写进 plan 文件夹，作为后半程的排序依据。
+4. **oracle 先于实现**（普适铁律，派发执行子代理时写进其 prompt）：动手写某条 AC 的实现前，
+   该 AC 的"什么算对"必须已写下（plan 验证栏 / testcase 草稿）；禁止实现后照实现补预期。
+   FULL 路径已冻结的 black-box testcase，执行者**无权删除、反转、放宽**——测试失败只有两条路：
+   改实现，或上报"疑似行为变更"走用户批准。
+5. `EXECUTE_AUTONOMY = high`：遇分歧按最佳实践自决，不打断用户（BLOCKED 例外）。**自决范围
+   仅限实现层**（换个写法、局部结构微调）；plan 层缺陷不在自决范围内，走 A2 回炉——
+   派发执行子代理时必须把这条写进其 prompt。
+6. `BEHAVIOR_POLICY = preserve-approved` + 执行层最小化：不静默减少已批准外部行为；
+   优先删无必要任务、复用已有实现与标准库，最后才写最小自定义实现
+   （`policies/acceptance-preserving-ponytail.md` 写入执行子代理上下文）。
+7. **频繁提交，接线与服务层同 commit（防半截提交）**：每个任务一个 commit；把服务层能力接到
+   用户入口的改动（路由文件、index 挂载、入参透传、运行时白名单）必须和服务层实现进
+   **同一个 commit**。合并各 worktree 产出后 `git status --porcelain` 必须为空再继续——
+   未跟踪的路由文件会在 worktree 清理时被抹掉，留下"能编译但用户路径没接通"的半截健康状态。
+8. **与本机 hook 共处**：同一任务对同一文件的改动合并为一次编辑（碎片化编辑 = 把最贵的类型
+   检查跑 N 遍）；hook 报错当场修；hook 拦截视为用户意图，不许绕过。
 
 ## A2. 计划失效即回炉（禁止在错误方案上打补丁）
 
-**病根**：plan 本身不完善时，执行者为了把任务打勾，会在错误方案上小修小补——任务全"完成"，但关键问题没解决，做出来的功能最后不可用。
+**判定一句话**：这个补丁能让"任务完成"，但不能让"对应 AC 真达成" → 它在掩盖 **plan 层缺陷**，禁止打。
 
-1. **判定标准（一句话）**：这个补丁能让"任务完成"，但不能让"对应 AC 真达成" → 它就是在掩盖 **plan 层缺陷**，禁止打。
-2. **执行中出现以下任一情况，即为 plan 层缺陷**：
-   - 按 plan 做完了任务，但对应 AC 实际验证不过（方案方向错了）；
-   - plan 的关键假设在真实环境里崩了（phase-2 spike 没覆盖到的）；
-   - 发现 plan 漏掉了决定成败的关键问题（主要矛盾没被方案真正解决）；
-   - 要靠 hack / 特例分支 / 绕行才能把任务"做完"。
-3. **处理铁律：回炉，不绕行**：
-   - **立即停止受影响的执行线**（其余独立任务可继续）；
-   - **记录 A2 事件（P0-4 新增，强制）**：
-     ```bash
-     python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" record-plan-defect \
-       --run-dir <run-dir> \
-       --affected-tasks <任务 ID 列表，逗号分隔> \
-       --defect-type <owner-missing|contract-conflict|scope-drift|假设失败|方案方向错误> \
-       --description "具体问题描述"
-     ```
-   - **检查 A2 累计数（强制）**：
-     ```bash
-     python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" check-plan-stability \
-       --run-dir <run-dir>
-     ```
-     - A2 事件 >= 3 → exit 1，输出 `PLAN_UNSTABLE`；
-     - 诊断："phase 2 未真正收敛，禁止继续叠加 WIP，必须回退 phase 2 重新迭代"。
-   - **用户明确批准后才能**：
-     - 提交或 stash 当前 WIP（不得丢失）；
-     - 回到 **phase-2** 重新迭代 plan 的该部分：补调研、challenger 重新挑战、新假设补 spike 验证、重过收敛判据（含"真架构问题优先重构"强约束）；
-     - plan 更新回写后再恢复执行。回炉超 `{MAX_ROUNDS}` 或需要推翻用户已拍板的方案方向 → BLOCKED 升级给用户；
-   - **执行子代理无权自行决定"就这样先绕过去"**——它只能上报，回炉由主编排者执行。
+1. **以下任一情况即为 plan 层缺陷**：按 plan 做完任务但对应 AC 验证不过（方向错了）；
+   plan 关键假设在真实环境里崩了（spike 没覆盖到的）；发现 plan 漏掉决定成败的关键问题；
+   要靠 hack / 特例分支 / 绕行才能把任务"做完"。
+2. **处理铁律：回炉，不绕行**：
+   - 立即停止受影响的执行线（其余独立任务可继续）；
+   - 记录 A2 事件到 plan 文件夹 `a2-events.md`（受影响任务 / 缺陷类型 / 描述）；
+     FULL 路径另用 `{GATE_SCRIPT} record-plan-defect` 入账并 `check-plan-stability` 机检；
+   - **A2 事件累计 ≥ 3 → plan 不稳定**：phase-2 未真正收敛，禁止继续叠加 WIP，
+     回退 phase-2 重新迭代；
+   - 用户明确批准后：提交或 stash 当前 WIP（不得丢失）→ 回 phase-2 重迭代该部分
+     （补调查、重挑战、新假设补 spike、重过收敛判据含"真架构问题优先重构"强约束）→
+     plan 回写后恢复执行。回炉超 `{MAX_ROUNDS}` 或需推翻用户已拍板的方向 → BLOCKED；
+   - **执行子代理无权自行决定"就这样先绕过去"**——只能上报，回炉由主编排者执行。
 
 ## A3. diff minimality review（便宜检查绿后、完成度审计前，只跑一次）
 
-1. 派子代理读取 `prompts/minimality-reviewer.md`，声明 `MODE: diff-review`；只附相对执行基线的
+1. 派子代理读 `prompts/minimality-reviewer.md`，声明 `MODE: diff-review`；只附相对执行基线的
    `git diff`、acceptance 和 Ponytail policy。
-2. JSON 保存为 plan 目录的 `minimality-diff-review.json`。
-3. 只应用不改变 AC/用户行为、不降低 assurance 的简化，之后重跑编译、类型检查与最小单测。
-4. `ALREADY_MINIMAL` 是正常结果；不循环、不凑 finding。
+2. 只应用不改变 AC/用户行为、不降低 assurance 的简化，之后重跑编译、类型检查与最小单测。
+3. `ALREADY_MINIMAL` 是正常结果；不循环、不凑 finding。
 
 ## B. 完成度审计（循环至 100%）
 
-1. 派 `{AUDITOR_ENGINE}` 子代理，用 `prompts/completion-auditor.md` 评估完成度，**派发时声明 `MODE: code-audit`**（本阶段测试还没跑，只审"AC→任务→代码"前半链 + plan 层缺陷 + 主要矛盾；全链终审在 phase-4 ④）。
-   - **审计锚点是原始需求，不是 plan 打勾**：以 `{ACCEPTANCE_FILE}` 的 AC 达成为准。plan 任务全 ✅ 但某条必须 AC 达不成 → 该 AC 判 FAIL 并标注"plan 层缺陷"，走 A2 回炉——**不许因为"任务都做了"给过**。
-   - **主要矛盾优先**：先单独审"主要矛盾"对应的 AC 是否真达成（业务上可用）；未达成 → 整个审计直接 FAIL，其余任务完成度不必再数——"90% 任务完成但主要矛盾没解决"的正确结论是 FAIL，不是 90%。
-   - 审计走**可追溯矩阵**：`{ACCEPTANCE_FILE}` 的每条 AC ↔ plan 任务 ↔ 实际代码改动，逐条核对有无断点。
-   - 按 SKILL.md"上下文包"规则派发：附 acceptance.md 原文、plan 任务清单、本次改动文件列表（git diff --stat）；复审轮附上一轮的缺口清单，声明**只需复核上轮缺口与新改动**，已确认 ✅ 的条目免重查。
-2. 以输出末行 `VERDICT` 判定：FAIL（不足 100%）→ 补完缺口 → 再次审计（`AUDIT_RETRY = until-100`）；缺结论行按 FAIL 处理。
-3. 超过 `{MAX_ROUNDS}` 仍到不了 100% → 标记 BLOCKED，列出始终无法完成的条款与原因，升级。
+1. 派 `{AUDITOR_ENGINE}` 子代理，用 `prompts/completion-auditor.md`，声明 `MODE: code-audit`
+   （本阶段只审"AC→任务→代码"前半链 + plan 层缺陷；测试链终验在 phase-4）。
+   - **主要矛盾优先**：先单独审决定性 AC 是否真达成（业务上可用）；未达成 → 整个审计直接
+     FAIL，其余完成度不必再数——"90% 任务完成但主要矛盾没解决"的正确结论是 FAIL，不是 90%。
+   - **审计锚点是 acceptance 的 AC 达成，不是 plan 任务打勾**：任务全 ✅ 但某条必须 AC 达不成
+     → 判 FAIL 并标"plan 层缺陷"，走 A2 回炉。
+   - 走可追溯矩阵：每条 AC ↔ plan 任务 ↔ 实际代码改动，逐条核对断点。
+   - 按 SKILL.md"上下文包"规则派发；复审轮只核上轮缺口与新改动。
+2. `VERDICT` 为 FAIL（不足 100%）→ 补完缺口 → 再审（`AUDIT_RETRY = until-100`）；
+   缺结论行按 FAIL 处理。超 `{MAX_ROUNDS}` → BLOCKED 升级。
 
 ## C. 回归门（不破坏既有）
 
-- 对照 phase-2 的 `baseline.md`：现有构建/测试/lint/类型检查必须回到**不低于基线**的状态。
-- 本次新引入的红，必须修复后才算本阶段通过。
-
-## D. 并行验证准备轨（与 A/B 同时进行，别等实现结束才开始）
-
-**病根**（DeskPet 复盘 P1-6）：testcase、fixture、冒烟脚本、gate manifest 那次串行耗了
-3h27m，而它们几乎不依赖实现代码——依赖的是 acceptance 与行为契约，phase-2 定稿时就齐了。
-
-与 A 节实现并行，派独立子代理（或主编排者在实现子代理跑批时自己做）完成
-`checklists/parallel-verification-track.md` 清单：
-
-1. **testcase 资产发现、复用决策、必要用例编写 + challenger 迭代定稿**：
-   先完整读取 `references/testcase-lifecycle.md`，再执行：
-   - 先运行 `scripts/testcase_inventory.py build`（已有 inventory 则先 `validate`），读取
-     `{TESTCASE_DIR}/index.md` 与 `index.json`；
-   - 按 obligation 查询候选，并读取候选 testcase **全文**，核对入口、fixture、步骤与预期；
-   - 为每条 obligation 记录 `reuse-as-is | reuse-with-extension | supersede | create-new`，只有找不到
-     合格候选时才能 `create-new`；
-   - 用 `prompts/testcase-iterator.md` 最少 `{TESTCASE_ITERATIONS}` 轮迭代所选集合。
-   冻结动作仍在 phase-4 昂贵层前置执行，这里只把能冻结的资产提前准备好；
-2. **fixture / 种子数据 / 测试环境准备脚本**（起服务、造数据、清理脚本）；
-3. **分级冒烟脚本**（`FULL_SURFACE_SMOKE`，范围按 config 的当前路径）与核心价值 smoke 输入清单；
-4. **verification spec + gate manifest 草案**：把 acceptance、assurance、obligation、testcase
-   inventory/reuse report 与场景矩阵写入结构化 spec，用 `compile-manifest` 生成 manifest；
-   不手抄 required 场景集合，不解析 Markdown。
-
-**black-box 纪律（本轨铁律）**：本轨只准读 `{ACCEPTANCE_FILE}`、plan、行为契约与既有
-公开接口文档，**禁止读实现代码、diff、执行子代理的中间产物**。oracle 必须在见到实现之前
-定稿——否则"照着实现写测试"会把 bug 测成预期行为，`ORACLE_FREEZE` 防的就是这个方向的
-污染。需要实现细节才能写的用例（说明它不是 black-box 用例），改写成行为断言或移入
-脚本层单测。
-
-**汇合闸**：A/B/C 全部收尾 **且** D 清单全勾 → 进入 phase-4（那里的"昂贵层前置"只做
-冻结与 init，不再从零编写）。哪轨先完成都不许单独越闸。
+- 对照 phase-2 的 `baseline.md`：现有构建/测试/lint/类型检查必须回到**不低于基线**的状态；
+  本次新引入的红必须修复。
 
 ## 出口
 
-- 完成度审计 100% + 无新增回归 + 验证准备轨清单全勾 → 进入 phase-4 阶段门禁。
+- 价值里程碑 PASS（含 demo 与矛盾再分析）+ 完成度审计 100% + 无新增回归 → 进入 phase-4。

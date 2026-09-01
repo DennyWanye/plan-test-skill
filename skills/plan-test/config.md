@@ -18,10 +18,11 @@
 
 ## 路径
 
-- `ARCH_DIR`: ./ARCHITECTURE
 - `PLANS_DIR`: ./plans
 - `TESTCASE_DIR`: ./testcase
 - `ACCEPTANCE_FILE`: ./acceptance.md
+
+（原 `ARCH_DIR` 已随 phase-0 撤销：现状调查并入 phase-1，结论写进 plan，不再维护独立架构文档。）
 
 ## 流程路径（`FLOW_TIER`，默认 auto）
 
@@ -49,15 +50,23 @@
 
 | 路径 | 触发条件（取最高风险） | 跑什么 | 不跑什么 |
 |------|----------------------|--------|----------|
-| **DIRECT** | 同时满足：可快速回滚；不涉权限/资金/身份/迁移；无新持久化状态；不改公共协议；不跨信任边界；不引新依赖 | 不启动 plan-test：一句 AC → Ponytail 最小实现 → 最小决定性测试 → 变更入口 smoke → 提交态硬门 | 不建 run-dir/plan/architecture/contract，不派子代理，不做 ledger/receipt/full-audit |
-| **LEAN** | 单个明确业务切面；用户可见变化；风险可局部隔离；有自动化出口；无高风险迁移或共享基础设施 | phase-A/1/2-lite/3/4/final + 机器门；2-lite 仍按“primary 主挑战 → 必要 cluster 专项挑战 → synthesis → 必要时一次 closure → minimality”执行 | 不做 phase-0 架构 challenger、无 open P0/P1 时不进入多轮 closure、不做 testcase 多轮挑战 |
-| **FULL** | 权限/身份/支付/数据完整性、schema/迁移、多阶段状态机、公共 Provider/API、跨服务、LLM 驱动状态机、不可逆副作用、共享基础设施或 `input_sensitive=true` | 全套 8 阶段 | —— |
+| **DIRECT** | 同时满足：可快速回滚；不涉权限/资金/身份/迁移；无新持久化状态；不改公共协议；不跨信任边界；不引新依赖 | 不启动 plan-test：一句 AC → Ponytail 最小实现 → 最小决定性测试 → 变更入口 smoke → 提交态硬门 | 不建 run-dir/plan/contract，不派子代理，不做 ledger/receipt/full-audit |
+| **LEAN**（默认） | 单个明确业务切面；用户可见变化；风险可局部隔离；有自动化出口；无高风险迁移或共享基础设施 | phase-A/1/2/3/4/final；挑战按重点论收窄（主要矛盾走完整四阶段，其余一轮 breadth）；完成记录 = journal | 不启用机器账本（manifest/init/record-run/receipt/full-audit）、不做 assurance-contract.json（摘要节代替）、次要 AC 不做多轮挑战与多轮 testcase 迭代 |
+| **FULL** | 权限/身份/支付/数据完整性、schema/迁移、多阶段状态机、公共 Provider/API、跨服务、LLM 驱动状态机、不可逆副作用、共享基础设施或 `input_sensitive=true` | 全套 6 阶段 + `MACHINE_GATE` 判定（见下） | —— |
 
-- DIRECT 是“不启动本 skill”的决定；一句 AC 和提交态硬门是项目级 invariant。
-- LEAN 的 2-lite 只压缩轮数，不改变挑战顺序；primary 之前不得先平铺专项子代理。
-- LEAN/FULL 不可裁剪：acceptance 唯一真相、提交态硬门、按路径分级 smoke、
-  `BEHAVIOR_POLICY: preserve-approved`、BLOCKED 升级纪律。
-- DIRECT 无 run-dir、LEAN 无 full-audit 时不得使用 receipt/SHIP/全部完成措辞，只报告范围与证据。
+- `MACHINE_GATE`: full-high-externality-only（2026-09-01 毛选方法论重构新增，反对党八股）
+  - 机器账本层（manifest 编译 / init 开账 / record-run / attach-evidence / re-attest /
+    finalize receipt / 独立 full-audit）**仅在 `FLOW_TIER=FULL` 且命中高外部性条件**
+    （权限/身份/支付、schema/迁移、公共 Provider/API、共享基础设施、不可逆副作用）时启用。
+  - 其余情况完成记录 = **一页 journal**（OPS 路径已实践验证的形态：核心价值 smoke 结果 +
+    兑现表 + 冒烟输出 + 遗留清单）；交付说明如实写"完成判定依据 journal 与 DoD 清单，
+    无机器 receipt"，不得使用 receipt/SHIP 措辞。
+  - 病根：2026-08-31 DGX 复盘实测机器门 100% 荒废、仪式占 22%；砍的是记账仪式，
+    不是证据纪律——journal 里每条声明同样必须附实测证据。
+- DIRECT 是"不启动本 skill"的决定；一句 AC 和提交态硬门是项目级 invariant。
+- LEAN 的挑战收窄只压缩范围与轮数，不改变"primary 先行"的顺序；primary 之前不得先平铺专项子代理。
+- LEAN/FULL 不可裁剪：acceptance 唯一真相、提交态硬门、按路径分级 smoke、决定性 AC 的真人测试
+  不降级、oracle 先于实现、`BEHAVIOR_POLICY: preserve-approved`、BLOCKED 升级纪律。
 - 路径有疑义 → 往高风险路径判。裁剪的代价是漏测，判高的代价只是慢。
 
 ## 轮次与出口
@@ -175,9 +184,11 @@
     允许只跑受影响 AC 的兑现表与 DoD 对应行，但**按路径分级冒烟 + 提交态硬门不得豁免**。
     "小功能就不走流程"不被允许。
 
-## 机器门禁（唯一状态 authority，见 `gate/PROTOCOL.md`）
+## 机器门禁（仅 `MACHINE_GATE` 启用时生效，见 `gate/PROTOCOL.md`）
 
-> Markdown 只是给人读的视图；状态 authority 是结构化账本 + deterministic validator。
+> **本节所有键仅在 `MACHINE_GATE` 判定为启用（FULL 且高外部性）时生效**；默认路径的完成记录
+> 是 journal（见"流程路径"节），不使用本节机制。
+> 启用时：Markdown 只是给人读的视图；状态 authority 是结构化账本 + deterministic validator。
 > （病根见 rationale.md「Markdown 不是状态 authority」）
 
 - `GATE_SCRIPT`: `${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py`
@@ -269,11 +280,12 @@
 - `IMPACT_SCOPED_RETEST`: on（schema 1.3.0）
   - manifest 场景可声明 `impact_paths` glob；behavioral re-attest 只 stale 命中的场景。
     **fail-closed**：无映射/清单截断/变更未被覆盖 → 全量复测；未声明映射的场景永远算受影响。
-- `PARALLEL_TRACKS`: on
-  - 用户批准 plan 后，实现轨（phase-3 A）与验证准备轨（phase-3 D：testcase/fixture/
-    冒烟脚本/gate manifest 草案）**并行**；只有昂贵真人测试等代码冻结。验证准备轨
-    禁止读实现代码（black-box 纪律）。见 SKILL.md"推进规则"依赖图与
-    `checklists/parallel-verification-track.md`。
+- `EXECUTION_MODE`: self-decide（2026-09-01 替代原 `PARALLEL_TRACKS`，验证准备轨已撤销）
+  - 执行模式由 agent 按任务结构自决并一行留痕：任务真独立（文件不相交、无顺序依赖）且量大
+    → **分兵**（并行子代理 + worktree）；环环相扣或量小 → **集中兵力**（当前 session 串行
+    打歼灭战，做完一个验一个提交一个）。疑义时集中兵力。判据全文见 phase-3 开场。
+  - 原验证准备轨的 black-box 精髓保留为普适规则 **oracle 先于实现**（见 phase-2 /
+    phase-3 A.4）：写实现前先写下"什么算对"，禁止照实现补预期。
 - `AI_DRIVING_APPROVAL`: required-for-input-sensitive（schema 1.3.0）
   - 输入语义敏感 + required UI 场景全 AI 驾驶时，须至少 1 次 `--driver human` root run，
     或 `record-approval --kind all-ai-driving --message-hash <用户批准消息 sha256>`；
@@ -301,6 +313,9 @@
     内容寻址的——**输入没变就不过期**；修一处只复验受影响面，禁止"改一行配置重走全链封存"。
   - **病根**：DGX 部署为修一行 Nginx 配置重跑"提交→117 项回归→重封存→NCCL 复验→冷启动"
     全链，同一资格动作重复 23 次。
+- `SELF_CRITICISM`: required（2026-09-01 毛选方法论重构新增，批评与自我批评）
+  - 每次收尾在 `{PLANS_DIR}/<feature>/retro.md` 写一两行自我批评：本次哪些门空转、哪里被
+    仪式拖慢、哪个环节真拦住了问题。它是门禁退休评审（`GATE_REGISTRY_DISCIPLINE`）的数据源。
 - `PROGRESS_REPORTING`: user-language（2026-08-31 DGX 复盘新增）
   - 每个里程碑用一句**用户语言**汇报进度 + 预计剩余时间；长任务（下载/资格测试）必报速率与 ETA。
   - **用户可感知的标的/行为差异必须复述确认**：模型版本、端口、默认模式等在 plan 定稿前
