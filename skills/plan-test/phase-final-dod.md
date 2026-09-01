@@ -7,12 +7,22 @@
 1. **文档回写**：README / changelog / `{TESTCASE_DIR}/index.md`；项目自己维护架构文档的顺手更新
    （本 skill 不再强制维护独立架构文档）。
 2. **DoD 清单逐条核对**（下节）。
-3. **自我批评一行**（`SELF_CRITICISM = required`）：回答"本次哪些门空转了、哪里被仪式拖慢了、
+3. **journal 终态行**（`JOURNAL_VERDICT = required`，语义与登记见 config；**格式的唯一
+   出处是本节**）：在 `journal.md` 末尾写一行——
+
+   ```text
+   VERDICT: SHIPPED | BLOCKED — <TESTED SCOPE> — <日期> — <被测 HEAD sha>
+   ```
+
+   被测 HEAD = 验证针对的代码提交（收尾文档提交尚未发生，不写它）。BLOCKED 时同行附
+   一句卡点——结论定不了 SHIPPED 就如实写 BLOCKED，这是本门的合法出口，不存在堵死态。
+   终态行必须与 DoD 结论一致。
+4. **自我批评一行**（`SELF_CRITICISM = required`）：回答"本次哪些门空转了、哪里被仪式拖慢了、
    哪个环节真拦住了问题"，一两行写进 `{PLANS_DIR}/<feature>/retro.md`。这是门禁退休评审
    （config `GATE_REGISTRY_DISCIPLINE`）的数据源——规则集只进不出是本套流程的病，
    数据从这里来。
-4. **提交**：全部改动提交，工作树干净。
-5. **FULL（`MACHINE_GATE` 启用）额外**，固定顺序（顺序错了会死锁）：文档回写 →
+5. **提交**：全部改动提交，工作树干净。
+6. **FULL（`MACHINE_GATE` 启用）额外**，固定顺序（顺序错了会死锁）：文档回写 →
    `re-attest --reason "收尾文档回写"`（`kind=behavioral` 时 required 场景须重跑入账）→
    启用 active-run 绑定时重新 `activate-run` → 重跑独立 full-audit 并 `audit` 入账
    （re-attest 改变了 fact，旧审计已 stale）→ `finalize` exit 0 拿 receipt → `render`。
@@ -41,6 +51,7 @@
 - [ ] 幂等性审查已逐条过 —— 证据：审查结论
 - [ ] 可追溯矩阵无断点：AC ↔ 任务 ↔ 代码 ↔ testcase ↔ 证据 —— 证据：审计 VERDICT
 - [ ] testcase 已存盘、index 已同步、脚本已纳入回归套件 —— 证据：文件路径
+- [ ] journal 终态行已写且与 DoD 结论一致（`JOURNAL_VERDICT`）—— 证据：journal.md 末行
 - [ ] retro.md 已写自我批评一行 —— 证据：文件路径
 
 **输入语义敏感功能追加硬门**（任一不满足 → DoD FAIL；确定性 UI 不适用）：

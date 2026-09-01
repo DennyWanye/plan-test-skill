@@ -63,6 +63,17 @@
     无机器 receipt"，不得使用 receipt/SHIP 措辞。
   - 病根：2026-08-31 DGX 复盘实测机器门 100% 荒废、仪式占 22%；砍的是记账仪式，
     不是证据纪律——journal 里每条声明同样必须附实测证据。
+- `JOURNAL_VERDICT`: required（2026-09-01 审计整改；四样登记按 `GATE_REGISTRY_DISCIPLINE`——
+  防的实测逃逸 = 2026-09-01 审计实锤"默认路径下'算不算通过'要靠通读 journal"；
+  防的诊断码 = 无（默认路径无 validator；FULL 路径同类问题由
+  `DELIVERY_VERDICT_CONTRADICTS_LEDGER` 拦）；复审日期 = 2026-12-01；
+  **合法出口** = 结论定不了 SHIPPED 就如实写 BLOCKED + 一句卡点——BLOCKED 是合法终态
+  不是惩罚，任何状态下都写得出来，本门不存在堵死态）
+  - journal 收尾必须以终态行结束，这是默认路径下"该 run 算不算通过"的标准化结论，
+    随 `{PLANS_DIR}` 进 git 供日后审计；**没有终态行 = run 未闭环**（本句为唯一规范表述，
+    他处只引用）。**终态行格式的唯一出处是 phase-final**，此处不复制，防两处规范漂移。
+  - 本键是纪律不是机器门（默认路径按 v0.7.0 设计无 validator）；启用了强制锚点的项目
+    可在 hook/CI 里用一行 `grep -q '^VERDICT: ' <journal>` 兜底。
 - DIRECT 是"不启动本 skill"的决定；一句 AC 和提交态硬门是项目级 invariant。
 - LEAN 的挑战收窄只压缩范围与轮数，不改变"primary 先行"的顺序；primary 之前不得先平铺专项子代理。
 - LEAN/FULL 不可裁剪：acceptance 唯一真相、提交态硬门、按路径分级 smoke、决定性 AC 的真人测试

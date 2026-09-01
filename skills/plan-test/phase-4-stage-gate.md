@@ -75,7 +75,9 @@
   2. 兑现表（上面 ③3）；
   3. 冒烟脚本路径与输出摘要；
   4. 广度账本（适用时）；
-  5. 遗留问题清单（不许悬空的"留待后续"）。
+  5. 遗留问题清单（不许悬空的"留待后续"）；
+  6. **终态行**（`JOURNAL_VERDICT = required`，收尾时由 phase-final 填写；
+     格式见 phase-final，语义见 config `JOURNAL_VERDICT`）。
   完成判定依据 = journal + phase-final 的 DoD 清单；交付说明如实写"无机器 receipt"。
 - **FULL 且高外部性（`MACHINE_GATE` 启用，判定见 config）**：走机器账本全流程——
   测试前 `compile-manifest` + `init` 开账（冻结 testcase hash、场景矩阵、`applicability` 三维

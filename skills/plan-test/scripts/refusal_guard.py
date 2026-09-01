@@ -27,13 +27,27 @@ import tempfile
 _REAL_FILE = os.path.join(os.path.expanduser("~"), ".plan-test", "refusals.jsonl")
 
 
+def _archives(path):
+    """同目录 trim 归档（refusals-*.jsonl.gz）的 (名字, 大小) 元组集。
+    2026-09-01 v0.7.1 起 trim 会产出归档文件——只盯主文件的基线看不见
+    归档污染（review F14），归档集必须一并入指纹。"""
+    d = os.path.dirname(path)
+    try:
+        return tuple(sorted(
+            (a, os.path.getsize(os.path.join(d, a)))
+            for a in os.listdir(d)
+            if a.startswith("refusals-") and a.endswith(".jsonl.gz")))
+    except OSError:
+        return ()
+
+
 def _snapshot(path):
-    """真实账本的状态指纹：(存在?, 大小, sha256)。不存在记 (False, 0, None)。"""
+    """真实账本的状态指纹：(存在?, 大小, sha256, 归档集)。不存在记 (False, 0, None, 归档集)。"""
     if not os.path.isfile(path):
-        return (False, 0, None)
+        return (False, 0, None, _archives(path))
     with open(path, "rb") as f:
         data = f.read()
-    return (True, len(data), hashlib.sha256(data).hexdigest())
+    return (True, len(data), hashlib.sha256(data).hexdigest(), _archives(path))
 
 
 # ---- import 副作用：先隔离，再记基线（顺序无所谓——隔离改的是 env，不碰真实文件）----

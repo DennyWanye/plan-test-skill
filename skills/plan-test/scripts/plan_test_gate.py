@@ -202,6 +202,16 @@ _ORDER_INDEX = {c: i for i, c in enumerate(CANONICAL_ORDER)}
 # 之外，不进账本、不进链、不进任何 digest（仓库内任何落点都会进
 # repo_content_digest，rev1/rev2 两轮挑战实测）。
 REFUSAL_FILE_MAX_KB = 512
+# 归档命名契约（写方 _trim_refusals 与读方 _stats_print_refusal_archives /
+# _iter_refusal_lines 共用；2026-09-01 review F13：两端各写一份字面量必漂移）
+REFUSAL_ARCHIVE_PREFIX = "refusals-"
+REFUSAL_ARCHIVE_SUFFIX = ".jsonl.gz"
+REFUSAL_HOME_ENV = "PLAN_TEST_REFUSAL_HOME"
+#: _refusal_target 返回 None 的唯一原因的人话解释。所有消费方（stats/export）共用
+#: 本常量（2026-09-01 review F12：各自硬编码内部原因会随 _refusal_target 演化而漂移）。
+REFUSAL_DISABLED_MSG = (
+    "refusal 记录已停用：~/.plan-test 位于某 git 仓库内，写入被跳过以免改变仓库"
+    "内容指纹；需要记录请设 %s 指向仓库外目录" % REFUSAL_HOME_ENV)
 _REFUSAL_CODE_RE = re.compile(r"^([A-Z][A-Z0-9_]{3,}):")
 # 用户批准消息的 SHA-256（W1-3 收敛：此前同一正则抄了 6 处、1 处拼写分叉 [a-f0-9]）
 _HASH64_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -241,7 +251,7 @@ def _refusal_target():
     """解析落点。默认路径若竟落在某个 git 仓库内（$HOME 本身是 dotfiles 仓库），
     返回 None 跳过写入——宁可少记，不可改变任何仓库的内容指纹（AC-2 守卫）。
     显式设 PLAN_TEST_REFUSAL_HOME 则不设防，责任归操作者（也是 AC-2 反向用例的注入口）。"""
-    home = os.environ.get("PLAN_TEST_REFUSAL_HOME")
+    home = os.environ.get(REFUSAL_HOME_ENV)
     if home:
         return os.path.join(home, "refusals.jsonl")
     base = os.path.join(os.path.expanduser("~"), ".plan-test")
@@ -251,19 +261,77 @@ def _refusal_target():
 
 
 def _trim_refusals(target):
-    """超 512 KB 丢弃最旧一半。临时文件 + os.replace（POSIX/Windows 均原子）——
-    在无锁路径上做非原子整文件重写，中断即整段丢失（rev2 挑战 P2）。"""
+    """超 512 KB 时把最旧一半**归档**到同目录 refusals-<stamp>-<pid>.jsonl.gz，
+    再原子重写主文件；主文件替换失败则回滚删除刚写的归档（否则下次 trim 会把
+    同一批最旧行再归档一份，虚增退休评审计数）。
+
+    2026-09-01 审计整改：此前直接丢弃最旧一半且不留痕——refusal log 是门禁退休评审
+    （GATE_REGISTRY_DISCIPLINE"历史上拦过谁"）的唯一数据源，静默丢一半 = 证据链断。
+    同日 code review 整改（F1–F5）：归档名含 pid 消同秒并发 TOCTOU；mkstemp→replace
+    两段皆原子、失败清理临时文件，不在最终名上留残缺 .gz；读文件用 errors="replace"
+    防"一个坏字节永久关停记录"的毒丸；归档持续失败且超 4 倍限额时退回丢弃式裁剪，
+    保住"体积有上限、die 路径不无限变贵"的旧 invariant。
+    本函数自吞一切异常（AC-3：绝不改变 die 的行为，也绝不挡住调用方随后的 append）。"""
     try:
-        if os.path.getsize(target) <= REFUSAL_FILE_MAX_KB * 1024:
-            return
+        size = os.path.getsize(target)
     except OSError:
         return
-    with open(target, encoding="utf-8") as f:
-        lines = f.readlines()
-    tmp = target + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.writelines(lines[len(lines) // 2:])
-    os.replace(tmp, target)
+    if size <= REFUSAL_FILE_MAX_KB * 1024:
+        return
+    try:
+        with open(target, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        if not lines:
+            return
+        half = max(1, len(lines) // 2)
+        keep = lines[half:]
+        d = os.path.dirname(target)
+        import gzip
+        archive = os.path.join(d, "%s%s-%d%s" % (
+            REFUSAL_ARCHIVE_PREFIX, time.strftime("%Y%m%dT%H%M%S"),
+            os.getpid(), REFUSAL_ARCHIVE_SUFFIX))
+        fd, tmp_gz = tempfile.mkstemp(prefix=".refusal-archive-", dir=d)
+        try:
+            with os.fdopen(fd, "wb") as raw:
+                with gzip.GzipFile(fileobj=raw, mode="wb") as gz:
+                    gz.write("".join(lines[:half]).encode("utf-8"))
+            os.replace(tmp_gz, archive)
+        except Exception:
+            try:
+                os.unlink(tmp_gz)
+            except OSError:
+                pass
+            # 归档写不进去：默认跳过本次裁剪（数据保全优先于体积上限）；
+            # 但超 4 倍限额仍写不出归档时退回丢弃式裁剪——无界增长会让每次
+            # die() 全量重读越来越大的文件，失败路径必须保持便宜。
+            if size > 4 * REFUSAL_FILE_MAX_KB * 1024:
+                _rewrite_refusals(target, keep)
+            return
+        try:
+            _rewrite_refusals(target, keep)
+        except Exception:
+            try:
+                os.unlink(archive)  # 回滚，防同一批行被重复归档
+            except OSError:
+                pass
+    except Exception:
+        return
+
+
+def _rewrite_refusals(target, keep_lines):
+    """原子重写主文件（mkstemp 同目录 → os.replace）；失败清理临时文件后重抛，
+    由调用方决定回滚。"""
+    fd, tmp = tempfile.mkstemp(prefix=".refusals-", dir=os.path.dirname(target))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.writelines(keep_lines)
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _record_refusal(msg):
@@ -4013,8 +4081,13 @@ def _stats_print_refusals():
     其内部 die 会留记录而 rc=0，见 s1a acceptance「已知遗留」）。坏行跳过。"""
     target = _refusal_target()
     print()
-    if not target or not os.path.isfile(target):
+    if not target:
+        # 2026-09-01 审计整改：这个"无声的开关"此前无处可见——关着时 stats 必须说出来。
+        print(REFUSAL_DISABLED_MSG)
+        return
+    if not os.path.isfile(target):
         print("refusal 记录：（无）")
+        _stats_print_refusal_archives(target)
         return
     by_code, by_cmd, total, bad = {}, {}, 0, 0
     try:
@@ -4033,10 +4106,14 @@ def _stats_print_refusals():
                 by_code[code] = by_code.get(code, 0) + 1
                 by_cmd[cmd] = by_cmd.get(cmd, 0) + 1
     except OSError:
-        print("refusal 记录：（无）")
+        # 主文件读不动 ≠ 零历史：归档仍要列出（review F6——否则读者会把
+        # "主文件暂不可读"误读成"从无 refusal 历史"）。
+        print("refusal 记录：主文件读取失败（%s）" % target)
+        _stats_print_refusal_archives(target)
         return
     print("refusal 记录：%d 条（%s%s）" % (
         total, target, "，坏行跳过 %d" % bad if bad else ""))
+    _stats_print_refusal_archives(target)
     if not total:
         return
     print("  按诊断码：")
@@ -4045,6 +4122,54 @@ def _stats_print_refusals():
     print("  按子命令：")
     for c, n in sorted(by_cmd.items(), key=lambda x: (-x[1], x[0])):
         print("    %-38s %d" % (c, n))
+
+
+def _iter_refusal_lines(target):
+    """按时间序 yield 全部 refusal 原始行：先归档（文件名 <stamp>-<pid> 排序≈时间序），
+    后主文件。残缺归档跳过不炸。
+
+    2026-09-01 review 整改（F7）：归档此前只做了存储层没接读取层——export
+    （跨机器分析的指定出口）读不到归档，门禁退休评审会把已归档的拦截历史数成零，
+    "数据保住了但对所有工具出口不可见"。"""
+    import gzip
+    d = os.path.dirname(target)
+    try:
+        names = sorted(
+            a for a in os.listdir(d)
+            if a.startswith(REFUSAL_ARCHIVE_PREFIX)
+            and a.endswith(REFUSAL_ARCHIVE_SUFFIX))
+    except OSError:
+        names = []
+    for name in names:
+        try:
+            with gzip.open(os.path.join(d, name), "rt",
+                           encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    yield line
+        except Exception:
+            continue
+    try:
+        with open(target, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                yield line
+    except OSError:
+        return
+
+
+def _stats_print_refusal_archives(target):
+    """列出 trim 归档（refusals-*.jsonl.gz）——主文件的计数只是"最近一段"，
+    有归档在场时必须说明，否则读数的人会把截断后的计数当全量。"""
+    try:
+        d = os.path.dirname(target)
+        archives = sorted(
+            a for a in os.listdir(d)
+            if a.startswith(REFUSAL_ARCHIVE_PREFIX)
+            and a.endswith(REFUSAL_ARCHIVE_SUFFIX))
+    except OSError:
+        return
+    if archives:
+        print("  归档：%d 份（%s，最早 %s）——上表计数不含归档内条目" % (
+            len(archives), d, archives[0]))
 
 
 def _stats_print_refusal_intervals(root, ledger_rows):
@@ -5530,21 +5655,24 @@ def cmd_export_refusals(args):
     往仓库里写文件必须是人显式发起的一次动作，不许顺手发生。
     """
     target = _refusal_target()
-    if not target or not os.path.isfile(target):
-        die("没有可导出的 refusal 记录（%s 不存在）" % (target or "落点不可用"))
+    if not target:
+        die("没有可导出的 refusal 记录（%s）" % REFUSAL_DISABLED_MSG)
     out = []
-    with open(target, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-            except ValueError:
-                continue
-            for k in ("cwd", "run_dir", "detail"):
-                if rec.get(k):
-                    rec[k] = _redact_paths(rec[k])
-            out.append(rec)
+    # 归档 + 主文件全量导出（review F7：只读主文件会把已归档历史静默漏掉，
+    # 退休评审在另一台机器上会把这些拦截数成零）。
+    for line in _iter_refusal_lines(target):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        for k in ("cwd", "run_dir", "detail"):
+            if rec.get(k):
+                rec[k] = _redact_paths(rec[k])
+        out.append(rec)
+    if not out:
+        die("没有可导出的 refusal 记录（%s 及其归档均无内容）" % target)
     print("将写入 %s（%d 条，已脱敏）" % (args.output, len(out)))
     with open(args.output, "w", encoding="utf-8") as f:
         for rec in out:

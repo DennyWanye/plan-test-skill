@@ -51,7 +51,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 ### 5. 收尾 DoD + 文档回写 + 自我批评
 
-- 按 `../plan-test/phase-final-dod.md` 执行：文档回写（README / changelog / testcase index）→ DoD 清单逐条附证据核对 → **自我批评一行**写进 `{PLANS_DIR}/<feature>/retro.md`（本次哪些门空转、哪里被仪式拖慢）→ 提交。
+- 按 `../plan-test/phase-final-dod.md` 执行：文档回写（README / changelog / testcase index）→ DoD 清单逐条附证据核对 → **journal 终态行**（`JOURNAL_VERDICT`，格式见 phase-final；没有终态行 = run 未闭环）→ **自我批评一行**写进 `{PLANS_DIR}/<feature>/retro.md`（本次哪些门空转、哪里被仪式拖慢）→ 提交。
 - **默认路径**：完成判定 = DoD 清单全绿（每条附证据位置），交付措辞如实写"完成判定依据 journal 与 DoD 清单，无机器 receipt"。
 - **FULL（`MACHINE_GATE` 启用）**：额外按固定顺序过机器门——文档回写 → `re-attest` → 重新 full-audit 入账 → `python {GATE_SCRIPT} finalize --run-dir <run-dir>`。**最终交付状态只取该命令的 exit code**（exit 0 + `GATE RECEIPT` 才是完成；exit 3 = fixture-only 不是完成）；跳过 re-attest 会 `TESTED_RUNTIME_MISMATCH`，跳过重新 audit 会 `AUDITOR_INPUT_STALE`；没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。交付措辞用 receipt 模板。
 - 任何 DoD 项达不成 → BLOCKED 升级，**不谎报完成**。

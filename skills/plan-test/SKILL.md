@@ -53,7 +53,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 | 2 | 挑战与定稿（含锁定绿色基线） | `phase-2-iterate-plan.md` | 定稿 plan + 基线快照 |
 | 3 | 执行（集中/分兵自决 + 里程碑 demo + 完成度审计） | `phase-3-execute.md` | 代码 + 矛盾再分析 + 审计报告 |
 | 4 | 验收（重点论测试 + testcase 收尾） | `phase-4-stage-gate.md` | journal / 机器账本 + 兑现表 + testcase 归档 |
-| █ | 收尾 DoD + 文档回写 + 自我批评 | `phase-final-dod.md` | DoD 全绿 + retro 一行（FULL：receipt） |
+| █ | 收尾 DoD + 文档回写 + 自我批评 | `phase-final-dod.md` | DoD 全绿 + journal 终态行 + retro 一行（FULL：receipt） |
 
 **推进规则**：
 
@@ -61,7 +61,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 2. 用户批准后进入 phase-3 执行（模式自决见 phase-3 开场；oracle 先于实现贯穿始终）；
 3. **价值里程碑是执行中段的战略节点**：PASS → demo + 矛盾转化再分析，然后推进剩余任务；FAIL → A2 回炉或 BLOCKED；
 4. phase-4 验收：便宜门 → 核心价值 smoke（FAIL 即停）→ 决定性场景深测 → 次要各一遍 → testcase 收尾；
-5. final：文档回写 → DoD → 自我批评（FULL 加 re-attest/full-audit/finalize）。
+5. final：文档回写 → DoD → journal 终态行（`JOURNAL_VERDICT`）→ 自我批评 → 提交（FULL 加 re-attest/full-audit/finalize）。
 
 - **每阶段先读文档（防跳步硬闸）**：进入每个阶段前，先完整读该阶段的 `phase-X.md` 并列出必做项清单，逐项打勾——不许凭"我大概懂了"跳过子步骤（漏测几乎都源于此）。
 - **⚠️ 末尾警戒**：越接近收尾越容易用便宜的代码审计替昂贵的真机测试。**决定性 AC 的 UI 测试不许降级**，测不了就 BLOCKED 升级。"主流程通过"≠"每条 AC 都测了"。
