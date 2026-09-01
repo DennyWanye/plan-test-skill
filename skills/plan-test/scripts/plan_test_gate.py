@@ -347,6 +347,28 @@ def resolve_repo_root(ledger, run_dir=None):
     return stored
 
 
+def strip_stored_repo_prefix(path, ledger):
+    """把**存量账本**里的绝对路径还原为仓库相对形式（v0.6.1 追溯补丁，2026-09-01）。
+
+    v0.6.1 让 init 改存仓库相对 path，但已有账本里仍是开账机器的绝对路径（实测
+    Windows 开账的 `C:\\projects\\eagle-map\\testcase\\...`）。这些路径命中绝对分支后
+    就不再尝试「解析出的新根 + 相对路径」，于是 12 条明明存在、sha256 也一致的
+    testcase 仍被判「缺失」——路径可移植只对新账本生效，不追溯。
+    账本自己记着开账时的 repo_root，剥掉它即得相对路径：不猜，不模糊匹配。
+    返回相对 POSIX 路径；前缀对不上返回 None。命中后仍要过 exists + sha256 双重
+    校验，故此处的宽松只影响「能不能找到」，放不过真实的删除/移动/篡改。"""
+    stored = str((ledger or {}).get("repo_root") or "").replace("\\", "/").rstrip("/")
+    if not stored:
+        return None
+    norm = str(path or "").replace("\\", "/")
+    pref = stored + "/"
+    if norm.startswith(pref):
+        return norm[len(pref):]
+    if norm.lower().startswith(pref.lower()):  # Windows 盘符/大小写差异
+        return norm[len(pref):]
+    return None
+
+
 def repo_rel_posix(path, repo):
     """把文件路径规范化为仓库相对 POSIX 形式；仓库外/不可比（跨盘）时退回
     原文的正斜杠形式。testcase_lock 此前存调用者原文 + abs_path，跨机器即废
@@ -1720,6 +1742,11 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
         if raw:
             if os.path.isabs(raw) or re.match(r"^[A-Za-z]:", raw):
                 candidates.append(raw)
+                # 存量账本（v0.6.1 之前开账）：剥掉开账机器的 repo_root 前缀，
+                # 用解析出的新根重接——否则可移植修复对旧账本永远走不到。
+                legacy_rel = strip_stored_repo_prefix(raw, ledger)
+                if legacy_rel and repo_for_oracle:
+                    candidates.append(os.path.join(repo_for_oracle, legacy_rel))
             else:
                 if repo_for_oracle:
                     candidates.append(os.path.join(repo_for_oracle, raw))
@@ -6032,7 +6059,15 @@ class _SuggestingParser(argparse.ArgumentParser):
                 close = difflib.get_close_matches(m.group(1), choices, n=3, cutoff=0.4)
                 if close:
                     message += "\n是不是想敲: %s" % "  ".join(close)
-        super().error(message)
+        # v0.6.1 P1（2026-09-01 复验 handoff）：argparse 层的参数错误（缺必填、参数名
+        # 写错）此前走 argparse 自己的退出路径，不经过 die()，refusal 账本对这一类
+        # 摩擦完全不可见——出口成本度量缺了一角（复现：连撞三次 argparse 零记录）。
+        # 改走 die() 冠 ARGS_INVALID；usage 照旧打印，退出码仍是 2。
+        self.print_usage(sys.stderr)
+        parts = (self.prog or "").split()
+        if len(parts) > 1 and not _REFUSAL_CTX.get("cmd"):
+            _REFUSAL_CTX["cmd"] = parts[-1]  # "plan_test_gate.py record-timing" → 子命令
+        die("ARGS_INVALID: %s" % message)
 
 
 def main(argv=None):

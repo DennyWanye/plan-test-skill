@@ -31,6 +31,21 @@ def _lines(path=None):
 class RefusalRecordTestCase(unittest.TestCase):
     """AC-1：die 落一条原始记录。"""
 
+    def test_argparse_error_is_recorded_with_code(self):
+        """v0.6.1 P1：argparse 层参数错误此前不经过 die()，refusal 账本对这一类
+        摩擦完全不可见（实测连撞三次零记录）。现在走 die() 冠 ARGS_INVALID，
+        usage 照旧、退出码仍是 2。"""
+        before = len(_lines())
+        r = run_gate(["record-timing", "--run-dir", "/tmp/x"])  # 缺 --phase / --activity-class
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ARGS_INVALID", r.stderr)
+        self.assertIn("usage", r.stderr)
+        lines = _lines()
+        self.assertEqual(len(lines), before + 1, "argparse 拒绝也必须入账")
+        rec = json.loads(lines[-1])
+        self.assertEqual(rec["code"], "ARGS_INVALID")
+        self.assertEqual(rec["cmd"], "record-timing")
+
     def test_die_without_code_writes_raw_record(self):
         """无诊断码前缀的 die（『run-dir 缺少 plan-test-run.json』）也要记，code=null。"""
         before = len(_lines())

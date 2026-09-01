@@ -1538,6 +1538,57 @@ class PortableRepoRootTestCase(RealRepoAttestationTestCase):
         self.assertNotIn("TESTED_RUNTIME_MISMATCH", r.stdout)
         self.assertNotIn("FROZEN_ORACLE_CHANGED", r.stdout)
 
+    def _load_gate_module(self):
+        spec = importlib.util.spec_from_file_location("ptg_for_test", GATE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _rewrite_ledger(self, mutate):
+        """伪造"旧机器写出的合法账本"：改事实后按链算法重算末条 facts_digest/chain
+        与 genesis（genesis 绑定 repo_root，漏了会撞 LEDGER_TAMPERED）。"""
+        p = os.path.join(self.run_dir, "plan-test-run.json")
+        with open(p, encoding="utf-8") as f:
+            led = json.load(f)
+        mutate(led)
+        g = self._load_gate_module()
+        integ = led["integrity"]
+        integ["genesis"] = g.integrity_genesis(led)
+        fd = g.integrity_facts_digest(led)
+        last = integ["log"][-1]
+        prev = integ["log"][-2]["chain"] if len(integ["log"]) > 1 else ""
+        last["facts_digest"] = fd
+        last["chain"] = g.sha256_text(prev + last["op"] + fd)
+        integ["chain"] = last["chain"]
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(led, f, ensure_ascii=False)
+
+    def test_legacy_absolute_paths_resolve_against_current_repo(self):
+        """v0.6.1 追溯补丁：v0.6.1 之前开账的账本 path/abs_path 是旧机器绝对路径，
+        命中绝对分支后不再尝试新根重接——12 条明明存在且 sha256 一致的 testcase
+        被判"缺失"（exec-004 实测）。剥掉账本自记的旧 repo_root 前缀即可还原。"""
+        self.write("testcase/tc-1.md", "# oracle\n断言：脚本输出 v1\n")
+        self.init_real_run(testcase_files=["testcase/tc-1.md"])
+        old_root = "C:\\projects\\eagle-map"
+
+        def mutate(led):
+            led["repo_root"] = old_root
+            f0 = led["testcase_lock"]["files"][0]
+            f0["path"] = old_root + "\\testcase/tc-1.md"  # 混合分隔符原样复刻实测形态
+            f0["abs_path"] = old_root + "\\testcase\\tc-1.md"
+        self._rewrite_ledger(mutate)
+        r = self.check()
+        self.assertNotIn("LEDGER_TAMPERED", r.stdout)
+        self.assertNotIn("FROZEN_ORACLE_CHANGED", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # 反向控制：oracle 内容真的变了必须仍然红——宽松只影响"能不能找到"，
+        # 放不过真实篡改；漏了这条等于把门放掉
+        self.write("testcase/tc-1.md", "# oracle\n断言：被篡改\n")
+        r2 = self.check()
+        self.assertEqual(r2.returncode, 1)
+        self.assertIn("FROZEN_ORACLE_CHANGED", r2.stdout)
+        self.assertIn("内容已变", r2.stdout)
+
     def test_die_messages_carry_codes(self):
         """v0.6.1：出口成本要有度量——高频摩擦有专码，其余 die 自动冠 USAGE_ERROR，
         refusal log/stats 从此能区分"门抓到违规"与"代理在门前摔跤"。"""

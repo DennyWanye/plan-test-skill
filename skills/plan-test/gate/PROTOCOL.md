@@ -177,6 +177,15 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 - `CLUSTER_ID_NOT_FOUND`（实测 6 次）：cluster_id 不存在。出口 = 用 primary-clusters
   记录里的真实 id，或先 record-challenge-clusters 入账。
 - `EVIDENCE_PATH_NOT_FOUND`（实测 3 次）：把内联 JSON 当路径传。出口 = 先写文件再 attach。
+- `ARGS_INVALID`（2026-09-01 追加）：argparse 层参数错误（缺必填/参数名写错）此前走
+  argparse 自有退出路径、不经 die()，refusal 账本对这一类完全不可见（复验 handoff 实测
+  连撞三次零记录）。现改经 die() 入账；usage 照旧打印、退出码仍 2。出口 = 按 usage 修正调用。
+
+**v0.6.1 追溯补丁（2026-09-01，同日复验 handoff）**：`strip_stored_repo_prefix`——
+v0.6.1 的相对化只对新账本生效，存量账本的绝对 path 命中绝对分支后走不到"新根重接"，
+12 条 sha256 完好的 testcase 仍被判缺失（exec-004 实测）。修法：剥掉账本自记的旧
+repo_root 前缀、用解析出的新根重接（确定信息，不做 basename 模糊匹配）；命中后仍过
+exists + sha256 双重校验，宽松只影响"能不能找到"，放不过真实删除/篡改（反向控制入测试）。
 
 **v0.6.1 路径可移植（2026-09-01，非新码，修既有码的假阳性面）**：账本此前存开账机器的
 绝对 `repo_root` 与 testcase `abs_path`，跨机器/挪目录后 `TESTED_RUNTIME_MISMATCH` /
