@@ -22,7 +22,7 @@
 - **FULL（`MACHINE_GATE` 启用时）**：用 gate CLI 全程入账，按下方命令执行——收敛由 gate 从
   finding ledger 推导，reviewer 自报 PASS 没有 authority。
 
-开始前必须已有用户确认的 `acceptance.md`（FULL 路径含同目录 `assurance-contract.json`）。
+开始前已有源自用户需求的 `acceptance.md`（FULL 路径含同目录 `assurance-contract.json`）。首次计划的调查/挑战可基于标明待决项的草案；实现前按 `references/user-attention.md` 核对已有授权或完成合并 review。已冻结的 contract 变化仍走原批准机制。
 FULL 路径启动循环时冻结 contract、scope hash、threat-model hash 和 plan baseline：
 
 ```bash
@@ -111,7 +111,7 @@ reset，不用局部补丁强行收敛。
 ### 控制状态
 
 - `CONTINUE`：修订 plan 后进入下一轮；
-- `CONVERGED`：无 open in-scope P0/P1，进入用户 review；
+- `CONVERGED`：无 open in-scope P0/P1，核对授权；需要用户决定时进入合并 review；
 - `SPECIALIST_CHALLENGE_REQUIRED`：完成所有 required cluster 的专项挑战；
 - `SYNTHESIS_REQUIRED`：完成并记录统一 synthesis；
 - `CLOSURE_REVIEW_REQUIRED`：修订 plan 后执行统一 closure diff review；
@@ -182,7 +182,7 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
 
 需求触及**易混实体**（Session、Run、Task、话题、窗口、Profile、Driver 等）或会改变既有行为时，定稿前必须：
 
-1. 产出**结构化行为契约**并让用户逐行确认——不能用"用户已经说认可"代替具体行为确认：
+1. 产出**结构化行为契约**，将未获授权的重要行为变化纳入一次 plan review；已明确授权的行为逐项绑定原始请求，不换措辞反复问：
    - 术语表与实体关系（一个入口 ≠ 一个 Session；一个 Session 可有多个 Run……）；
    - **before / after 行为表**：现有行为 vs 目标行为逐行对照；
    - 明确**保留、删除、改变**的旧行为清单。
@@ -218,7 +218,7 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
    用户可见行为变化仅带入 review 作为选项。
 4. 修改后同步 AC/任务映射；不得制造 MUST AC 覆盖空洞。无建议即结束，不循环、不凑 finding。
 
-定稿后**和用户 review**；通过后在 `plan.md` 头部写入标记 `<!-- plan-status: finalized -->`（plan-task 开工前会校验此标记）。
+收敛后按 `references/user-attention.md` 核对授权：需要确认时，向用户一起展示 acceptance、行为差异、plan 和决策简报并等待；已有授权覆盖时直接定稿。写入 `<!-- plan-status: finalized -->`，同时记录真实授权来源与适用范围，不自造批准记录。
 
 ## B. 锁定绿色基线（执行前必做）
 
@@ -237,4 +237,4 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
 
 ## 出口
 
-- plan 定稿且用户 review 通过 + 绿色基线已记录 → 进入 phase-3。
+- plan 已定稿且当前授权覆盖 + 绿色基线已记录 → 进入 phase-3。

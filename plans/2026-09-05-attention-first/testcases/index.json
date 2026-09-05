@@ -1,0 +1,92 @@
+{
+  "testcases": [
+    {
+      "id": "S-0",
+      "path": "S-0.md",
+      "status": "active",
+      "purpose": "attention behavior regression S-0",
+      "surface": "cli",
+      "type": "scripted",
+      "obligations": [
+        "TO-1",
+        "TO-5"
+      ],
+      "revision": 1
+    },
+    {
+      "id": "S-1",
+      "path": "S-1.md",
+      "status": "active",
+      "purpose": "attention behavior regression S-1",
+      "surface": "agent-instruction",
+      "type": "manual",
+      "obligations": [
+        "TO-2"
+      ],
+      "revision": 1
+    },
+    {
+      "id": "S-2",
+      "path": "S-2.md",
+      "status": "active",
+      "purpose": "attention behavior regression S-2",
+      "surface": "agent-instruction",
+      "type": "manual",
+      "obligations": [
+        "TO-3"
+      ],
+      "revision": 1
+    },
+    {
+      "id": "S-3",
+      "path": "S-3.md",
+      "status": "active",
+      "purpose": "attention behavior regression S-3",
+      "surface": "agent-instruction",
+      "type": "manual",
+      "obligations": [
+        "TO-5"
+      ],
+      "revision": 1
+    },
+    {
+      "id": "S-4",
+      "path": "S-4.md",
+      "status": "active",
+      "purpose": "attention behavior regression S-4",
+      "surface": "agent-instruction",
+      "type": "manual",
+      "obligations": [
+        "TO-4"
+      ],
+      "revision": 1
+    },
+    {
+      "id": "S-5",
+      "path": "S-5.md",
+      "status": "active",
+      "purpose": "attention behavior regression S-5",
+      "surface": "agent-instruction",
+      "type": "manual",
+      "obligations": [
+        "TO-3",
+        "TO-5"
+      ],
+      "revision": 1
+    },
+    {
+      "id": "S-6",
+      "path": "S-6.md",
+      "status": "active",
+      "purpose": "attention behavior regression S-6",
+      "surface": "agent-instruction",
+      "type": "manual",
+      "obligations": [
+        "TO-2",
+        "TO-4",
+        "TO-5"
+      ],
+      "revision": 1
+    }
+  ]
+}

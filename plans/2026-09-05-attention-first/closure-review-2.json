@@ -1,0 +1,22 @@
+{
+  "review_mode": "diff",
+  "findings": [
+    {
+      "id": "plan-task-matrix-recovery-reapproval",
+      "severity": "P1",
+      "scope_relation": "in-scope",
+      "origin": "pre-existing",
+      "violated_acceptance_ids": ["AC-2", "AC-5"],
+      "assurance_contract_ids": ["FAIL-1"],
+      "evidence": "skills/plan-task/SKILL.md input checks 4 and 5 now pause dependent work, inspect original requirements and AC, and autonomously complete unfrozen validation details only when the expected behavior is already explicit. Unknown goals, AC changes and frozen contracts retain decision briefs and existing approval requirements. skills/plan-test/config.md MANUAL_SCENARIO_MATRIX points to the same recovery rule. Required matrices and scenarios must still exist before dependent implementation or passing claims.",
+      "status": "resolved",
+      "root_cause": "The specific input-repair branch now distinguishes missing validation documentation from missing authorization, removing the unconditional duplicate confirmation without reducing required validation or changing frozen-contract semantics.",
+      "why_not_found_in_round_one": "Primary reviewed a plan that expressly included all three entrypoints and scope-preserving recovery. The concrete omission became apparent in the first implementation diff and was retained under the same stable finding ID."
+    }
+  ],
+  "minimality": {
+    "verdict": "ALREADY_MINIMAL",
+    "findings": []
+  },
+  "evidence_scope": "Static review of the targeted follow-up diff only. No additional issue found in the explicit stop/handoff rule or the plan-bs technical-choice clarification: scope and authorization boundaries remain applicable. This closes the instruction conflict; actual autonomous behavior still requires the planned cold-start evaluation."
+}

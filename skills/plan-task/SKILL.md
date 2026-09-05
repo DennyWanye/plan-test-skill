@@ -13,6 +13,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 1. **Announce**：输出 "I'm using the plan-task skill to execute and test the finalized plan."
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
+2a. **读交互规则**：读 `../plan-test/references/user-attention.md`；执行指令与历史批准按范围沿用，不逐阶段索取确认。
 2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
 3. **建 TodoWrite**：按下面 5 步建 todo。
 
@@ -22,13 +23,13 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 ### 1. 定位并校验输入（不许带病开工）
 
-- **定位 plan**：斜杠命令后给了路径就用它；没给则找 `{PLANS_DIR}/` 下最近修改的文件夹，**和用户确认**是不是这份。
+- **定位 plan**：斜杠命令后给了路径就用它；没给则先从当前会话/交接记录定位；只有多个合理候选且上下文不能确定时，列候选与差异问最小问题，不单凭最近修改时间猜。
 - **校验五件事**：
-  1. `plan.md` 存在，且头部**包含** `plan-status: finalized` 标记（按包含匹配——plan-bs 产出的标记可能带 `(plan-bs)` 等来源后缀）。没有标记 → 告知用户"这份 plan 未经迭代定稿"，用户确认后才继续。
+  1. `plan.md` 存在，且头部**包含** `plan-status: finalized` 标记（按包含匹配——plan-bs 产出的标记可能带 `(plan-bs)` 等来源后缀）。没有标记 → 先查实际定稿与授权记录，证据齐全则注明来源补标记；确实未定稿时补足调查与挑战，按共享交互规则处理真实待决项，不把格式缺失当成未授权。
   2. `{ACCEPTANCE_FILE}` 存在——它是完成度审计与测试覆盖的唯一真相来源。**缺失 → BLOCKED**，建议先跑 `/plan-bs` 补出验收标准，不许拿 plan 反推验收标准凑数。
   3. plan 里的任务与 AC 有追溯关系（任务标注了覆盖哪条 AC）。
-  4. **输入语义敏感功能必须有测试场景矩阵**（判定见 `../plan-test/config.md`"真人测试广度门禁"）：被测对象含 LLM/搜索/调研/推荐等输入敏感功能，但 acceptance 里没有场景矩阵 → **BLOCKED**，回 `/plan-bs` 补矩阵并经用户确认，不许自己现编。
-  5. **LLM 载荷驱动功能必须有「LLM 行为变异清单」**（`LLM_PAYLOAD_ADVERSARIAL`，判定见 `../plan-test/config.md`"LLM 载荷对抗门禁"）：功能含"LLM 输出驱动端侧状态机/卡片/流程推进"，但 acceptance 里没有 LLM 行为变异清单（乱序/重复/schema 违约/超长/拒不调工具，各含端侧容错断言）→ **BLOCKED**，回 `/plan-bs` 补清单，不许自己现编。同理，功能依赖异步注册服务/远程配置/登录态而场景矩阵缺冷路径场景（`COLD_START_SCENARIO`）→ **BLOCKED**。
+  4. **输入语义敏感功能必须有测试场景矩阵**（判定见 `../plan-test/config.md`"真人测试广度门禁"）：被测对象含 LLM/搜索/调研/推荐等输入敏感功能，但 acceptance 里没有场景矩阵 → 先暂停依赖该矩阵的实现，调查原始需求与既有 AC。能从明确需求推导且尚未冻结时，由主 Agent 补齐验证细化并挑战，不改变预期、不重复批准；目标不明、需改变 AC 或已冻结 contract 时，按共享规则准备决策简报/原批准机制。矩阵未补齐不得开始依赖任务或宣称通过。
+  5. **LLM 载荷驱动功能必须有「LLM 行为变异清单」**（`LLM_PAYLOAD_ADVERSARIAL`，判定见 `../plan-test/config.md`"LLM 载荷对抗门禁"）：功能含"LLM 输出驱动端侧状态机/卡片/流程推进"，但 acceptance 里没有 LLM 行为变异清单（乱序/重复/schema 违约/超长/拒不调工具，各含端侧容错断言）→ 暂停依赖任务，按第 4 项区分范围内补齐与需要用户决定的变化；清单未补齐不得开工。同理，功能依赖异步注册服务/远程配置/登录态而场景矩阵缺冷路径场景（`COLD_START_SCENARIO`）→ 同样先补齐范围内验证并挑战；不得跳过所需场景。
 - 什么都找不到 → 停下，提示用户先跑 `/plan-bs`（要讨论）或 `plan-test`（要一条龙）。
 
 ### 2. 锁定绿色基线
@@ -40,7 +41,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 - 按 `../plan-test/phase-3-execute.md` 执行：**执行模式自决**（任务真独立且量大→分兵并行子代理 + worktree 隔离；环环相扣或量小→集中兵力当前 session 串行打歼灭战，决策一行留痕）、与本机 hook 共处、`{AUDITOR_ENGINE}` 可追溯矩阵审计（主要矛盾优先）、回归门对照 baseline。
 - **oracle 先于实现**（普适铁律）：动手写某条 AC 的实现前，先写下它的"什么算对"（plan 验证栏 / testcase 草稿）；禁止实现后照实现补预期。
 - **代码 review（phase-3 A4，`CODE_REVIEW = required-for-code`）**：便宜检查绿后、完成度审计前，对累计 diff 做正确性 review（执行者不自审——harness 自带 code review 或独立 challenger）；P0/P1 修完、每个修复配决定性测试、并按 A4 第 4 步分层复验（便宜层全量 + 受影响决定性测试 + 价值 smoke）才进审计。
-- **价值里程碑 PASS 后**：demo 给用户（跑起来的实物 + 一句用户语言汇报）+ 矛盾转化再分析（重答三问、重排剩余任务）。
+- **价值里程碑 PASS 后**：异步 demo 给用户（不自动等待确认）（跑起来的实物 + 一句用户语言汇报）+ 矛盾转化再分析（重答三问、重排剩余任务）。
 
 ### 4. 验收（重点论测试 + testcase 收尾）
 
@@ -70,7 +71,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 - **缩小测试范围必须用户显式批准**：批准后回写 acceptance 的范围节（标注"用户批准缩减：原 S-x 移出范围"），交付结论只能表述为**用户批准后的范围**全绿，不得写成原范围全绿。
 - 按 SKILL.md（plan-test）"推进规则"执行：执行模式自决（集中兵力/分兵），oracle 先于实现贯穿始终；每阶段收尾过"100% 完成度审计 + 对应测试"才算完成，门的强度不因并行而降。
 - 所有"循环直到"受 `{MAX_ROUNDS}` 兜底，超限 → BLOCKED 升级。
-- `EXECUTE_AUTONOMY = high`：执行中的分歧按最佳实践自决（BLOCKED 例外）；
+- `EXECUTE_AUTONOMY = high`：主 Agent 可自主处理范围内技术选择与 A2 回炉；实际需要用户解锁时先给决策简报（见共享注意力规则）；
   `BEHAVIOR_POLICY = preserve-approved`：保持已批准外部行为，内部按 Ponytail policy 最小化。
 
 ## 何时不要用

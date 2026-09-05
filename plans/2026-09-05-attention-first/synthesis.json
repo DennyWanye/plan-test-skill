@@ -1,0 +1,10 @@
+{
+  "source_cluster_ids": [],
+  "canonical_findings": [],
+  "resolved_finding_ids": [],
+  "open_finding_ids": [],
+  "decisions": [],
+  "conflicts": [],
+  "required_spikes": [],
+  "plan_actions": []
+}

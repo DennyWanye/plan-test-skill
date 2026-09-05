@@ -1,0 +1,22 @@
+{
+  "review_mode": "diff",
+  "findings": [
+    {
+      "id": "plan-task-matrix-recovery-reapproval",
+      "severity": "P1",
+      "scope_relation": "in-scope",
+      "origin": "pre-existing",
+      "violated_acceptance_ids": [
+        "AC-2",
+        "AC-5"
+      ],
+      "assurance_contract_ids": [
+        "FAIL-1"
+      ],
+      "evidence": "skills/plan-task/SKILL.md:31 still requires missing scenario matrices to BLOCKED, return to /plan-bs, and obtain user confirmation; skills/plan-test/references/user-attention.md allows the main Agent to research and revise plans within existing authorization. Reproduction scenario: explicit execution authorization, clear source requirements and AC, unfrozen initial acceptance, required matrix missing. The specific input branch still mandates another user confirmation although no user decision is missing.",
+      "status": "open",
+      "root_cause": "The new shared interaction rule and general A2 recovery were updated, but the specific plan-task input-repair branch still conflates missing validation documentation with missing user authorization. Preserve mandatory matrix coverage and frozen-contract approval semantics while allowing evidence-backed repair within existing requirements.",
+      "why_not_found_in_round_one": "Primary reviewed a plan that expressly included all three entrypoints and scope-preserving recovery, so removal of conflicting input branches was still a planned implementation action. Closure can now observe that this specific mandatory reapproval branch remains in the delivered diff."
+    }
+  ]
+}

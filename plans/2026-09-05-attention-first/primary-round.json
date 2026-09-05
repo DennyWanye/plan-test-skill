@@ -1,0 +1,14 @@
+{
+  "review_mode": "breadth",
+  "coverage": {
+    "acceptance_coverage": true,
+    "entry_and_trust_chain": true,
+    "data_flow_and_persistence": true,
+    "identity_permissions_concurrency_cleanup": true,
+    "failure_and_recovery": true,
+    "tests_and_evidence": true,
+    "release_and_rollback": true,
+    "trusted_boundary_stop": true
+  },
+  "findings": []
+}

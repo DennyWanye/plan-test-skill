@@ -1,0 +1,275 @@
+{
+  "acceptance_file": "/Users/denny/planSkill/plan-test/plans/2026-09-05-attention-first/acceptance.md",
+  "assurance_contract": "/Users/denny/planSkill/plan-test/plans/2026-09-05-attention-first/assurance-contract.json",
+  "testcase_inventory": "/Users/denny/planSkill/plan-test/plans/2026-09-05-attention-first/testcases/index.json",
+  "reuse_report": "/Users/denny/planSkill/plan-test/plans/2026-09-05-attention-first/testcase-reuse-report.json",
+  "obligations": [
+    {
+      "obligation_id": "TO-1",
+      "ac_ids": [
+        "AC-1"
+      ]
+    },
+    {
+      "obligation_id": "TO-2",
+      "ac_ids": [
+        "AC-2"
+      ]
+    },
+    {
+      "obligation_id": "TO-3",
+      "ac_ids": [
+        "AC-3"
+      ]
+    },
+    {
+      "obligation_id": "TO-4",
+      "ac_ids": [
+        "AC-4"
+      ]
+    },
+    {
+      "obligation_id": "TO-5",
+      "ac_ids": [
+        "AC-5"
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "S-0",
+      "required": true,
+      "testcase_ids": [
+        "S-0"
+      ],
+      "input_class": "S-0",
+      "gate_type": "negative-safety",
+      "evidence_contract": {
+        "producer_types": [
+          "gate-exec"
+        ],
+        "required_artifact_kinds": [
+          "execution-log"
+        ],
+        "required_identity": [
+          "root_run_id"
+        ],
+        "required_timestamps": true
+      },
+      "impact_paths": [
+        "skills/**",
+        "plans/2026-09-05-attention-first/testcases/**"
+      ]
+    },
+    {
+      "scenario_id": "S-1",
+      "required": true,
+      "testcase_ids": [
+        "S-1"
+      ],
+      "input_class": "S-1",
+      "gate_type": "positive-value",
+      "evidence_contract": {
+        "producer_types": [
+          "agent-evaluation"
+        ],
+        "required_artifact_kinds": [
+          "business-result"
+        ],
+        "required_identity": [
+          "root_run_id"
+        ],
+        "required_timestamps": true,
+        "required_business_facts": [
+          "business_terminal"
+        ]
+      },
+      "impact_paths": [
+        "skills/**",
+        "plans/2026-09-05-attention-first/testcases/**"
+      ]
+    },
+    {
+      "scenario_id": "S-2",
+      "required": true,
+      "testcase_ids": [
+        "S-2"
+      ],
+      "input_class": "S-2",
+      "gate_type": "positive-value",
+      "evidence_contract": {
+        "producer_types": [
+          "agent-evaluation"
+        ],
+        "required_artifact_kinds": [
+          "business-result"
+        ],
+        "required_identity": [
+          "root_run_id"
+        ],
+        "required_timestamps": true,
+        "required_business_facts": [
+          "business_terminal"
+        ]
+      },
+      "impact_paths": [
+        "skills/**",
+        "plans/2026-09-05-attention-first/testcases/**"
+      ]
+    },
+    {
+      "scenario_id": "S-3",
+      "required": true,
+      "testcase_ids": [
+        "S-3"
+      ],
+      "input_class": "S-3",
+      "gate_type": "negative-safety",
+      "evidence_contract": {
+        "producer_types": [
+          "agent-evaluation"
+        ],
+        "required_artifact_kinds": [
+          "business-result"
+        ],
+        "required_identity": [
+          "root_run_id"
+        ],
+        "required_timestamps": true,
+        "required_business_facts": [
+          "business_terminal"
+        ]
+      },
+      "impact_paths": [
+        "skills/**",
+        "plans/2026-09-05-attention-first/testcases/**"
+      ]
+    },
+    {
+      "scenario_id": "S-4",
+      "required": true,
+      "testcase_ids": [
+        "S-4"
+      ],
+      "input_class": "S-4",
+      "gate_type": "negative-safety",
+      "evidence_contract": {
+        "producer_types": [
+          "agent-evaluation"
+        ],
+        "required_artifact_kinds": [
+          "business-result"
+        ],
+        "required_identity": [
+          "root_run_id"
+        ],
+        "required_timestamps": true,
+        "required_business_facts": [
+          "business_terminal"
+        ]
+      },
+      "impact_paths": [
+        "skills/**",
+        "plans/2026-09-05-attention-first/testcases/**"
+      ]
+    },
+    {
+      "scenario_id": "S-5",
+      "required": true,
+      "testcase_ids": [
+        "S-5"
+      ],
+      "input_class": "S-5",
+      "gate_type": "positive-value",
+      "evidence_contract": {
+        "producer_types": [
+          "agent-evaluation"
+        ],
+        "required_artifact_kinds": [
+          "business-result"
+        ],
+        "required_identity": [
+          "root_run_id"
+        ],
+        "required_timestamps": true,
+        "required_business_facts": [
+          "business_terminal"
+        ]
+      },
+      "impact_paths": [
+        "skills/**",
+        "plans/2026-09-05-attention-first/testcases/**"
+      ]
+    },
+    {
+      "scenario_id": "S-6",
+      "required": true,
+      "testcase_ids": [
+        "S-6"
+      ],
+      "input_class": "S-6",
+      "gate_type": "negative-safety",
+      "evidence_contract": {
+        "producer_types": [
+          "agent-evaluation"
+        ],
+        "required_artifact_kinds": [
+          "business-result"
+        ],
+        "required_identity": [
+          "root_run_id"
+        ],
+        "required_timestamps": true,
+        "required_business_facts": [
+          "business_terminal"
+        ]
+      },
+      "impact_paths": [
+        "skills/**",
+        "plans/2026-09-05-attention-first/testcases/**"
+      ]
+    }
+  ],
+  "manifest": {
+    "run_id": "attention-first-001",
+    "repo_root": "/Users/denny/planSkill/plan-test",
+    "source_request_text": "读取RunLog v0.6执行记录并优化skill，节省用户注意力，依据需求制定plan自主处理，用户决策前先调研。",
+    "executor_engine": "gpt-6-astra-root",
+    "auditor_engine": "gpt-6-astra-independent-subagent",
+    "challenger_engine": "gpt-6-astra-independent-subagent",
+    "flow_tier": {
+      "value": "FULL",
+      "rationale": "Agent指令行为随语义输入变化，且本仓AGENTS要求行为变更使用gate验证",
+      "decided_by": "agent"
+    },
+    "related_run_dirs": [
+      "plans/2026-08-26-enforcement-anchors/verification/run-001",
+      "plans/2026-08-26-enforcement-anchors/verification/run-002",
+      "plans/2026-08-26-enforcement-anchors/verification/run-003",
+      "plans/2026-07-27-gate-hardening/verification/slice-a",
+      "plans/2026-07-27-gate-hardening/verification/slice-b"
+    ],
+    "applicability": {
+      "input_sensitive": {
+        "value": true,
+        "rationale": "指令行为随用户授权及决策语义变化，采用六类冷启动Agent场景验证",
+        "decided_by": "agent"
+      },
+      "llm_payload_driven": {
+        "value": false,
+        "rationale": "不涉及LLM结构化载荷驱动端侧状态机或UI卡片，仅验证Agent工作流指令",
+        "decided_by": "agent"
+      },
+      "stateful_init": {
+        "value": false,
+        "rationale": "技能文件无需服务注册或远端登录初始化，冷启动Agent只是隔离评测上下文",
+        "decided_by": "agent"
+      }
+    },
+    "release_unit": {
+      "must_ac_count": 5,
+      "task_count": 4,
+      "plan_lines": 25
+    }
+  }
+}

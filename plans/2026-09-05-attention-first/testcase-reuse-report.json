@@ -1,0 +1,55 @@
+{
+  "decisions": [
+    {
+      "obligation_id": "TO-1",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-0"
+      ],
+      "reason": "现有资产为gate脚本回归，没有可复用的Agent交互oracle；S-0复用现有测试执行命令"
+    },
+    {
+      "obligation_id": "TO-2",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-1",
+        "S-6"
+      ],
+      "reason": "现有资产为gate脚本回归，没有可复用的Agent交互oracle；S-0复用现有测试执行命令"
+    },
+    {
+      "obligation_id": "TO-3",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-2",
+        "S-5"
+      ],
+      "reason": "现有资产为gate脚本回归，没有可复用的Agent交互oracle；S-0复用现有测试执行命令"
+    },
+    {
+      "obligation_id": "TO-4",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-4",
+        "S-6"
+      ],
+      "reason": "现有资产为gate脚本回归，没有可复用的Agent交互oracle；S-0复用现有测试执行命令"
+    },
+    {
+      "obligation_id": "TO-5",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-0",
+        "S-3",
+        "S-5",
+        "S-6"
+      ],
+      "reason": "现有资产为gate脚本回归，没有可复用的Agent交互oracle；S-0复用现有测试执行命令"
+    }
+  ]
+}

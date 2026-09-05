@@ -16,6 +16,10 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 - **战略上藐视**：敢于裁剪仪式——默认 LEAN、默认 journal 收尾、挑战与测试的力度按矛盾地位收窄；说不出理由的门就跳过（留痕）。
 - **战术上重视**：每条声明必须有实测证据——决定性 AC 必须真验证、真人测试不降级、提交态必须干净。**砍的是仪式，不是证据。**
 
+## 用户注意力
+
+开场读 `references/user-attention.md`。先调查、形成可审阅的 plan；已有授权覆盖方案时自主推进。需要用户决策时先提供事实、推荐、代价与未知项。各阶段的确认、BLOCKED、demo 和续接按该 reference 解释。
+
 ## 核心原则
 
 - **围绕主要矛盾（全流程的骨架）**：acceptance 第一节是矛盾分析四问（主要矛盾是什么/产生原因/怎么解决 + 最小验证动作/矛盾的主要方面，格式硬约束见 phase-A：单一矛盾、价值在前防御在后、复合句 = 没写，challenger P0 打回）；每条 AC 标注**决定性/次要**，挑战轮次（phase-2）、任务排序与执行火力（phase-3）、测试深度（phase-4）全部按它路由。价值验证里程碑未 PASS 前禁止任何昂贵加固（`VALUE_SMOKE_GATE`）；里程碑 PASS 后**demo 给用户 + 矛盾转化再分析**（phase-3 A.3）。
@@ -28,7 +32,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 - **禁止自造防御系统 / 复验粒度跟随变更粒度**：见 config `SELF_BUILT_DEFENSE`、`REVALIDATION_SCOPE`。
 - **唯一真相来源**：一切回溯到用户批准的 `{ACCEPTANCE_FILE}`（FULL 路径另含 `assurance-contract.json`）；challenger 不得自行扩大范围。
 - **oracle 先于实现**：任何 AC 的"什么算对"在实现之前写下；禁止照实现补预期（phase-2/3）。
-- **从群众中来，到群众中去**：需求从用户澄清中来（phase-A 确认矛盾分析）；里程碑 PASS 后拿**跑起来的实物**回到用户中检验（demo）；进度用用户语言汇报（config `PROGRESS_REPORTING`）；用户可感知的标的差异必须复述确认。
+- **从群众中来，到群众中去**：需求从用户澄清中来（phase-A 提炼矛盾分析，按交互边界合并 review）；里程碑 PASS 后拿**跑起来的实物**回到用户中检验（demo）；进度用用户语言汇报（config `PROGRESS_REPORTING`）；用户可感知的标的差异必须在决策简报中说明并取得对应授权。
 - **每个声明可验证**：不说"看起来做完了"，逐条核对可追溯矩阵；journal 里每条声明附实测证据。
 - **每个失败有出口**：plan challenge 用 3/5/8 出口，其他循环用 `MAX_ROUNDS`（见 config）；任何 reset 不清零历史。
 - **已批准行为不缩水**：`BEHAVIOR_POLICY = preserve-approved`；最小化按 `policies/acceptance-preserving-ponytail.md`。
@@ -41,7 +45,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 1. **Announce**：输出 "I'm using the plan-test skill to run the full plan→execute→test workflow."
 2. **读配置**：读本 skill 的 `config.md`；项目根存在 `.claude/plan-test.config.md` 则覆盖默认值。所有 `{大写变量}` 运行时替换。
 3. **判任务类型与路径并宣布**（`TASK_TYPE` + `FLOW_TIER`，判据见 config"流程路径"）：先判 delivery / ops；delivery 再判 DIRECT / LEAN / FULL；FULL 再判 `MACHINE_GATE` 是否启用。疑义往高风险路径判（但 ops 误判成 delivery-FULL 的代价是仪式压垮任务，类型判定按交付物本质）。
-4. **列门清单（具体问题具体分析，防本本主义）**：一并列出本次要跑的门与跳过的门，**各附一句话理由**；理由说不出的门就是本本主义——跳过并留痕。
+4. **列门清单（存入 plan，不逐项要求用户阅读）**：记录本次要跑的门与跳过的门，**各附一句话理由**；理由说不出的门就是本本主义——跳过并留痕。
 5. **建 TodoWrite**：把该路径要跑的阶段建成 todo，逐项 in_progress → completed 推进。
 
 ## 阶段全景
@@ -57,16 +61,16 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 
 **推进规则**：
 
-1. **A → 1 → 2 → 用户批准** 必须串行（唯一真相没定，后面全是沙上建塔）；
-2. 用户批准后进入 phase-3 执行（模式自决见 phase-3 开场；oracle 先于实现贯穿始终）；
+1. **A 草案 → 1 调查 → 2 挑战 → 授权核对**：调查和挑战可以基于明确标注的草案，不能先改用户目标；需要 review 时把验收标准、plan 与决策简报合并一次提交；
+2. 当前授权已覆盖定稿方案且无重要未决取舍 → 直接进入 phase-3；用户要求先确认或方案超出授权 → 等待对应决定（见 `references/user-attention.md`）；
 3. **价值里程碑是执行中段的战略节点**：PASS → demo + 矛盾转化再分析，然后推进剩余任务；FAIL → A2 回炉或 BLOCKED；
 4. phase-4 验收：便宜门 → 核心价值 smoke（FAIL 即停）→ 决定性场景深测 → 次要各一遍 → testcase 收尾；
 5. final：文档回写 → DoD → journal 终态行（`JOURNAL_VERDICT`）→ 自我批评 → 提交 →（要推送时）push 前 code review，P0/P1 修完再推（FULL 加 re-attest/full-audit/finalize）。
 
-- **每阶段先读文档（防跳步硬闸）**：进入每个阶段前，先完整读该阶段的 `phase-X.md` 并列出必做项清单，逐项打勾——不许凭"我大概懂了"跳过子步骤（漏测几乎都源于此）。
+- **每阶段先读文档（防跳步硬闸）**：进入每个阶段前，先完整读该阶段的 `phase-X.md` 在 plan/journal 内记录必做项清单，逐项核对——不许凭"我大概懂了"跳过子步骤（漏测几乎都源于此）。
 - **⚠️ 末尾警戒**：越接近收尾越容易用便宜的代码审计替昂贵的真机测试。**决定性 AC 的 UI 测试不许降级**，测不了就 BLOCKED 升级。"主流程通过"≠"每条 AC 都测了"。
 - 任何阶段卡在"循环直到 100%"超过 `MAX_ROUNDS` → 停下、标 BLOCKED、带"卡在哪/试过什么/需要什么解锁"升级给用户。
-- **会话续接先复验**：压缩/跨会话/换 agent 后，先重跑当前路径声明范围的分级冒烟；旧的脏工作树 PASS 不得沿用。
+- **会话续接先恢复事实**：按 `references/user-attention.md` 读取授权、未完成项与测试身份；按 config `REVALIDATION_SCOPE` 和 `FULL_SURFACE_SMOKE` 复验，不重复询问已记录的决定。旧的脏工作树 PASS 不得沿用。
 - **增量 AC 不许绕流程**：见 config `INCREMENTAL_AC_MODE`。
 
 ## 子代理用法

@@ -39,7 +39,7 @@
   - **跑**：acceptance（含一句话主要矛盾 + 最小验证动作）；1 轮 primary 挑战（只读实测取向，
     specialist 仅在真发现结构性风险时追加）；**回滚出口先行**（动任何共享状态前先验证快照/回滚可用）；
     多任务共享机器时的串行部署锁；价值里程碑硬门（phase-3 A 节）；分级冒烟；
-    完成记录 = 一页 journal（目标服务在生产入口活着 + 冒烟 PASS + 回滚出口已验证 + 用户确认）。
+    完成记录 = 一页 journal（目标服务在生产入口活着 + 冒烟 PASS + 回滚出口已验证 + 用户明确要求时的人工验收）。
   - **不跑**：oracle 冻结、提交态硬门、testcase inventory/场景矩阵、Stage A/B manifest 编译、
     finalize receipt（机器门对 OPS 为 opt-in，不作完成权威）。
   - **铁律不变**：BLOCKED 升级纪律、`SELF_BUILT_DEFENSE: forbidden`、复验粒度跟随变更粒度。
@@ -143,7 +143,7 @@
 > **输入语义敏感的判定**：功能的输出质量随输入语义变化——LLM 对话/生成、搜索、调研/agent、推荐、分类等。反之，设置页、开关、单按钮、CRUD 表单、导航等**确定性 UI 不适用**，一个场景即可，不许把多问题门槛错误套给它们。
 
 - `MANUAL_SCENARIO_MATRIX`: required-for-input-sensitive
-  - 输入敏感功能必须在 acceptance 里有"测试场景矩阵"（见 phase-A）；没有 → plan-task 开工即 BLOCKED。
+  - 输入敏感功能必须在 acceptance 里有"测试场景矩阵"（见 phase-A）；没有 → 暂停依赖任务，按 plan-task 输入校验第 4 项补齐或提交真实待决项；不把缺矩阵自动当作重复授权理由。
 - `MANUAL_MIN_DISTINCT_CLASSES`: 3
   - 真人测试最少覆盖的**语义不等价输入类别**数。重试、重放、同意图改写、continuation 都不增加此计数。
 - `MANUAL_REQUIRE_NEGATIVE_CLASS`: when-applicable
@@ -327,6 +327,12 @@
     "历史上拦过谁"这一半。连续 N 个 run 零触发的门列为退休候选。候选只是候选：
     退门是设计决定，须对照该门当初防的逃逸再拍板。
 
+## 用户交互
+
+- `USER_ATTENTION`: protect（默认）
+  - 交互语义统一见 `references/user-attention.md`，三个入口开场读取。沿用已有授权、合并需要的 review、先调研再提交决策，不添加机器诊断码。
+  - 项目覆盖不得将沉默视为批准、扩大已授权范围或降低 required 验收证据。
+
 ## 行为开关
 
 - `SELF_BUILT_DEFENSE`: forbidden（2026-08-31 DGX 复盘新增）
@@ -343,11 +349,11 @@
   - 每次收尾在 `{PLANS_DIR}/<feature>/retro.md` 写一两行自我批评：本次哪些门空转、哪里被
     仪式拖慢、哪个环节真拦住了问题。它是门禁退休评审（`GATE_REGISTRY_DISCIPLINE`）的数据源。
 - `PROGRESS_REPORTING`: user-language（2026-08-31 DGX 复盘新增）
-  - 每个里程碑用一句**用户语言**汇报进度 + 预计剩余时间；长任务（下载/资格测试）必报速率与 ETA。
+  - 每个里程碑用**用户语言**汇报结果、下一验证点和是否需要用户；可靠时提供速率/ETA，否则说明未知。demo 不自动产生等待点；细则见 `references/user-attention.md`。
   - **用户可感知的标的/行为差异必须复述确认**：模型版本、端口、默认模式等在 plan 定稿前
     用一句人话向用户复述（病根：H3 用户要越狱版、计划静默换成官方版，部署完才被发现）。
 - `EXECUTE_AUTONOMY`: high
-  - high = 执行阶段遇分歧按最佳实践自决、不打断用户（BLOCKED 例外）。
+  - high = 主 Agent 在已授权目标、MUST AC、用户行为、保障与成本/操作边界内自主调研、执行和修订计划；A2 回炉仍需挑战与验证。BLOCKED 是否需要用户由实际解锁条件决定，见 `references/user-attention.md`。
 - `BEHAVIOR_POLICY`: preserve-approved
   - 不静默减少用户已批准的外部行为；内部实现可删除、替换或重构；acceptance 明确批准删除的
     旧行为可以删除。最小化规则见 `policies/acceptance-preserving-ponytail.md`。

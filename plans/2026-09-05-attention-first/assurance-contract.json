@@ -1,0 +1,36 @@
+{
+  "profile": "standard",
+  "acceptance_ids": [
+    "AC-1",
+    "AC-2",
+    "AC-3",
+    "AC-4",
+    "AC-5"
+  ],
+  "protected_assets": [
+    {
+      "id": "ASSET-1",
+      "description": "用户目标、授权范围、注意力与真实验收证据"
+    }
+  ],
+  "trusted_assumptions": [
+    {
+      "id": "TRUST-1",
+      "description": "信任当前用户、OS与本地gate工具；冷启动Agent执行限定场景"
+    }
+  ],
+  "in_scope_failures": [
+    {
+      "id": "FAIL-1",
+      "description": "重复确认、无调研决策、越权、虚假验收或跨入口规则冲突"
+    }
+  ],
+  "in_scope_adversaries": [],
+  "out_of_scope_conditions": [
+    {
+      "id": "OOS-1",
+      "description": "不重写gate机器语义，不发布远程版本，不证明所有模型长期行为"
+    }
+  ],
+  "maximum_acceptable_impact": "只允许本地可回滚修改，评测无生产副作用"
+}

@@ -1,0 +1,13 @@
+{
+  "primary_contradiction": {
+    "id": "pc-user-attention-autonomous-delivery",
+    "summary": "用户将需求交给Agent后获得自主推进的可验证交付",
+    "acceptance_ids": [
+      "AC-2",
+      "AC-3",
+      "AC-4",
+      "AC-5"
+    ]
+  },
+  "challenge_clusters": []
+}
