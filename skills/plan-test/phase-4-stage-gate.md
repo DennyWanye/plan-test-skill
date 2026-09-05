@@ -4,6 +4,10 @@
 
 **目的**：执行完成后的统一终验关卡。两条排布原则：**便宜的门在前，贵的门在后**；**主要矛盾先测深测，次要 AC 各过一遍**（重点论 + 两点论兜底）。
 
+## 当前片验收与跨片回归
+
+按 `references/delivery-slices.md` 先明确片承诺、原始 AC 映射、继承风险和 run 对应关系。机器 required 始终取该 run 冻结范围，不因进入某片而缩小。同一整体 run 内的片只是能力里程碑，未来 required 保留 NOT_RUN；下文 READY_FOR_AUDIT/finalize 等整体出口等原 run 全范围完成才执行。各片独立 run 则对本片完整冻结范围执行全部适用出口。每片真实入口与其承诺必须实测；先前产物按内容身份、变更影响和必要组合风险复验，不机械重跑无变化的昂贵项目。命中现有 UI/provider/机器门时照常执行，不能因切片降级。
+
 ## ① 测试策略路由（先决定怎么测）
 
 按被测对象选择测试方式（`TEST_STRATEGY = route`）：
@@ -82,8 +86,8 @@
      格式见 phase-final，语义见 config `JOURNAL_VERDICT`）。
   完成判定依据 = journal + phase-final 的 DoD 清单；交付说明如实写"无机器 receipt"。
 - **FULL 且高外部性（`MACHINE_GATE` 启用，判定见 config）**：走机器账本全流程——
-  测试前 `compile-manifest` + `init` 开账（冻结 testcase hash、场景矩阵、`applicability` 三维
-  判定、release_unit）；每条测试当场 `record-run` + `attach-evidence`（脚本测试优先
+  复用实现前已 `compile-manifest` + `init` 的账本（冻结 testcase hash、场景矩阵、`applicability` 三维
+  判定、release_unit；机器挑战要求先开账，见 delivery-slices），不在每片测试时重新 init；每条测试当场 `record-run` + `attach-evidence`（脚本测试优先
   `record-run --exec`）；时间入账 `record-timing`；测完 `finalize --check-only` 输出
   `READY_FOR_AUDIT` 才进收尾。命令与语义见 `gate/PROTOCOL.md` 与
   `references/evidence-audit-lifecycle.md`；BLOCKED 语义陷阱见 config `BLOCKED_SEMANTICS`
@@ -111,7 +115,9 @@
 
 ## 出口
 
+- **同一整体 run 内的中间片**：本片真实入口、承诺、适用 review/回归与提交身份核对已完成 → 记录片里程碑并回 phase-2 准备下一片，未来 required 仍未完成；不要求下列整个 run 的最终出口，不声称 receipt 或整体完成。
+- 下列出口用于独立片交付或整个 run 的最终完成：
 - **默认**：便宜门全绿 + 决定性场景 PASS + 兑现表无 ❌ 无未批准降级 + journal 完整 +
-  testcase 已归档 → 进入收尾 DoD。
+  testcase 已归档 → 当前片进入对应交付 DoD；有后续片时完成片终点核对再回 phase-2，整体完成另核全部原始 AC。
 - **FULL**：以上 + `finalize --check-only` 输出 `READY_FOR_AUDIT` + full-audit PASS 已入账
-  → 进入收尾 DoD。
+  → 当前片进入对应交付 DoD；有后续片时完成片终点核对再回 phase-2，整体完成另核全部原始 AC。

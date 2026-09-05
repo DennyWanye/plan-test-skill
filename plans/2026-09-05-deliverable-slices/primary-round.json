@@ -1,0 +1,33 @@
+{
+  "review_mode": "breadth",
+  "coverage": {
+    "acceptance_coverage": true,
+    "entry_and_trust_chain": true,
+    "data_flow_and_persistence": true,
+    "identity_permissions_concurrency_cleanup": true,
+    "failure_and_recovery": true,
+    "tests_and_evidence": true,
+    "release_and_rollback": true,
+    "trusted_boundary_stop": true
+  },
+  "findings": [
+    {
+      "id": "slice-scope-authority-unspecified",
+      "severity": "P1",
+      "scope_relation": "in-scope",
+      "origin": "pre-existing",
+      "violated_acceptance_ids": [
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5"
+      ],
+      "assurance_contract_ids": [
+        "FAIL-1"
+      ],
+      "evidence": "plan.md:20-21 仅以范围化收敛、片与整体验收区别、审计提示词范围化描述关键改动，未明确当前片、整体验收和现有 release unit/run 的映射。现有 skills/plan-task/SKILL.md:28 以整个 plan finalized 标记准入，:31-32 对 acceptance 矩阵和冻结 contract 做前置校验；skills/plan-test/phase-2-iterate-plan.md:144-154 逐全部改动点和任务判收敛；phase-final-dod.md:44-48 以所有决定性及 MUST AC 为完成条件；config.md:243-250 冻结 oracle 并按 release unit 体量机检。这些均属于计划已承诺修改或保留的直接边界，不能仅把全局字样替换为当前片来兼容。",
+      "status": "open",
+      "root_cause": "计划尚未确定跨阶段使用的范围身份。正常的第二片尚未细化/未执行时，plan-task 准入、审计完成度、冻结 oracle 和 FULL receipt 到底处理整体还是当前片仍无确定操作；同一草案既可能要求未来片全部完成才允许首片推进，也可能把当前片 PASS 错写成整体完成。需要在实施前写清既有授权下下一片的细化/挑战/冻结时点，以及一个整体 run 或多个已获授权 release unit 的边界；这不是要求改 gate，也不以尚未运行测试判实现失败。"
+    }
+  ]
+}

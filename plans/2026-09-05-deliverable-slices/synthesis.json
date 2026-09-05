@@ -1,0 +1,74 @@
+{
+  "source_cluster_ids": [
+    "cluster-slice-scope-authority"
+  ],
+  "canonical_findings": [
+    {
+      "id": "slice-scope-authority-unspecified",
+      "severity": "P1",
+      "scope_relation": "in-scope",
+      "origin": "pre-existing",
+      "violated_acceptance_ids": [
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5"
+      ],
+      "assurance_contract_ids": [
+        "FAIL-1"
+      ],
+      "status": "resolved",
+      "root_cause": "原问题是交付片的人读范围未与机器 run 的冻结范围及出口对应。最终补丁已明确同一 run 中间片、独立片 run、无机器门三种路径，并对齐 compile/init 与机器挑战顺序；不存在以当前片标签改写全局 acceptance 或冻结 required 的授权。",
+      "evidence": "skills/plan-test/references/delivery-slices.md:27-30 规定当前片调查/挑战/基线检查与 program finalized 边界，:42-46 明确三种 run 映射及先 compile/init 后机器挑战、全部实现前完成，:50-52 保留原始 MUST/风险与组合验证。phase-4-stage-gate.md:9 以冻结 run 范围为 required 权威，:88-94 复用实现前已初始化账本，出口明确同 run 中间片不要求最终 READY/finalize。phase-final-dod.md:7 同步中间片不做整体终态/receipt。plan.md 的专项补充已记录具体选择。与 gate/PROTOCOL.md:32-35、50-55、84-88、230-232，以及 scripts/plan_test_gate.py:2537-2543、2579-2597、2673-2693、5090-5099 的覆盖/冻结/挑战前提一致。",
+      "resolved_parts": [
+        "delivery-slices 明确保留整体原始 MUST、跨片组合验证和相关风险；slice acceptance 不得反写或削减整体 acceptance。",
+        "plan-task:36 与共享 reference 明确 program finalized 只代表整体方案，不使未来片自动获得开工资格；下一片需补调查、spike、挑战与基线差异。",
+        "completion-auditor 已要求原始 AC 映射和明确 scope，未来片未实施不算本片遗漏，片 PASS 不得扩大为整体完成。",
+        "失败片只能修复/A2 或真实阻塞；可继续无依赖调查，不把失败掩盖成新片交付；没有要求每片重复用户批准。",
+        "同一 frozen run 内只记片里程碑，未来 required 保持 NOT_RUN，全部完成后才执行全 run READY_FOR_AUDIT/finalize；不重开 run 丢弃旧义务。",
+        "独立 run 在开账前选择，片 acceptance/contract 映射原请求、本片断言及相关全局风险，机器 receipt 只对该片完整冻结 scope 有效。",
+        "独立机器 run 已修为本片验收/oracle准备后 compile/init，再 start-challenge-loop 完成挑战与定稿，均在实现前；冻结后变更仍按原机制。",
+        "phase-4 出口本身显式区分同一 run 中间片与独立片/整体最终出口；不在每片测试时重新 init。",
+        "当前片独立 run 采用片 acceptance/contract 与全局 AC/相关风险映射，没有要求更改 gate schema 或新造聚合 receipt；原始全部 MUST 仍留在整体总览并负责最终组合验收。"
+      ],
+      "necessary_repairs": [],
+      "decision_scenarios": [
+        {
+          "case": "SL-1 PASS，SL-2 仅有能力/依赖/AC",
+          "expected": "整体仍未完成。SL-1 独立 run 可在自身冻结 required 全通过后拿 receipt；整体 run 则只能记录片里程碑。SL-2 补足本片开工动作后可在原授权内进入。",
+          "review_result": "resolved-in-rules"
+        },
+        {
+          "case": "SL-2 细化时修改一个已被 SL-1 或整体 run 冻结的 oracle",
+          "expected": "不能把渐进细化当作免批准修改冻结材料的授权；先识别原冻结范围，沿既有 exact old/new 批准机制处理，或对尚未冻结的本片新材料正常细化，原 required 不消失。",
+          "review_result": "resolved-in-rules"
+        },
+        {
+          "case": "SL-1 核心验证 FAIL 后恢复会话",
+          "expected": "从原 AC、失败记录和内容身份恢复，修复或 A2 并复验；不启动依赖 SL-1 的 SL-2 实现，不另开少场景 run 洗掉失败；既有 retire/acknowledge 规则仍有效。",
+          "review_result": "resolved-in-rules"
+        }
+      ],
+      "next_slice_entry": "先完成前片声明能力的真实入口验证、适用 review/审计、受影响回归与提交内容身份核对。独立机器 run 须完成该片适用 finalize；同一整体 run 只记录里程碑并保留未来 required NOT_RUN。随后在原授权内补下一片调查、关键假设实测、任务/oracle/挑战与基线差异检查；独立 run 按明确 scope 先 compile/init 再机器挑战，全部实现前完成。已有整体 frozen run 继续原账本，不缩 required；已冻结材料需变更仍走原机制。program finalized、前片 PASS 或旧 receipt 均不代替下一片就绪。"
+    }
+  ],
+  "resolved_finding_ids": [
+    "slice-scope-authority-unspecified"
+  ],
+  "open_finding_ids": [],
+  "decisions": [
+    {
+      "canonical_finding_id": "slice-scope-authority-unspecified",
+      "source_finding_ids": [
+        "slice-scope-authority-unspecified"
+      ],
+      "action": "plan-change",
+      "rationale": "明确同run里程碑与独立交付run映射及实现前freeze/challenge时序"
+    }
+  ],
+  "conflicts": [],
+  "required_spikes": [],
+  "plan_actions": [
+    "补充计划scope/run对应、冻结/下一片时序并修改直接冲突分支"
+  ]
+}

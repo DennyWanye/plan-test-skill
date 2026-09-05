@@ -1,0 +1,23 @@
+{
+  "review_mode": "diff",
+  "findings": [
+    {
+      "id": "slice-scope-authority-unspecified",
+      "severity": "P1",
+      "scope_relation": "in-scope",
+      "origin": "pre-existing",
+      "violated_acceptance_ids": [
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5"
+      ],
+      "assurance_contract_ids": [
+        "FAIL-1"
+      ],
+      "evidence": "已复核当前 plan.md 的专项补充、specialist-review.json 及相关技能 diff。references/delivery-slices.md 的逐片细化/片验收与整体完成明确 program finalized 与当前片就绪的区别、同一整体 run/独立片 run/无机器门三种映射、原始 MUST 与风险继承及冻结后变更边界；plan-task/SKILL.md 新增当前片开工检查；phase-2 将细节收敛限定为当前片且保留整体风险检查；phase-4 开头和出口均保留 frozen run 的完整 required，同 run 中间片无需整体 READY/finalize，独立片按完整冻结范围完成；phase-final 同步局部与整体出口；completion-auditor 要求明确 scope 与原 AC 映射。专项指出的 compile/init 在机器挑战前完成也已写入共享规则及 phase-4。 另复核 delivery-slices.md:30 的体量补充：同一 run 内分片不缩小原 run 计数或阈值，独立片 run 才按本片完整范围机检，未新增 gate 字段或诊断。",
+      "status": "resolved",
+      "root_cause": "原范围身份缺口已通过共享规则和直接阶段接入消除：未来片 pending 不再阻止本片里程碑，但不会消失或获得整体完成声明；下一片须先细化、调查、验证假设、挑战并核对基线，范围内沿用既有授权。此状态仅关闭本条计划/规则可执行性问题，不代表真实 Agent 行为回放、回归、安装一致性或最终交付通过。"
+    }
+  ]
+}

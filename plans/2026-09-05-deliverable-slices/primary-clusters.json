@@ -1,0 +1,28 @@
+{
+  "primary_contradiction": {
+    "id": "pc-cumulative-usable-delivery",
+    "summary": "主要矛盾成立：逐步交付可使用、可验证的能力是单一用户价值命题，未把防御置于价值之前。独立 Agent 从真实 CLI 输入到结果交付首片是合适的最小价值验证；现有计划把结构及全量回归放在该 smoke 后，没有已证明的非直接依赖前置。仍需澄清各阶段范围身份，确保逐片闭环和整体承诺能够同时执行。",
+    "acceptance_ids": [
+      "AC-1",
+      "AC-2",
+      "AC-3"
+    ]
+  },
+  "challenge_clusters": [
+    {
+      "cluster_id": "cluster-slice-scope-authority",
+      "parent_finding_ids": [
+        "slice-scope-authority-unspecified"
+      ],
+      "specialty": "architecture",
+      "question": "在未来片仅有目标/依赖/AC、整体授权已存在的两片计划中，三入口如何判断当前片准入、完成与继续？当前片的细化、审计、冻结 oracle、release unit 和 FULL run/receipt 如何保持现有机器语义，并同时避免要求未来片提前全部完成或把局部 PASS 当成整体交付？",
+      "required_evidence": [
+        "plan 中当前片/整体/既有 release unit 的操作映射及第二片开工条件",
+        "三入口与 phase-2/3/4/final 涉及 finalized、审计范围、冻结及完成状态的具体拟修改条款",
+        "仅定向核对 gate/PROTOCOL.md 和既有 manifest/release_unit/冻结 oracle 语义；不要求扫描无关实现或修改 gate",
+        "覆盖首片 PASS、未来片 pending、冻结后细化和失败续接的预期决策场景；此时不要求实现测试已通过"
+      ],
+      "specialist_required": true
+    }
+  ]
+}

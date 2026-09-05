@@ -1,0 +1,36 @@
+{
+  "profile": "standard",
+  "acceptance_ids": [
+    "AC-1",
+    "AC-2",
+    "AC-3",
+    "AC-4",
+    "AC-5"
+  ],
+  "protected_assets": [
+    {
+      "id": "ASSET-1",
+      "description": "用户目标、验收与已有交付能力"
+    }
+  ],
+  "trusted_assumptions": [
+    {
+      "id": "TRUST-1",
+      "description": "信任本地用户、OS和gate工具"
+    }
+  ],
+  "in_scope_failures": [
+    {
+      "id": "FAIL-1",
+      "description": "横向拆片、未交付冒进、延后致命假设、缩减AC或重复批准"
+    }
+  ],
+  "in_scope_adversaries": [],
+  "out_of_scope_conditions": [
+    {
+      "id": "OOS-1",
+      "description": "不改gate实现，不验证所有模型长期行为"
+    }
+  ],
+  "maximum_acceptable_impact": "本地可回滚技能更新；隔离评测无真实外部操作"
+}

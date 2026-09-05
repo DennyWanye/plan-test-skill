@@ -244,6 +244,7 @@
     默认 `FROZEN_ORACLE_CHANGED`；唯一例外是绑定 exact old/new + 用户消息 hash +
     scope/expiry 的 `behavior_changes` 批准 artifact。失败后不许把 expected result
     改成当前实现结果。
+- **切片定义与渐进细化**：见 `references/delivery-slices.md`；按可用能力切分，体量只作上限保护。小需求可一片；当前片代码级就绪，整体风险先验证，未来片细节可后补。每片继承相关全局风险，不能靠分片降低实际适用门。
 - `RELEASE_UNIT_LIMITS`: MUST AC ≤ 8 / Task ≤ 10 / plan ≤ 2000 行 / 高风险子系统 ≤ 3 /
   同时改 UI、Session、Harness、Provider、权限 ≤ 3 类
   - 超限 → validator 返回 `RELEASE_UNIT_TOO_LARGE`，要求拆 program plan + 垂直 slice，
@@ -309,7 +310,7 @@
 - `EXECUTION_MODE`: self-decide（2026-09-01 替代原 `PARALLEL_TRACKS`，验证准备轨已撤销）
   - 执行模式由 agent 按任务结构自决并一行留痕：任务真独立（文件不相交、无顺序依赖）且量大
     → **分兵**（并行子代理 + worktree）；环环相扣或量小 → **集中兵力**（当前 session 串行
-    打歼灭战，做完一个验一个提交一个）。疑义时集中兵力。判据全文见 phase-3 开场。
+    打歼灭战，按当前片实现、验证并形成可交付提交终点）。疑义时集中兵力。判据全文见 phase-3 开场。
   - 原验证准备轨的 black-box 精髓保留为普适规则 **oracle 先于实现**（见 phase-2 /
     phase-3 A.4）：写实现前先写下"什么算对"，禁止照实现补预期。
 - `AI_DRIVING_APPROVAL`: required-for-input-sensitive（schema 1.3.0）

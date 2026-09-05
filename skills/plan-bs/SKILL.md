@@ -14,6 +14,7 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 1. **Announce**：输出 "I'm using the plan-bs skill to brainstorm and co-create the plan with you."
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
 2a. **读交互规则**：读 `../plan-test/references/user-attention.md`；保留共创，先查事实再问价值取舍，验收标准与 plan 合并 review。
+2a-slice. **delivery 切片规则**：读 `../plan-test/references/delivery-slices.md`；整体目标 → 可交付切片 → 技术任务，当前片细化并定稿后交 plan-task 实施，本入口不实施业务代码；小需求可一片。
 2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
 3. **建 TodoWrite**：按下面 5 步建 todo。
 
@@ -57,7 +58,7 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 
 ### 4b. 关键假设验证收口（定稿前检查，非首次验证时点）
 
-定稿前对照关键假设清单做最后核对：
+定稿前对照整体成败与当前片关键假设清单核对；未来片细节按 delivery-slices 记待细化项，不冒充已验证：
 
 1. 清单覆盖了主要矛盾解法依赖的全部关键假设，无遗漏？
 2. 每条都有"真跑证据（命令+实际输出）+ 结论"？没有一条是"预计可行 / 理论上支持 / 读过源码应该行"？

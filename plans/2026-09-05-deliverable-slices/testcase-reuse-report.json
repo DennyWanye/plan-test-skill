@@ -1,0 +1,54 @@
+{
+  "decisions": [
+    {
+      "obligation_id": "TO-1",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-1",
+        "S-2"
+      ],
+      "reason": "已有attention回放未覆盖能力切片与范围继承；新建原始场景oracle，S0复用既有回归命令"
+    },
+    {
+      "obligation_id": "TO-2",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-1",
+        "S-3"
+      ],
+      "reason": "已有attention回放未覆盖能力切片与范围继承；新建原始场景oracle，S0复用既有回归命令"
+    },
+    {
+      "obligation_id": "TO-3",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-1",
+        "S-3"
+      ],
+      "reason": "已有attention回放未覆盖能力切片与范围继承；新建原始场景oracle，S0复用既有回归命令"
+    },
+    {
+      "obligation_id": "TO-4",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-2",
+        "S-3"
+      ],
+      "reason": "已有attention回放未覆盖能力切片与范围继承；新建原始场景oracle，S0复用既有回归命令"
+    },
+    {
+      "obligation_id": "TO-5",
+      "decision": "create-new",
+      "candidates": [],
+      "selected_testcases": [
+        "S-0",
+        "S-3"
+      ],
+      "reason": "已有attention回放未覆盖能力切片与范围继承；新建原始场景oracle，S0复用既有回归命令"
+    }
+  ]
+}

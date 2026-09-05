@@ -20,6 +20,8 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 
 开场读 `references/user-attention.md`。先调查、形成可审阅的 plan；已有授权覆盖方案时自主推进。需要用户决策时先提供事实、推荐、代价与未知项。各阶段的确认、BLOCKED、demo 和续接按该 reference 解释。
 
+delivery 规划/执行同时读 `references/delivery-slices.md`：整体目标 → 可交付切片 → 技术任务；每片真实验证后继续，小需求只需一片。
+
 ## 核心原则
 
 - **围绕主要矛盾（全流程的骨架）**：acceptance 第一节是矛盾分析四问（主要矛盾是什么/产生原因/怎么解决 + 最小验证动作/矛盾的主要方面，格式硬约束见 phase-A：单一矛盾、价值在前防御在后、复合句 = 没写，challenger P0 打回）；每条 AC 标注**决定性/次要**，挑战轮次（phase-2）、任务排序与执行火力（phase-3）、测试深度（phase-4）全部按它路由。价值验证里程碑未 PASS 前禁止任何昂贵加固（`VALUE_SMOKE_GATE`）；里程碑 PASS 后**demo 给用户 + 矛盾转化再分析**（phase-3 A.3）。
@@ -36,7 +38,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 - **每个声明可验证**：不说"看起来做完了"，逐条核对可追溯矩阵；journal 里每条声明附实测证据。
 - **每个失败有出口**：plan challenge 用 3/5/8 出口，其他循环用 `MAX_ROUNDS`（见 config）；任何 reset 不清零历史。
 - **已批准行为不缩水**：`BEHAVIOR_POLICY = preserve-approved`；最小化按 `policies/acceptance-preserving-ponytail.md`。
-- **小 slice 交付**：超 `RELEASE_UNIT_LIMITS` → 拆 program plan + 垂直 slice，每个 slice 独立验收。
+- **按能力切片交付**：按 `references/delivery-slices.md` 定义每片的能力、真实入口、验证、依赖和保留行为；体量超限再拆 program + 各片执行 plan。每片可验收，不把技术任务提交当作交付。
 - **testcase 是项目资产**：设计用例前先查已有资产并记录 reuse decision（`references/testcase-lifecycle.md`）；复用只复用 oracle，当前 run 仍须重新执行取证。
 - **批评与自我批评**：challenger 子代理是对 plan 的批评；**代码 review 是对实现的批评（`CODE_REVIEW`，执行者不自审）**——delivery 且含非平凡代码时必做，挂 phase-3 A4 与 push 前两道，深度按矛盾地位路由，修复后按分层复验（便宜层全量 + 受影响决定性测试 + 价值 smoke）；收尾的 retro 一行是自我批评（config `SELF_CRITICISM`）——门禁退休评审的数据源，防规则集只进不出。
 
@@ -63,7 +65,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 
 1. **A 草案 → 1 调查 → 2 挑战 → 授权核对**：调查和挑战可以基于明确标注的草案，不能先改用户目标；需要 review 时把验收标准、plan 与决策简报合并一次提交；
 2. 当前授权已覆盖定稿方案且无重要未决取舍 → 直接进入 phase-3；用户要求先确认或方案超出授权 → 等待对应决定（见 `references/user-attention.md`）；
-3. **价值里程碑是执行中段的战略节点**：PASS → demo + 矛盾转化再分析，然后推进剩余任务；FAIL → A2 回炉或 BLOCKED；
+3. **每片都有价值里程碑与验收闭环**：真实入口 PASS 后完成该片其余验证、review/审计与提交身份核对，异步 demo，再细化下一片；FAIL → 修复/A2 或真实阻塞。片内与整体状态分别报告；
 4. phase-4 验收：便宜门 → 核心价值 smoke（FAIL 即停）→ 决定性场景深测 → 次要各一遍 → testcase 收尾；
 5. final：文档回写 → DoD → journal 终态行（`JOURNAL_VERDICT`）→ 自我批评 → 提交 →（要推送时）push 前 code review，P0/P1 修完再推（FULL 加 re-attest/full-audit/finalize）。
 

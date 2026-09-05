@@ -5,7 +5,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 # plan-task — 执行 plan + 测试闭环
 
-拿一份**已定稿的 plan**，走完执行与验证的全部闭环。**本 skill 不写 plan、不做需求澄清**——那是 `/plan-bs` 的活。
+拿一份**已定稿的 plan**，走完执行与验证的全部闭环。**本 skill 不重做已批准的整体方案**；执行多片计划时负责当前片必要的调查、任务细化和挑战，真实目标变更按决策简报处理。
 
 本 skill 与 plan-test 共享阶段文档与配置，共享文件都在 `../plan-test/` 下。
 
@@ -14,6 +14,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 1. **Announce**：输出 "I'm using the plan-task skill to execute and test the finalized plan."
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
 2a. **读交互规则**：读 `../plan-test/references/user-attention.md`；执行指令与历史批准按范围沿用，不逐阶段索取确认。
+2a-slice. **delivery 切片规则**：读 `../plan-test/references/delivery-slices.md`；整体目标 → 可交付切片 → 技术任务，当前片就绪后实施，每片真实验证后再推进，小需求可一片。
 2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
 3. **建 TodoWrite**：按下面 5 步建 todo。
 
@@ -31,6 +32,8 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
   4. **输入语义敏感功能必须有测试场景矩阵**（判定见 `../plan-test/config.md`"真人测试广度门禁"）：被测对象含 LLM/搜索/调研/推荐等输入敏感功能，但 acceptance 里没有场景矩阵 → 先暂停依赖该矩阵的实现，调查原始需求与既有 AC。能从明确需求推导且尚未冻结时，由主 Agent 补齐验证细化并挑战，不改变预期、不重复批准；目标不明、需改变 AC 或已冻结 contract 时，按共享规则准备决策简报/原批准机制。矩阵未补齐不得开始依赖任务或宣称通过。
   5. **LLM 载荷驱动功能必须有「LLM 行为变异清单」**（`LLM_PAYLOAD_ADVERSARIAL`，判定见 `../plan-test/config.md`"LLM 载荷对抗门禁"）：功能含"LLM 输出驱动端侧状态机/卡片/流程推进"，但 acceptance 里没有 LLM 行为变异清单（乱序/重复/schema 违约/超长/拒不调工具，各含端侧容错断言）→ 暂停依赖任务，按第 4 项区分范围内补齐与需要用户决定的变化；清单未补齐不得开工。同理，功能依赖异步注册服务/远程配置/登录态而场景矩阵缺冷路径场景（`COLD_START_SCENARIO`）→ 同样先补齐范围内验证并挑战；不得跳过所需场景。
 - 什么都找不到 → 停下，提示用户先跑 `/plan-bs`（要讨论）或 `plan-test`（要一条龙）。
+
+整体 finalized 不代表未来片已可开工：先核当前片交付表、前序能力、任务/oracle/关键假设；未就绪则自主补调查与挑战。所有原始 MUST 保留在整体映射，不能从片 scope 消失。
 
 ### 2. 锁定绿色基线
 
