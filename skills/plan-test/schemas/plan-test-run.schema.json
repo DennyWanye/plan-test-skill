@@ -677,6 +677,23 @@
               "null"
             ]
           },
+          "exec_log_path": {
+            "type": "string",
+            "description": "record-run --exec 抓到的执行日志（evidence[].path）；序号在写锁内按账本位置定（v0.8.1）"
+          },
+          "invalid_reason": {
+            "type": ["string", "null"],
+            "enum": ["operator_error", "upstream_unavailable", "test_harness_bug", null],
+            "description": "这条 fail 不是产品不稳定（执行者手误/上游不可用/测试基座 bug）；仍是 fail 且入链，只是不进 FLAKY 分母（v0.8.1）"
+          },
+          "invalid_detail": {
+            "type": ["string", "null"],
+            "description": "invalid_reason 的具体说明（≥10 字）"
+          },
+          "invalidated_at": {
+            "type": "string",
+            "description": "经 invalidate-run 事后标记的时间（记录时标记的没有此字段）"
+          },
           "recorded_at": {
             "type": "string"
           }

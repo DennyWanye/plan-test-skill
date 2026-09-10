@@ -156,6 +156,11 @@
   - 价值优先 smoke（"先跑通，再加固"总纲的门禁形态）：进入打包、封存、全量回归、审计仪式、
     完整真人矩阵等**任何昂贵步骤之前**，必须先执行 acceptance 声明的"最小验证动作"证明主要矛盾
     成立（输入敏感功能为 2–5 个自然语言正向 smoke）；失败 → 立即 BLOCKED 早停，不继续投入昂贵收尾。
+  - **最小验证动作必须走生产接缝**（2026-09-10 runlog 复盘新增）：从用户实际会用的入口
+    （CLI / HTTP / WebSocket / 桌面 UI 通道）进入，经真实装配、真实存储、真实 provider 跑到业务
+    终态。测试基座手工按序调用内部函数、替换生产接缝的 smoke **只证明"组件存在"，不证明
+    "端到端可驱动"**，不满足本门（病根：s5b 的 smoke 走 pytest 基座，基座恰好补上每一处生产
+    装配缺口，9 个既有缺陷全部留到验收阶段一次性爆出；用户原话"不应该事先调研好吗"）。
   - 适用性不再由 `input_sensitive` 判定——此前部署类任务判"不适用"使本门合法消失，
     价值时刻被推迟到第 46 小时（2026-08-31 DGX 复盘；总纲出处：用户 08-30 原话
     "先试着跑起来先，先把主要任务做好，主要矛盾处理好"）。
@@ -284,8 +289,9 @@
     猜映射。命令与格式见 `references/evidence-audit-lifecycle.md`。
 - `EVIDENCE_CONTRACT`: per-scenario
   - compiled workflow 的每个 required scenario 按证明需要声明统一 `evidence_contract`。手工证据通过
-    `attach-evidence/import-evidence --metadata <json>` 提供 provenance；`record-run --exec`
-    自动生成 gate-exec metadata。旧场景无 contract 时保持旧语义。
+    `attach-evidence/import-evidence --metadata <json 文件或内联 JSON>` 提供 provenance（自定义
+    字段原样留在顶层）；`record-run --exec` 自动生成 gate-exec metadata。旧场景无 contract 时
+    保持旧语义。
 - `AUDIT_FINDINGS`: structured-json
   - JSON auditor output 的 findings 由 `audit` 原子导入；open/deferred P0/P1 为硬门。整改用
     `list-audit-findings` / `resolve-audit-finding`，闭环后必须重审。
@@ -333,6 +339,15 @@
 - `USER_ATTENTION`: protect（默认）
   - 交互语义统一见 `references/user-attention.md`，三个入口开场读取。沿用已有授权、合并需要的 review、先调研再提交决策，不添加机器诊断码。
   - 项目覆盖不得将沉默视为批准、扩大已授权范围或降低 required 验收证据。
+- `DECISION_BATCHING`: required（2026-09-10 runlog 复盘新增；`USER_ATTENTION` 决策简报的打包形式）
+  - 任何需要用户拍板的事项（范围缩减、豁免、全 AI 驾驶批准、方案二选一、acceptance 修订）
+    **攒成一批一次问**：一条消息、编号列表，每项四要素——问题一句话 / 默认建议 / 不决策的后果 /
+    是否阻塞当前工作。用户只需回编号（或"全按默认"）。
+  - 批次未回复前不再发新的决策请求，除非出现新的阻塞项；能按最佳实践自决的不问
+    （`EXECUTE_AUTONOMY: high`）。用户回复"全按默认"即视为逐项批准，原话 hash 入账一次即可。
+  - 病根：timing 账本里 `user_wait` 占 s5a r2 的 40%（375/928 分钟）、s5b r3 的 47%
+    （420/893 分钟）；acceptance 修订一次开到 A1–A15 各要一次批准；用户两次原话
+    "我不知道要决策什么"、"能把需要和我确认的一次性和我确认好吗"。
 
 ## 行为开关
 
@@ -349,8 +364,12 @@
 - `SELF_CRITICISM`: required（2026-09-01 毛选方法论重构新增，批评与自我批评）
   - 每次收尾在 `{PLANS_DIR}/<feature>/retro.md` 写一两行自我批评：本次哪些门空转、哪里被
     仪式拖慢、哪个环节真拦住了问题。它是门禁退休评审（`GATE_REGISTRY_DISCIPLINE`）的数据源。
-- `PROGRESS_REPORTING`: user-language（2026-08-31 DGX 复盘新增）
+- `PROGRESS_REPORTING`: user-language（2026-08-31 DGX 复盘新增；2026-09-10 runlog 复盘加固）
   - 每个里程碑用**用户语言**汇报结果、下一验证点和是否需要用户；可靠时提供速率/ETA，否则说明未知。demo 不自动产生等待点；细则见 `references/user-attention.md`。
+  - **进度汇报以"原始 plan 总进度表"开头**：先列 program/plan 级的全部交付单元及各自状态
+    （✅ 闭合 / ⚠️ 部分 / ❌ 未开始），再讲当前切片的细节。切片进度不得冒充整体进度
+    （病根：s5b 会话把单个 increment 汇报成 program 全貌，用户追问"你还有好多没做完，
+    找到原始 plan 再对比"；"说人话/大白话/我看的很迷茫"同批出现 ≥4 次）。
   - **用户可感知的标的/行为差异必须复述确认**：模型版本、端口、默认模式等在 plan 定稿前
     用一句人话向用户复述（病根：H3 用户要越狱版、计划静默换成官方版，部署完才被发现）。
 - `EXECUTE_AUTONOMY`: high

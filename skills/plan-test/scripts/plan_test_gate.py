@@ -121,6 +121,11 @@ CHALLENGE_CONTROL_ACTIONS = {
 MAX_PLAN_GROWTH_RATIO = 1.5        # Plan 体量增长超过此比例时主动报告
 
 RESULT_VALUES = {"pass", "fail", "partial", "blocked", "not_run"}
+# 一条 root fail 可以标记为"不是产品不稳定"（v0.8.1，2026-09-10 runlog 复盘：s5a 6 条 root fail
+# 里 5 条是执行者 cwd/路径/marker 手误，s5b 5 条里 1 条上游 502、1 条测试脚本自污染；这些都
+# 被 FLAKY 规则算成产品抖动，逼着开新 run-dir 洗账）。标记后仍是 fail、仍在账本与链里、
+# report 单列；只是不再进 FLAKY 的分子分母。理由必填。
+INVALID_RUN_REASONS = {"operator_error", "upstream_unavailable", "test_harness_bug"}
 KIND_VALUES = {"root", "retry", "continuation", "replay"}
 
 # timing contract（plan 2026-07-27-plan-test-gate-slice-1a §2）
@@ -129,6 +134,66 @@ ACTIVITY_CLASSES = {"implementation", "automated_test", "manual_e2e", "provider_
 WAIT_CLASSES = {"provider_wait", "user_wait"}
 WAIT_REASONS = {"provider_latency", "quota_limit", "user_review", "user_input",
                 "environment_provision"}
+# v0.8.1（2026-09-10 runlog 复盘）：TIMING_CLASS_INVALID 实测 9 次、8 种不同错词，
+# 全是"意思对、拼法不对"。归一化规则：小写、`-`→`_`、去空白，再查别名表；
+# 归一化发生时在 stderr 打一行 NOTE，账本只存规范值。查不到才拒绝。
+# 只收**无二义**的写法：test/testing/test_exec 这类词自动化与真人都说得通，而 render 报告的
+# manual/automated 拆分正靠这一字段——二义词仍走 TIMING_CLASS_INVALID，消息里给二选一。
+ACTIVITY_CLASS_ALIASES = {
+    "automated_test": {"automated_test_execution", "automated_tests", "automated_testing",
+                       "unit_test", "unit_tests", "pytest", "regression", "regression_test",
+                       "machine_execution", "ci", "script_test", "auto_test", "autotest"},
+    "manual_e2e": {"manual", "manual_ui", "manual_test", "manual_testing", "manual_verification",
+                   "manual_e2e_test", "ui", "ui_test", "e2e", "e2e_test", "human_e2e", "real_ui",
+                   "human_test", "human_testing", "manual_check"},
+    "implementation": {"coding", "code", "tooling", "dev", "development", "implement",
+                       "implementing", "impl", "ledger_recording", "recording", "bookkeeping",
+                       "documentation", "docs", "doc", "writing", "investigation", "research",
+                       "review", "code_review", "setup", "env_setup", "environment_setup"},
+    "rework": {"fix", "fixes", "fixing", "bugfix", "bug_fix", "remediation", "repair", "refix",
+               "rework_fix", "hotfix"},
+    "provider_wait": {"provider", "upstream", "upstream_wait", "api_wait", "llm_wait",
+                      "model_wait", "provider_latency", "waiting_provider"},
+    "user_wait": {"user", "waiting_user", "wait_user", "user_decision", "approval_wait",
+                  "user_approval", "user_input", "user_review", "waiting_for_user"},
+    "interruption_recovery": {"interruption", "interrupt", "recovery", "resume", "context_recovery",
+                              "restart", "recover"},
+}
+# wait 类缺 --wait-reason 时的默认值（实测 2 次拒绝，两次代理事后填的都是这两个值）。
+WAIT_REASON_DEFAULTS = {"user_wait": "user_input", "provider_wait": "provider_latency"}
+RUN_DIR_HELP = ("verification run 目录；省略时用当前仓库的 active run"
+                "（.plan-test/active-run.json，由 activate-run 设置）")
+# 这些子命令的 --run-dir 天然**不是** active run（retire 的是被退役的旧轮、activate-run 是在
+# 指定谁成为 active、invalidate/acknowledge 是在否定某一轮）——回落会把继任者退役给它自己。
+RUN_DIR_NO_FALLBACK = {"init", "retire", "retire-status", "activate-run", "invalidate",
+                       "acknowledge", "ack-status"}
+# 缺必填参数时附的一行示例（实测 11 次 ARGS_INVALID：usage 只列参数名，不告诉值长什么样）。
+_CLI_EXAMPLES = {
+    "record-run": "--run-dir <run> --scenario S-1 --kind root --exec -- pytest tests/x.py -q",
+    "record-timing": "--run-dir <run> --phase phase-4 --activity-class automated_test "
+                     "--declared-start 2026-09-10T01:00:00Z --declared-end 2026-09-10T01:30:00Z",
+    "attach-evidence": "--run-dir <run> --path artifacts/x.log --kind primary --scenario S-1 "
+                       "--metadata '{\"producer_type\":\"runtime-probe\",\"artifact_kind\":\"execution-log\"}'",
+    "re-attest": "--run-dir <run> --reason \"修复 P1 后重新采集运行时身份\"",
+    "retire": "--run-dir <旧 run> --reason \"被 r3 承接\" --superseded-by <新 run>",
+    "record-approval": "--run-dir <run> --kind all-ai-driving --message-hash <用户批准原话 sha256>",
+    "audit": "--run-dir <run> --verdict PASS --engine opus-4.8 --input <auditor-input.json> "
+             "--output <auditor-output.json>",
+    "finalize": "--run-dir <run> [--check-only]",
+    "acknowledge": "--run-dir <run> --reason \"用户放弃本轮\" --approval-hash <用户原话 sha256>",
+    "invalidate-run": "--run-dir <run> --run-index 7 --reason operator_error --detail \"pytest 路径写错，命令没跑起来\"",
+    "init": "--run-dir <run> --manifest <manifest.json>",
+}
+# record-run --exec 的日志命名：写端与链长配对的读端共用一份定义（拆开维护就是 LEDGER_TAMPERED 误报的温床）。
+EXEC_LOG_RE = re.compile(r"artifacts/exec-(.+)-\d{4,}\.log$")
+
+
+def _exec_log_slug(scenario_id):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(scenario_id or ""))
+
+
+def _exec_log_rel(slug, seq):
+    return "artifacts/exec-%s-%04d.log" % (slug, seq)
 TIMING_GAP_MINUTES = 120  # 相邻记账锚点最大间隔（schema 1.3.0 起为 error，可用申报 timing 补覆盖）
 TIMING_REQUIRED_MINUTES = 30   # 活动跨度超过此值必须有 timing 记录（DeskPet 复盘：12h24m 全程 0 条）
 TIMING_MIN_COVERAGE = 0.2      # timing 总时长须覆盖活动跨度的最低比例（防"记一条 5 分钟糊弄 10 小时"）
@@ -517,7 +582,8 @@ class LedgerLock(object):
             except (FileNotFoundError, NotADirectoryError):
                 # 坏输入走 die，不崩裸 traceback（rc=1 且 refusal 记不到）——
                 # 与"存在但缺账本"的 die 路径对齐（PROTOCOL §6c 覆盖面第 4 类）
-                die("run-dir 不存在或不是目录: %s" % os.path.dirname(self.path))
+                run_dir = os.path.dirname(self.path)
+                die("run-dir 不存在或不是目录: %s\n%s" % (run_dir, _run_dir_hint(run_dir)))
 
     def __exit__(self, *exc):
         try:
@@ -530,10 +596,105 @@ def ledger_path(run_dir):
     return os.path.join(run_dir, LEDGER_NAME)
 
 
+def _active_run_dir_from_cwd(cwd=None):
+    """当前仓库（_find_repo_root_for：.git 目录或 worktree/submodule 的 .git 文件）的
+    `.plan-test/active-run.json` 指向的 run_dir 绝对路径；没有仓库/没有登记/目录不在 → None。
+    只看本仓：worktree 的 .git 是文件，若按目录判会越过仓库根拿到外层仓库的 active run。"""
+    repo = _find_repo_root_for(cwd or os.getcwd())
+    if not repo:
+        return None
+    reg = os.path.join(repo, ".plan-test", "active-run.json")
+    try:
+        with open(reg, "r", encoding="utf-8") as f:
+            rel = (json.load(f) or {}).get("run_dir")
+    except (OSError, ValueError):
+        return None
+    if not rel:
+        return None
+    p = os.path.join(repo, rel)
+    return p if os.path.isdir(p) else None
+
+
+_HINT_SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".tox", "dist", "build",
+                   "Library", ".cache", ".Trash"}
+
+
+def _find_files(root, want, max_depth, budget, limit, skip_dir=None):
+    """在 root 下找名为 want 的文件：深度、条目预算、命中数三重上限——这是拒绝路径上的提示，
+    绝不能比拒绝本身贵（review 实测无预算版本在错路径下把 0.08s 的拒绝拖到 67s+）。"""
+    found = []
+    depth0 = root.rstrip(os.sep).count(os.sep)
+    for cur, dirs, files in os.walk(root):
+        budget -= len(files) + len(dirs)
+        if budget < 0:
+            break
+        dirs[:] = sorted(x for x in dirs if x not in _HINT_SKIP_DIRS)
+        if cur.count(os.sep) - depth0 >= max_depth:
+            dirs[:] = []
+        if want in files and cur != skip_dir:
+            found.append(os.path.join(cur, want))
+            if len(found) >= limit:
+                break
+    return found
+
+
+def _nearby_ledgers(run_dir, limit=5):
+    """给"缺账本/目录不存在"的拒绝附候选（2026-09-10 runlog 复盘：同类拒绝 10 条，全是
+    双仓/多轮目录之间把路径猜错）。只在 run_dir 所属仓库内找；不在任何仓库里就只看最近的
+    已存在祖先目录两层——绝不向上爬到 $HOME。"""
+    base = os.path.abspath(run_dir)
+    repo = _find_repo_root_for(os.path.dirname(base))
+    if repo:
+        hits = _find_files(repo, LEDGER_NAME, max_depth=8, budget=30000, limit=limit, skip_dir=base)
+    else:
+        anc = os.path.dirname(base)
+        while anc and not os.path.isdir(anc):
+            parent = os.path.dirname(anc)
+            if parent == anc:
+                break
+            anc = parent
+        hits = _find_files(anc, LEDGER_NAME, max_depth=2, budget=3000, limit=limit, skip_dir=base) \
+            if anc and os.path.isdir(anc) else []
+    return [os.path.dirname(h) for h in hits]
+
+
+def _rel_or_abs(p):
+    try:
+        r = os.path.relpath(p)
+    except ValueError:
+        return p
+    return r if not r.startswith("..") else p
+
+
+def _run_dir_hint(run_dir):
+    lines = ["  解析为: %s（cwd=%s）" % (os.path.abspath(run_dir), os.getcwd())]
+    near = _nearby_ledgers(run_dir)
+    if near:
+        lines.append("  附近已有账本的 run-dir: " + "  ".join(_rel_or_abs(p) for p in near))
+    active = _active_run_dir_from_cwd()
+    if active:
+        lines.append("  当前 active run: %s（省略 --run-dir 即默认用它）" % _rel_or_abs(active))
+    return "\n".join(lines)
+
+
+def _similar_file_hint(path):
+    """缺文件时列出仓库里同名文件（manifest/spec/inventory 路径猜错是实测第二大摩擦源）。"""
+    name = os.path.basename(str(path or ""))
+    if not name:
+        return ""
+    root = _find_repo_root_for(os.getcwd())
+    if not root:
+        return ""  # 不在仓库里：没有可信的搜索范围，不猜
+    hits = _find_files(root, name, max_depth=10, budget=40000, limit=5)
+    if not hits:
+        return ""
+    return "\n  同名文件: " + "  ".join(_rel_or_abs(h) for h in hits)
+
+
 def load_ledger(run_dir):
     p = ledger_path(run_dir)
     if not os.path.exists(p):
-        die("run-dir 缺少 %s，先执行 init" % LEDGER_NAME)
+        die("run-dir 缺少 %s，先执行 init\n%s" % (LEDGER_NAME, _run_dir_hint(run_dir)))
     with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -726,8 +887,11 @@ def classify_changed_paths(paths, globs=None):
 # 独立审计实测过两个反例：`requirements.txt`（改依赖版本）与 `prompts/system.md`
 # （把系统提示改成"忽略所有规则"）在旧规则下都被判 doc-only 免重测。
 # 对本仓尤其致命——plan-test 的交付物本身就是 skills/**/*.md。
+# v0.8.1：补 ARCHITECTURE/**（叙述性架构文档目录）。runlog 复盘：s4 与 s5b 各因 ARCHITECTURE/ 下
+# 的回写被判 behavioral 而全量重测一轮（~30 分钟 / 7 场景作废重跑）；根目录 ARCHITECTURE.md 本就在
+# 白名单里，目录形态漏了。prompts/ skills/ config/ 仍按 BEHAVIORAL_TEXT_PREFIXES 优先判行为文本。
 DOC_ONLY_DEFAULT_GLOBS = ["README*", "CHANGELOG*", "CONTRIBUTING*", "LICENSE*",
-                          "docs/**", "doc/**", "ARCHITECTURE.md", "*.rst"]
+                          "docs/**", "doc/**", "ARCHITECTURE.md", "ARCHITECTURE/*.md", "*.rst"]
 # 无论后缀如何，命中这些前缀一律视为行为文本（提示词、skill、配置、依赖清单）
 BEHAVIORAL_TEXT_PREFIXES = ("prompts/", "skills/", "config/", ".claude/", "hooks/")
 BEHAVIORAL_TEXT_NAMES = ("requirements.txt", "constraints.txt", "pyproject.toml",
@@ -881,6 +1045,15 @@ def structural_check(ledger):
         result = _req(r, "result", str, "runs[%d]" % i, errors)
         if result is not None and result not in RESULT_VALUES:
             errors.append("SCHEMA_INVALID: runs[%d].result=%r 非法" % (i, result))
+        ir = r.get("invalid_reason")
+        if ir is not None:
+            if ir not in INVALID_RUN_REASONS:
+                errors.append("SCHEMA_INVALID: runs[%d].invalid_reason=%r 非法（合法：%s）"
+                              % (i, ir, "/".join(sorted(INVALID_RUN_REASONS))))
+            if result != "fail":
+                errors.append("SCHEMA_INVALID: runs[%d].invalid_reason 只能标在 result=fail 上" % i)
+            if not isinstance(r.get("invalid_detail"), str) or len(r["invalid_detail"].strip()) < 10:
+                errors.append("SCHEMA_INVALID: runs[%d].invalid_detail 缺失或不足 10 字" % i)
     for i, e in enumerate(ledger.get("evidence") or []):
         _req(e, "evidence_id", str, "evidence[%d]" % i, errors)
         path = _req(e, "path", str, "evidence[%d]" % i, errors)
@@ -1128,20 +1301,26 @@ def expected_chain_length(ledger):
     # one, not two.  Only discount evidence whose generated path exactly
     # matches the run's immutable 1-based position and scenario slug; ordinary
     # attach-evidence writes must still contribute their own chain entry.
-    evidence_paths = {
-        str(e.get("path") or "") for e in (ledger.get("evidence") or [])
-    }
-    paired_exec_evidence = 0
-    for seq, run in enumerate(ledger.get("runs") or [], start=1):
-        if "exec_exit_code" not in run:
-            continue
-        safe_scenario = re.sub(
-            r"[^A-Za-z0-9_.-]", "_", str(run.get("scenario_id") or "")
-        )
-        expected_path = "artifacts/exec-%s-%04d.log" % (safe_scenario, seq)
-        if expected_path in evidence_paths:
-            paired_exec_evidence += 1
-    n -= paired_exec_evidence
+    # v0.8.1（2026-09-10 runlog 复盘）：此前按"run 在账本里的位置 == 日志序号"配对。
+    # 但序号取自开跑前的账本快照——后台 `--exec` 跑 10 分钟回归期间别人先入账一条 run，
+    # 位置就错开，配对失败 → 下界多算 1 → 不可豁免的 LEDGER_TAMPERED。实测 s5b 的
+    # r1/r2 两本账都这么死的，代理把它记成"并发写"并删目录重开。现在按场景计数配对：
+    # 每个场景折扣 min(该场景 exec run 数, 该场景 exec 日志数)，与位置无关。
+    # 配对只看路径形态（EXEC_LOG_RE），**不看 producer_type**：--exec 在 c0aa00f（08-19）上线，
+    # gate-exec 戳在 666c87d（08-24）才加，那 5 天的存量 exec 证据没有该字段，按戳配对会把
+    # 它们重新打成 TAMPERED（review 实测 HEAD=2 → 3）。折扣上限仍是 exec run 数——手工 attach
+    # 一条同形态的日志最多让下界松 1，这条不变量本来就只封"把链压短"，见上方 docstring。
+    exec_runs, exec_logs = {}, {}
+    for run in ledger.get("runs") or []:
+        if "exec_exit_code" in run:
+            slug = _exec_log_slug(run.get("scenario_id"))
+            exec_runs[slug] = exec_runs.get(slug, 0) + 1
+    if exec_runs:
+        for e in ledger.get("evidence") or []:
+            m = EXEC_LOG_RE.match(str(e.get("path") or ""))
+            if m:
+                exec_logs[m.group(1)] = exec_logs.get(m.group(1), 0) + 1
+    n -= sum(min(c, exec_logs.get(slug, 0)) for slug, c in exec_runs.items())
     n += len(ledger.get("events") or [])
     for loop in ledger.get("challenge_loops") or []:
         n += 1
@@ -1346,6 +1525,23 @@ def validate_applicability(ledger, scenarios, thresholds):
     return diags
 
 
+def _behavioral_cutoffs(ledger):
+    """每个场景最近一次 behavioral re-attest 时的 runs 下标 → {sid: idx}，及 {sid: (why, when)}。
+    没有 behavioral attestation 时两者皆空。"""
+    cutoffs, reasons = {}, {}
+    for a in ledger.get("attestations") or []:
+        if a.get("change_kind") != "behavioral":
+            continue
+        aff, why = impact_affected_scenarios(ledger, a.get("changed_paths"), a.get("changed_count"))
+        idx = int(a.get("runs_index") or 0)
+        when = str(a.get("recorded_at") or "")
+        for sid in aff:
+            if idx >= cutoffs.get(sid, -1):
+                cutoffs[sid] = idx
+                reasons[sid] = (why, when)
+    return cutoffs, reasons
+
+
 def impact_affected_scenarios(ledger, changed_paths, changed_count):
     """behavioral 变更影响哪些 required 场景。返回 (affected_ids, reason)。
 
@@ -1378,6 +1574,8 @@ def impact_affected_scenarios(ledger, changed_paths, changed_count):
         hit = False
         for s in scenarios:
             ips = s.get("impact_paths")
+            if isinstance(ips, str):
+                ips = [ips]  # 字符串会被逐字符迭代，其中的 '*' 匹配一切——fail-closed 侧的坑
             if ips and _match_globs(low, base, ips):
                 hit = True
                 if s.get("required"):
@@ -1533,9 +1731,10 @@ def unresolved_sibling_runs(run_dir, ledger):
     """同一 `verification/` 下、**测同一批场景**却没交代结局的兄弟 run。
 
     为什么需要这道门（2026-08-28，18 本真实账本 + 8 处轮换现场的统计结论）：
-      `fail` 是粘性的——一条 root fail 记进去，这个 run-dir 就永远拿不到 receipt，代理
-      唯一能往前走的动作是新建 `run-00N+1`（compute_scenario_status 的注释里就是这么
-      写的）。轮换本身是设计内的正路，问题在于配套的 `retire --superseded-by`（把举证
+      当时 `fail` 是粘性的——一条 root fail 记进去，这个 run-dir 就永远拿不到 receipt，代理
+      唯一能往前走的动作是新建 `run-00N+1`。（W4-15 起 fail 非粘性、v0.8.1 起 FLAKY 只看
+      当前 HEAD，轮换不再是必经之路，但历史上开出来的兄弟轮仍要交代。）问题在于配套的
+      `retire --superseded-by`（把举证
       责任转移给继任轮）**没有任何东西检查它做没做**。真实数据：5 次轮换里 4 次没挂账，
       18 本账本里 retire/acknowledge 的使用次数是 0，被丢弃的账本里躺着 75 条测试事实
       和 16 条 root fail——而最终那张 receipt 对它们只字未提。receipt 没撒谎，但它把
@@ -1602,6 +1801,8 @@ def unresolved_sibling_runs(run_dir, ledger):
             "run_facts": len(runs),
             "root_fails": sum(1 for r in runs if r.get("kind") == "root"
                               and r.get("result") == "fail"),
+            "root_fails_invalid": sum(1 for r in runs if r.get("kind") == "root"
+                                      and r.get("result") == "fail" and r.get("invalid_reason")),
             "shared": sorted(shared),
         })
     return out
@@ -1638,7 +1839,10 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
                 "本轮随后会报 TESTED_RUNTIME_MISMATCH，需要 re-attest。"
                 % (sib["dir"], sib["run_id"], ", ".join(sib["shared"][:4]),
                    sib["run_facts"],
-                   "（其中 root fail %d 条）" % sib["root_fails"] if sib["root_fails"] else "",
+                   ("（其中 root fail %d 条%s）" % (
+                       sib["root_fails"],
+                       "，已标 invalid_reason %d 条" % sib["root_fails_invalid"]
+                       if sib["root_fails_invalid"] else "")) if sib["root_fails"] else "",
                    run_dir),
                 hint=sib["dir"]))
     if ledger.get("active_run_required"):
@@ -1883,41 +2087,71 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
                                   "场景 %s 缺少 required lane=%s 的通过 root run" % (sid, lane),
                                   hint="%s/%s" % (sid, lane)))
 
-    # 9. 非确定性稳定性（stochastic）：min_root_runs 未达 → 采样不足
+    # behavioral 变更切点：每个场景最近一次 behavioral re-attest 时的 runs 下标（受 impact_paths
+    # 收窄；证明不了无关就算全量）。9 段稳定性窗口与 9a 段重测义务共用同一切点。
+    cutoffs, reasons = _behavioral_cutoffs(ledger)
+    # 非 required 场景不进 impact 映射（没有重测义务），其状态列用全局最近一次 behavioral 切点。
+    global_cutoff = max([int(a.get("runs_index") or 0) for a in (ledger.get("attestations") or [])
+                         if a.get("change_kind") == "behavioral"] or [0])
+
+    # 9. 非确定性稳定性（stochastic）：min_root_runs 未达 → 采样不足；FLAKY → 不得 SHIP。
+    #    v0.8.1（2026-09-10 runlog 复盘）：只看**当前被测 HEAD** 上的样本——切点之前的失败属于
+    #    另一份代码，修完了还算"抖动"没有依据；标记了 invalid_reason 的失败（执行者手误/上游
+    #    故障/测试基座 bug）也不算。此前按全历史判：s5a r2 因 4 条旧 root fail 永远到不了
+    #    SHIPPABLE，s5b r3 判 FLAKY 21/26 而 5 次失败成因全已修复——两次都只能开新 run-dir 干净
+    #    重跑，失败史反而留在被 retire 的旧账里，与规则初衷相反。
+    #    两条防洗账（review 抓出）：①min_root_runs 的样本也只算窗口内——否则"随便碰一行代码
+    #    re-attest + 一次幸运 pass"就能把 N 个样本的要求降成 1；②窗口内被标 invalid 的失败多于
+    #    真实通过数时仍判 FLAKY——标记是留痕不是赦免。切点前/被标记的数量进 computed["stability"]，
+    #    render 与 receipt 都能看到，洗账可审。
+    stability = {}
     for s in scenarios:
         need = s.get("min_root_runs")
         if not need:
             continue
         sid = s["scenario_id"]
-        ok_roots = [r for r in runs if r.get("scenario_id") == sid
-                    and r.get("kind") == "root" and r.get("result") == "pass"]
-        all_roots = [r for r in runs if r.get("scenario_id") == sid and r.get("kind") == "root"]
-        if statuses.get(sid) == "PASS" and len(ok_roots) < need:
+        start = cutoffs.get(sid, global_cutoff if not s.get("required") else 0)
+        before = [r for r in runs[:start] if r.get("scenario_id") == sid and r.get("kind") == "root"]
+        window = [r for r in runs[start:] if r.get("scenario_id") == sid and r.get("kind") == "root"]
+        counted = [r for r in window if not r.get("invalid_reason")]
+        w_ok = [r for r in counted if r.get("result") == "pass"]
+        invalid = len(window) - len(counted)
+        stability[sid] = {
+            "window_start": start, "root_runs_before_cutoff": len(before),
+            "fails_before_cutoff": sum(1 for r in before if r.get("result") == "fail"),
+            "invalid_fails": invalid, "counted": len(counted), "passed": len(w_ok),
+        }
+        if statuses.get(sid) == "PASS" and len(w_ok) < need:
             diags.append(Diag("STABILITY_SAMPLES_INSUFFICIENT",
-                              "场景 %s 需要 ≥%d 次独立 root run，仅 %d 次通过"
-                              % (sid, need, len(ok_roots))))
-        if all_roots and ok_roots and len(ok_roots) < len(all_roots):
+                              "场景 %s 需要当前 HEAD 上 ≥%d 次独立 root pass，仅 %d 次%s"
+                              % (sid, need, len(w_ok),
+                                 "（切点前 %d 次通过不计：那是另一份代码的样本）"
+                                 % sum(1 for r in before if r.get("result") == "pass") if before else "")))
+        flaky = counted and w_ok and len(w_ok) < len(counted)
+        excused_too_many = invalid and invalid > len(w_ok)
+        if flaky or excused_too_many:
             statuses[sid] = "FLAKY" if statuses.get(sid) == "PASS" else statuses[sid]
             if s.get("required") and statuses[sid] == "FLAKY":
+                skipped = []
+                if before:
+                    skipped.append("切点前 %d 条不计" % len(before))
+                if invalid:
+                    skipped.append("已标记 invalid_reason %d 条不计" % invalid)
+                if excused_too_many and not flaky:
+                    why = ("被标记为非产品原因的失败（%d）多于真实通过（%d）——标记是留痕不是赦免，"
+                           "再补真实 root pass 到超过它" % (invalid, len(w_ok)))
+                else:
+                    why = "%d/%d 通过且有未解释失败" % (len(w_ok), len(counted))
                 diags.append(Diag("STABILITY_SAMPLES_INSUFFICIENT",
-                                  "场景 %s FLAKY（%d/%d 通过且有未解释失败），不得 SHIP"
-                                  % (sid, len(ok_roots), len(all_roots))))
+                                  "场景 %s FLAKY（当前 HEAD 上 %s%s），不得 SHIP。"
+                                  "出口：同一代码上真抖动就修产品；执行者手误/上游故障/测试基座 bug 用 "
+                                  "invalidate-run --run-index N 事后标记原因（留痕，不进分母）；"
+                                  "代码修复后 re-attest 即从该点重开窗口（窗口内仍需 ≥%d 次通过）"
+                                  % (sid, why, "；" + "、".join(skipped) if skipped else "", need)))
 
     # 9a. behavioral re-attest 之后，受影响的 required 场景必须重测（按 impact_paths 缩小范围，
     #     fail-closed：证明不了无关就算全量——见 impact_affected_scenarios）
-    atts = [a for a in (ledger.get("attestations") or [])
-            if a.get("change_kind") == "behavioral"]
-    if atts:
-        cutoffs, reasons = {}, {}
-        for a in atts:
-            aff, why = impact_affected_scenarios(
-                ledger, a.get("changed_paths"), a.get("changed_count"))
-            idx = int(a.get("runs_index") or 0)
-            when = str(a.get("recorded_at") or "")
-            for sid in aff:
-                if idx >= cutoffs.get(sid, -1):
-                    cutoffs[sid] = idx
-                    reasons[sid] = (why, when)
+    if cutoffs:
         for s in scenarios:
             if not s.get("required"):
                 continue
@@ -2285,6 +2519,7 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
         "required_all_pass": required_all_pass and bool(scenarios),
         "state": compute_state(ledger, statuses, diags, mode),
         "applied_waivers": applied_waivers,
+        "stability": stability,
     }
     return diags, computed
 
@@ -2313,7 +2548,8 @@ def compute_state(ledger, statuses, diags, mode):
 
 # ---------------------------------------------------------------- receipt
 
-RECEIPT_IDENTITY_EXCLUDE = ("finalized_at", "content_digest")
+# stability 是信息项：进 digest 会让存量 receipt 集体 stale（digest 是按 receipt 字段重算的）。
+RECEIPT_IDENTITY_EXCLUDE = ("finalized_at", "content_digest", "stability")
 
 
 def summarize_evidence(ledger):
@@ -2381,6 +2617,9 @@ def build_receipt(run_dir, ledger, computed):
         "retired": bool(ledger.get("retired")),
         "superseded_by": ledger.get("superseded_by"),
         "scenario_statuses": computed["scenario_statuses"],
+        # v0.8.1：每个非确定性场景的窗口账——切点前失败数、被标 invalid 的失败数、窗口内通过数。
+        # 让"改一行代码重开窗口"与"把失败标成手误"在 receipt 上可见、可审。
+        "stability": computed.get("stability") or {},
     }
     identity = {k: v for k, v in receipt.items() if k not in RECEIPT_IDENTITY_EXCLUDE}
     receipt["content_digest"] = canonical_digest(identity)
@@ -2627,7 +2866,11 @@ def cmd_init(args):
             rel = ".."
         if rel.startswith("..") and not args.allow_external_run_dir:
             die("run-dir 在仓库之外（%s）：这样仓库里不会留下任何记账痕迹，hook/CI 也看不见它。\n"
-                "确需如此请显式加 --allow-external-run-dir，该选择会记入账本。" % run_dir)
+                "  run-dir 解析为: %s\n  仓库根（manifest.repo_root 或 cwd）: %s\n"
+                "  双仓 program 常见病因：cwd 在 A 仓、run-dir 属于 B 仓——先 cd 到 run-dir 所在仓，"
+                "或在 manifest 里写对 repo_root。\n"
+                "确需如此请显式加 --allow-external-run-dir，该选择会记入账本。"
+                % (run_dir, os.path.abspath(run_dir), repo))
     ledger = {
         "schema_version": SCHEMA_VERSION,
         # 开账即冻结：写在 integrity 链首条 init 之前，此后不再改动（改了会让链对不上）。
@@ -2693,6 +2936,19 @@ def cmd_init(args):
         if "scenario_id" not in s:
             die("manifest.scenarios 每项必须有 scenario_id")
         s.setdefault("required", True)
+        # v0.8.1：impact_paths 必须是仓库相对 glob。绝对路径永远匹配不上仓库相对的变更清单，
+        # 结果是每次 behavioral re-attest 都静默退化为全量复测（s5a retro 实测："写成绝对 glob
+        # 时永不匹配"）。映射在 init 冻结，此处是唯一便宜的拦截点。
+        ips = s.get("impact_paths")
+        if ips is not None and not isinstance(ips, list):
+            die("场景 %s 的 impact_paths 须为字符串列表（现在是 %s）——字符串会被逐字符迭代，"
+                "其中的 '*' 会匹配一切变更" % (s["scenario_id"], type(ips).__name__))
+        bad = [g for g in (ips or []) if not isinstance(g, str)
+               or os.path.isabs(g) or re.match(r"^[A-Za-z]:[\\/]", g)]
+        if bad:
+            die("场景 %s 的 impact_paths 含绝对路径 %s：须写仓库相对 glob（如 backend/deskpet/tools/**），"
+                "绝对路径永远匹配不上，会让每次 re-attest 都退化为全量复测"
+                % (s["scenario_id"], ", ".join(str(b) for b in bad[:3])))
         ledger["scenarios"].append(s)
     compiled = ledger.get("compiled_manifest") or {}
     expected_full = set(((compiled.get("case_sets") or {}).get("full") or []))
@@ -2766,6 +3022,8 @@ def cmd_activate_run(args):
 
 
 def _append(run_dir, mutate, op="append"):
+    if not os.path.exists(ledger_path(run_dir)):
+        load_ledger(run_dir)  # 走带提示的 die；不在锁内做目录扫描，免得让等锁者误判成并发冲突
     with LedgerLock(run_dir):
         ledger = load_ledger(run_dir)
         # **写入前先验链**：否则篡改检测是一次性的——手改一行 result 之后随便敲一条无害命令
@@ -2790,6 +3048,18 @@ def cmd_record_run(args):
     exec_ev = None
     started_at = ended_at = None
     elapsed_ms = None
+    if args.invalid_reason or args.invalid_detail:
+        # 先于 --exec 检查：不能让一条 10 分钟回归跑完了才因为参数组合被拒（日志还成孤儿）。
+        if not args.invalid_reason or not args.invalid_detail:
+            die("--invalid-reason 与 --invalid-detail 必须同时给：原因分类 + 一句具体说明")
+        if args.exec_cmd is not None:
+            die("--invalid-reason 不与 --exec 同用：--exec 的结果由 exit code 决定，失败与否跑完才知道——"
+                "跑完后用 invalidate-run --run-index N 事后标记")
+        if args.result != "fail":
+            die("--invalid-reason 只用于 result=fail 的记录（这次 result=%s）——"
+                "它标记的是\"这次失败不是产品不稳定\"，不是把结果改成别的" % args.result)
+        if len(args.invalid_detail.strip()) < 10:
+            die("--invalid-detail 至少 10 个字符：说清是哪条命令/哪个上游/哪个基座问题")
     if args.exec_cmd is not None:
         if args.exec_cmd and args.exec_cmd[0] == "--":
             args.exec_cmd = args.exec_cmd[1:]
@@ -2814,10 +3084,14 @@ def cmd_record_run(args):
         started_at, ended_at = _utc_iso(start_wall), _utc_iso(end_wall)
         args.result = "pass" if exec_exit == 0 else "fail"
         args.command = " ".join(args.exec_cmd)
-        seq = len(pre.get("runs") or []) + 1
-        safe_scenario = re.sub(r"[^A-Za-z0-9_.-]", "_", args.scenario)
-        log_rel = "artifacts/exec-%s-%04d.log" % (safe_scenario, seq)
-        log_abs = os.path.join(args.run_dir, log_rel)
+        safe_scenario = _exec_log_slug(args.scenario)
+        # v0.8.1：日志先以"未入账"名落盘，正式序号在 _append 的锁内按账本当前长度定（见 mutate）。
+        # 此前序号取自开跑前快照：后台跑 10 分钟回归期间别人先入账，序号就与 run 位置错开
+        # （chain 下界误报 LEDGER_TAMPERED），两条同场景后台 --exec 还会互相覆盖日志文件。
+        # 写账被拒时（TAMPERED 预检 / 锁超时 / revision 冲突）文件**原地保留**——那是 gate
+        # 亲眼看过的执行输出，删掉等于把 10 分钟回归作废。
+        log_tmp_rel = "artifacts/exec-%s-unrecorded-%d.log" % (safe_scenario, os.getpid())
+        log_abs = os.path.join(args.run_dir, log_tmp_rel)
         with open(log_abs, "w", encoding="utf-8") as f:
             f.write("command: %s\nexit_code: %d\nstarted_at: %s\nended_at: %s\n"
                     "elapsed_ms: %d\n---- stdout ----\n%s\n---- stderr ----\n%s\n"
@@ -2825,7 +3099,7 @@ def cmd_record_run(args):
                        proc.stdout or "", proc.stderr or ""))
         exec_ev = {
             "evidence_id": "ev-" + sha256_file(log_abs)[:12],
-            "path": log_rel,
+            "path": log_tmp_rel,
             "sha256": sha256_file(log_abs),
             "kind": "primary",
             "scenario_id": args.scenario,
@@ -2837,7 +3111,6 @@ def cmd_record_run(args):
             "session_id": args.session_id,
             "business_facts": ({"business_terminal": args.business_terminal}
                                if args.business_terminal else {}),
-            "file_mtime": _mtime_iso(log_abs),
             "attached_at": now_iso(),
         }
     elif not args.result:
@@ -2854,6 +3127,8 @@ def cmd_record_run(args):
         "session_id": args.session_id,
         "run_id_under_test": args.run_id_under_test,
         "exec_exit_code": exec_exit,
+        "invalid_reason": args.invalid_reason,
+        "invalid_detail": args.invalid_detail,
         "started_at": started_at,
         "ended_at": ended_at,
         "elapsed_ms": elapsed_ms,
@@ -2864,12 +3139,34 @@ def cmd_record_run(args):
     def mutate(ledger):
         if args.scenario not in {s["scenario_id"] for s in ledger.get("scenarios", [])}:
             die("场景 %s 不在 init 冻结的场景清单里（不许测后补场景，需重新 init/批准）" % args.scenario)
+        if exec_ev:
+            # 锁内定序号：run 在账本里的位置 == 日志序号，且不覆盖已存在的日志文件。
+            seq = len(ledger.get("runs") or []) + 1
+            taken = {str(e.get("path") or "") for e in ledger.get("evidence") or []}
+            while True:
+                log_rel = _exec_log_rel(safe_scenario, seq)
+                if log_rel not in taken and not os.path.exists(os.path.join(args.run_dir, log_rel)):
+                    break
+                seq += 1
+            final_abs = os.path.join(args.run_dir, log_rel)
+            os.replace(os.path.join(args.run_dir, exec_ev["path"]), final_abs)
+            exec_ev["path"] = log_rel
+            exec_ev["file_mtime"] = _mtime_iso(final_abs)
+            rec["exec_log_path"] = log_rel
         ledger["runs"].append(rec)
         if exec_ev:
             ledger["evidence"].append(exec_ev)
 
-    _append(args.run_dir, mutate, op="record-run")
-    print("RECORDED run scenario=%s kind=%s result=%s" % (args.scenario, args.kind, args.result))
+    try:
+        _append(args.run_dir, mutate, op="record-run")
+    except SystemExit:
+        if exec_ev and os.path.exists(os.path.join(args.run_dir, exec_ev["path"])):
+            print("NOTE: 写账被拒，执行日志保留在 %s（未入账；修好账本后可 attach-evidence）"
+                  % exec_ev["path"], file=sys.stderr)
+        raise
+    print("RECORDED run scenario=%s kind=%s result=%s%s" % (
+        args.scenario, args.kind, args.result,
+        "（invalid_reason=%s：留痕，不进 FLAKY 分母）" % args.invalid_reason if args.invalid_reason else ""))
     if exec_exit is not None:
         print("EXEC log=%s exit=%d（result 由 exit code 决定，执行日志已自动记为 primary 证据）"
               % (exec_ev["path"], exec_exit))
@@ -2889,16 +3186,55 @@ def cmd_attach_evidence(args):
     imported_from = getattr(args, "from_run", None)
     metadata = {}
     if getattr(args, "metadata", None):
-        metadata = _read_json_file(args.metadata, "evidence metadata")
+        # v0.8.1：--metadata 同时接受文件路径与内联 JSON（实测 16 次把 JSON 当路径传被拒）。
+        metadata = _read_json_arg(args.metadata, "evidence metadata")
         if not isinstance(metadata, dict):
             die("evidence metadata 须为 object")
         allowed_metadata = {
             "producer_type", "producer_version", "artifact_kind", "generated_at",
             "root_run_id", "session_id", "business_facts",
         }
+        reserved = {"evidence_id", "path", "sha256", "kind", "scenario_id", "ui_action",
+                    "negative_assertion", "depends_on", "file_mtime", "imported",
+                    "imported_from", "attached_at"}
+        # 帮助文案曾写 "producer/artifact/identity/facts"，代理照字面给了 identity/facts 信封
+        # （实测 16 次拒绝里的 identity 即此）：抬到顶层——evidence_contract 正是从顶层读 identity 字段。
+        for envelope, target in (("identity", None), ("facts", "business_facts")):
+            inner = metadata.pop(envelope, None)
+            if inner is None:
+                continue
+            if not isinstance(inner, dict):
+                die("evidence metadata.%s 须为 object" % envelope)
+            if target:
+                merged = dict(metadata.get(target) or {})
+                merged.update(inner)
+                metadata[target] = merged
+            else:
+                for k, v in inner.items():
+                    if k in metadata and metadata[k] != v:
+                        die("evidence metadata.identity.%s 与顶层 %s 冲突" % (k, k))
+                    metadata[k] = v
+        # 非标准顶层字段**原样保留在证据条目顶层**（实测 16 次拒绝：host_head/sdk_run_id/
+        # tested_head/seam_count——全是有用的 provenance；evidence_contract.required_identity
+        # 允许任意字段名并从顶层读取，折进子对象会让契约看不见）。只有与已知字段"长得像"的
+        # 才当拼写错误拒绝，防 root_runid 这类静默漏记；与账本自有字段同名的一律拒绝。
         unknown = sorted(set(metadata) - allowed_metadata)
+        clash = sorted(set(unknown) & reserved)
+        if clash:
+            die("evidence metadata 不得覆盖账本自有字段: %s" % ", ".join(clash))
         if unknown:
-            die("evidence metadata 未知字段: %s" % ", ".join(unknown))
+            import difflib
+            typos = {}
+            for k in unknown:
+                close = difflib.get_close_matches(k, sorted(allowed_metadata), n=1, cutoff=0.9)
+                if close:
+                    typos[k] = close[0]
+            if typos:
+                die("evidence metadata 字段疑似拼写错误: %s（合法字段: %s）"
+                    % (", ".join("%s→%s" % kv for kv in sorted(typos.items())),
+                       ", ".join(sorted(allowed_metadata))))
+            print("NOTE: evidence metadata 非标准字段原样入账（顶层）: %s" % ", ".join(unknown),
+                  file=sys.stderr)
         if "business_facts" in metadata and not isinstance(metadata["business_facts"], dict):
             die("evidence metadata.business_facts 须为 object")
     ev = {
@@ -2964,13 +3300,35 @@ def _utc_iso(epoch):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
 
 
+def normalize_activity_class(raw):
+    """把直觉写法归一到七类之一；返回 (规范值或 None, 是否发生了归一化)。"""
+    s = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if s in ACTIVITY_CLASSES:
+        return s, s != str(raw)
+    for canon, aliases in ACTIVITY_CLASS_ALIASES.items():
+        if s in aliases:
+            return canon, True
+    return None, False
+
+
 def cmd_record_timing(args):
-    if args.activity_class not in ACTIVITY_CLASSES:
+    canon, changed = normalize_activity_class(args.activity_class)
+    if canon is None:
         die("TIMING_CLASS_INVALID: activity_class=%r 非法（合法：%s；直觉词对照："
-            "testing→automated_test/manual_e2e，coding/tooling→implementation）"
+            "testing→automated_test/manual_e2e，coding/tooling→implementation；"
+            "大小写、连字符、常见同义词会自动归一）"
             % (args.activity_class, "/".join(sorted(ACTIVITY_CLASSES))))
+    if changed:
+        print("NOTE: activity_class %r 已归一为 %r" % (args.activity_class, canon), file=sys.stderr)
+    args.activity_class = canon
     if args.activity_class in WAIT_CLASSES:
         wr = args.wait_reason or ""
+        if not wr:
+            # v0.8.1：缺 --wait-reason 用类默认值并声明（实测 2 次拒绝，事后补的都是默认值）。
+            wr = WAIT_REASON_DEFAULTS[args.activity_class]
+            args.wait_reason = wr
+            print("NOTE: --wait-reason 未给，按 %s 默认记为 %s（可选：%s 或 other:<说明>）"
+                  % (args.activity_class, wr, "/".join(sorted(WAIT_REASONS))), file=sys.stderr)
         if wr not in WAIT_REASONS and not wr.startswith("other:"):
             die("WAIT_REASON_REQUIRED: %s 类必须给受控 --wait-reason（%s 或 other:<说明>）"
                 % (args.activity_class, "/".join(sorted(WAIT_REASONS))))
@@ -3089,6 +3447,34 @@ def cmd_record_approval(args):
 
     _append(args.run_dir, mutate, op="record-approval")
     print("APPROVAL RECORDED kind=%s（绑定消息 hash %s…）" % (args.kind, args.message_hash[:12]))
+
+
+def cmd_invalidate_run(args):
+    """事后把一条 root fail 标记为"不是产品不稳定"。追加式：不改 result、不删记录，
+    标记本身进 integrity 链；render/receipt 单列。--exec 的失败只有跑完才知道，
+    记录时无法预先标记，这是它存在的理由。"""
+    if len(args.detail.strip()) < 10:
+        die("--detail 至少 10 个字符：说清是哪条命令/哪个上游/哪个基座问题")
+
+    def mutate(ledger):
+        runs = ledger.get("runs") or []
+        i = args.run_index
+        if i < 0 or i >= len(runs):
+            die("--run-index %d 越界（账本共 %d 条 run，下标从 0 起；render 的稳定性一节或 "
+                "status 可查）" % (i, len(runs)))
+        r = runs[i]
+        if r.get("result") != "fail":
+            die("runs[%d] 的 result=%s，不是 fail——invalidate-run 只标记失败，不改结果" % (i, r.get("result")))
+        if r.get("invalid_reason"):
+            die("runs[%d] 已标记为 %s（%s），不许改写——标记是留痕，改口请另记一条"
+                % (i, r["invalid_reason"], r.get("invalid_detail")))
+        r["invalid_reason"] = args.reason
+        r["invalid_detail"] = args.detail
+        r["invalidated_at"] = now_iso()
+
+    _append(args.run_dir, mutate, op="invalidate-run")
+    print("INVALIDATED runs[%d] reason=%s（仍是 fail、仍在链上；不进 FLAKY 分母）"
+          % (args.run_index, args.reason))
 
 
 def cmd_checkpoint(args):
@@ -3582,6 +3968,24 @@ def cmd_render(args):
                 kinds["root"], kinds["retry"], kinds["continuation"],
                 ",".join(terminals[-3:]) or "（人工补）",
                 computed["scenario_statuses"].get(sid)))
+        stab = computed.get("stability") or {}
+        if stab:
+            lines.append("")
+            lines.append("## 稳定性窗口（FLAKY 只看当前被测 HEAD；v0.8.1）")
+            lines.append("| scenario | 窗口起点(runs#) | 切点前 root/fail | 窗口内通过/计数 | 已标 invalid 的 fail | 状态 |")
+            lines.append("|---|---|---|---|---|---|")
+            for sid, st in sorted(stab.items()):
+                lines.append("| %s | %d | %d/%d | %d/%d | %d | %s |" % (
+                    sid, st["window_start"], st["root_runs_before_cutoff"], st["fails_before_cutoff"],
+                    st["passed"], st["counted"], st["invalid_fails"],
+                    computed["scenario_statuses"].get(sid)))
+            inv = [(i, r) for i, r in enumerate(runs_all) if r.get("invalid_reason")]
+            if inv:
+                lines.append("")
+                lines.append("已标记为非产品原因的失败（仍是 fail、仍在链上，只是不进 FLAKY 分母）：")
+                for i, r in inv:
+                    lines.append("- runs[%d] %s %s：%s" % (
+                        i, r.get("scenario_id"), r.get("invalid_reason"), r.get("invalid_detail")))
         distinct = len({s.get("input_class") for s in ledger.get("scenarios") or []
                         if s.get("input_class")})
         lines.append("汇总：distinct_input_classes=%d / root=%d / retry=%d / continuation=%d"
@@ -3692,8 +4096,12 @@ def successor_receipt_status(run_dir, repo=None, allow_pending=False):
     diags, computed = validate(run_dir, ledger, mode="render",
                                fixture=bool(ledger.get("fixture_only")),
                                skip_sibling_check=True)
-    if blocking(diags) or computed["state"] != "SHIPPABLE":
-        return False, "继任 run 当前并非 SHIPPABLE（state=%s）" % computed["state"]
+    blk = blocking(diags)
+    if blk or computed["state"] != "SHIPPABLE":
+        codes = sorted({d.code for d in blk})
+        return False, ("继任 run 当前并非 SHIPPABLE（state=%s%s）——先把继任 run 推到全绿"
+                       "（不必先 finalize），再回来 retire"
+                       % (computed["state"], "；阻塞: " + ", ".join(codes) if codes else ""))
     if receipt is None:
         return True, "PENDING_RECEIPT"
     if receipt_is_stale(run_dir, ledger, computed, receipt):
@@ -3721,6 +4129,9 @@ def cmd_retire(args):
     SHIPPABLE + 有未失效 receipt 的真实（非 fixture）run。退役不是赦免，是转移举证责任。
     """
     ledger_self = load_ledger(args.run_dir)
+    if os.path.realpath(args.run_dir) == os.path.realpath(args.superseded_by):
+        die("RETIRE 拒绝：继任 run 就是本 run 自己（%s）——退役是把举证责任转移给**另一个** run"
+            % args.run_dir)
     if ledger_self.get("fixture_only"):
         die("RETIRE 拒绝：fixture-only run 不得以退役方式退出阻断（合成数据本就不是交付证据）")
     repo_self = ledger_self.get("repo_root") or os.getcwd()
@@ -4750,9 +5161,21 @@ def _challenge_loop(ledger, loop_id):
     return None
 
 
+def _read_json_arg(value, label):
+    """--metadata 之类的 JSON 参数：以 { 或 [ 开头即当内联 JSON，否则当文件路径。"""
+    s = str(value or "").lstrip()
+    if s.startswith("{") or s.startswith("["):
+        try:
+            return json.loads(s)
+        except ValueError as exc:
+            die("无法解析内联 %s JSON: %s" % (label, exc))
+    return _read_json_file(value, label)
+
+
 def _read_json_file(path, label):
     if not path or not os.path.isfile(path):
-        die("%s 文件不存在: %s" % (label, path))
+        die("%s 文件不存在: %s\n  解析为: %s（cwd=%s）%s"
+            % (label, path, os.path.abspath(str(path or "")), os.getcwd(), _similar_file_hint(path)))
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -6195,6 +6618,12 @@ class _SuggestingParser(argparse.ArgumentParser):
         parts = (self.prog or "").split()
         if len(parts) > 1 and not _REFUSAL_CTX.get("cmd"):
             _REFUSAL_CTX["cmd"] = parts[-1]  # "plan_test_gate.py record-timing" → 子命令
+        # v0.8.1：缺必填参数实测 11 次——usage 只列参数名，不告诉值长什么样。附一行示例。
+        sub = parts[-1] if len(parts) > 1 else ""
+        example = _CLI_EXAMPLES.get(sub)
+        if example:
+            message += "\n示例: plan_test_gate.py %s %s" % (sub, example)
+        message += "\n完整参数: plan_test_gate.py %s --help" % (sub or "<子命令>")
         die("ARGS_INVALID: %s" % message)
 
 
@@ -6203,7 +6632,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("status", help="我在哪、能做什么：状态 + 阻塞诊断 + 循环下一步（只读）")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_status)
 
     p = sub.add_parser("export-refusals",
@@ -6220,7 +6649,7 @@ def main(argv=None):
     p = sub.add_parser("record-decision",
                        help="记录人的决定（W3：任何状态可记；必须绑批准原话 hash；"
                             "豁免强制公示在 receipt/render）")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--effect", required=True,
                    help="waive:<诊断码>（枚举复用 CANONICAL_ORDER；SCHEMA_INVALID/"
                         "LEDGER_TAMPERED 不可豁免）")
@@ -6249,11 +6678,11 @@ def main(argv=None):
 
     p = sub.add_parser("activate-run",
                        help="显式选择本仓库当前候选 run；并行 slice 不会被 init 自动抢占")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_activate_run)
 
     p = sub.add_parser("record-run")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--scenario", required=True)
     p.add_argument("--kind", required=True, choices=sorted(KIND_VALUES))
     p.add_argument("--result", choices=sorted(RESULT_VALUES),
@@ -6265,12 +6694,16 @@ def main(argv=None):
     p.add_argument("--business-terminal")
     p.add_argument("--session-id")
     p.add_argument("--run-id-under-test")
+    p.add_argument("--invalid-reason", choices=sorted(INVALID_RUN_REASONS),
+                   help="这条 fail 不是产品不稳定：执行者手误 / 上游不可用 / 测试基座 bug。"
+                        "仍记为 fail 且入链，只是不进 FLAKY 分母；须配 --invalid-detail")
+    p.add_argument("--invalid-detail", help="具体说明（≥10 字）：哪条命令错了 / 哪个上游 502 / 哪个基座问题")
     # --exec -- <cmd...> 在 main() 里预切分（与 record-timing 同一约定）：
     # gate 亲自执行命令，exit code 决定 result，输出日志自动记为 primary 证据
-    p.set_defaults(fn=cmd_record_run, exec_cmd=None)
+    p.set_defaults(fn=cmd_record_run, exec_cmd=None, invalid_reason=None, invalid_detail=None)
 
     p = sub.add_parser("attach-evidence")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--path", required=True, help="相对 run-dir 的证据路径")
     p.add_argument("--kind", required=True, choices=["primary", "derived"])
     p.add_argument("--scenario")
@@ -6280,13 +6713,16 @@ def main(argv=None):
     p.add_argument("--replace", action="store_true",
                    help="顶替同路径的旧证据条目（重测后证据文件更新时用；旧条目转入 superseded_evidence）")
     p.add_argument("--depends-on", nargs="*")
-    p.add_argument("--metadata", help="结构化 evidence metadata JSON（producer/artifact/identity/facts）")
+    p.add_argument("--metadata", help="结构化 evidence metadata：文件路径或内联 JSON；已知字段 "
+                                      "producer_type/producer_version/artifact_kind/generated_at/"
+                                      "root_run_id/session_id/business_facts；identity/facts 信封会抬到"
+                                      "顶层；其他自定义字段原样入账")
     p.set_defaults(fn=cmd_attach_evidence, from_run=None)
 
     p = sub.add_parser("import-evidence",
                        help="显式导入**开账之前**产生的历史证据（保留 chain of custody）；"
                             "普通 attach 遇到早于开账的文件会被 EVIDENCE_PREDATES_LEDGER 拦截")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--path", required=True, help="相对 run-dir 的证据路径")
     p.add_argument("--kind", required=True, choices=["primary", "derived"])
     p.add_argument("--from-run", required=True, dest="from_run",
@@ -6301,25 +6737,28 @@ def main(argv=None):
     p.set_defaults(fn=cmd_attach_evidence)
 
     p = sub.add_parser("declare-status")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--source", required=True)
     p.add_argument("--scenario", required=True)
     p.add_argument("--status", required=True)
     p.set_defaults(fn=cmd_declare_status)
 
     p = sub.add_parser("set-delivery")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--verdict", required=True)
     p.set_defaults(fn=cmd_set_delivery)
 
     p = sub.add_parser("record-timing")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--phase", required=True)
     p.add_argument("--slice")
     p.add_argument("--task")
     p.add_argument("--tool")
-    p.add_argument("--activity-class", required=True)
-    p.add_argument("--wait-reason")
+    p.add_argument("--activity-class", required=True,
+                   help="七类之一：%s；常见同义词/连字符写法自动归一" % "/".join(sorted(ACTIVITY_CLASSES)))
+    p.add_argument("--wait-reason",
+                   help="wait 类的受控原因：%s 或 other:<说明>；省略时 user_wait→user_input、"
+                        "provider_wait→provider_latency" % "/".join(sorted(WAIT_REASONS)))
     p.add_argument("--retry", type=int, default=0)
     p.add_argument("--abort", action="store_true")
     p.add_argument("--test-count", type=int, default=0)
@@ -6331,19 +6770,28 @@ def main(argv=None):
     p.set_defaults(fn=cmd_record_timing, exec_cmd=None)
 
     p = sub.add_parser("checkpoint")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--slice")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_checkpoint)
 
+    p = sub.add_parser("invalidate-run",
+                       help="事后把一条 root fail 标记为非产品原因（手误/上游/基座）：仍是 fail、进链、"
+                            "report 单列，只是不进 FLAKY 分母")
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
+    p.add_argument("--run-index", type=int, required=True, help="runs[] 下标（从 0 起）")
+    p.add_argument("--reason", required=True, choices=sorted(INVALID_RUN_REASONS))
+    p.add_argument("--detail", required=True, help="具体说明（≥10 字）")
+    p.set_defaults(fn=cmd_invalidate_run)
+
     p = sub.add_parser("phase-start", help="进入一个阶段（finalize 要求与 phase-end 配对）")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--phase", required=True)
     p.add_argument("--note")
     p.set_defaults(fn=lambda a: cmd_phase_event(a, "start"))
 
     p = sub.add_parser("phase-end", help="结束一个阶段")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--phase", required=True)
     p.add_argument("--status", default="ok", choices=["ok", "blocked", "abandoned"])
     p.add_argument("--subagents", type=int,
@@ -6355,7 +6803,7 @@ def main(argv=None):
 
     p = sub.add_parser("record-approval",
                        help="登记用户在 chat 中的显式批准（绑定批准消息的 SHA-256）")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--kind", required=True, choices=["all-ai-driving", "scope-reduction"])
     p.add_argument("--message-hash", required=True,
                    help="用户批准消息原文的 SHA-256（64 位十六进制）")
@@ -6363,13 +6811,13 @@ def main(argv=None):
     p.set_defaults(fn=cmd_record_approval)
 
     p = sub.add_parser("re-attest")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--reason", required=True,
                    help="为什么在测试之后还改了内容（文档回写/状态同步/修复……）")
     p.set_defaults(fn=cmd_re_attest)
 
     p = sub.add_parser("audit")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"])
     p.add_argument("--engine", required=True,
                    help="执行审计的引擎/代理标识；与 executor 相同会被标 AUDITOR_INDEPENDENCE_UNVERIFIED")
@@ -6379,53 +6827,53 @@ def main(argv=None):
 
     p = sub.add_parser("resolve-audit-finding",
                        help="用 resolution + evidence + 必要的 fresh retest 闭环结构化 auditor finding")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--finding-id", required=True)
     p.add_argument("--resolution", required=True)
     p.add_argument("--evidence-ids", nargs="*")
     p.set_defaults(fn=cmd_resolve_audit_finding)
 
     p = sub.add_parser("list-audit-findings")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_list_audit_findings)
 
     p = sub.add_parser("finalize")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--check-only", action="store_true")
     p.set_defaults(fn=cmd_finalize)
 
     p = sub.add_parser("render")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_render)
 
     p = sub.add_parser("retire")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--reason", required=True)
     p.add_argument("--superseded-by", required=True,
                    help="继任 run 的目录：必须是非 fixture、当前 SHIPPABLE 且 receipt 未失效的 run")
     p.set_defaults(fn=cmd_retire)
 
     p = sub.add_parser("retire-status")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_retire_status)
 
     p = sub.add_parser("acknowledge",
                        help="用户显式确认放弃这一轮验证：本 run 作废（永远不会有 receipt），"
                             "hook 不再拿它阻断收尾。与 retire 的区别：retire 是把举证责任"
                             "转移给已通过的继任轮，acknowledge 是用户认账放弃。")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--reason", required=True, help="为什么放弃这一轮（会写进账本与报告横幅）")
     p.add_argument("--approval-hash", required=True, dest="approval_hash",
                    help="用户批准消息原文的 SHA-256（64 位十六进制）——放弃是用户的决定")
     p.set_defaults(fn=cmd_acknowledge)
 
     p = sub.add_parser("ack-status")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_ack_status)
 
     p = sub.add_parser("summary",
                        help="一行摘要（hook/CI 压缩输出用）；退出码同 finalize --check-only")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_summary)
 
     p = sub.add_parser("stats",
@@ -6438,7 +6886,7 @@ def main(argv=None):
     p.set_defaults(fn=cmd_stats)
 
     p = sub.add_parser("invalidate")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--reason", required=True)
     p.set_defaults(fn=cmd_invalidate)
 
@@ -6453,7 +6901,7 @@ def main(argv=None):
 
     p = sub.add_parser("validate-release-unit",
                        help="P0-2: 检查 ledger 的 release_unit 字段是否正确声明")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_validate_release_unit)
 
     p = sub.add_parser("check-wip-limit",
@@ -6465,14 +6913,14 @@ def main(argv=None):
 
     p = sub.add_parser("check-ledger-progress",
                        help="P1-1: 检查 ledger 是否长时间无进展")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--min-interval-minutes", type=int,
                    help="零增长警告阈值（分钟，默认 90）")
     p.set_defaults(fn=cmd_check_ledger_progress)
 
     p = sub.add_parser("record-plan-defect",
                        help="P0-4: 记录 A2 plan defect 事件")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--affected-tasks", required=True,
                    help="受影响的任务 ID，逗号分隔（如 'T4.1,T4.2'）")
     p.add_argument("--defect-type", required=True,
@@ -6483,19 +6931,19 @@ def main(argv=None):
 
     p = sub.add_parser("check-plan-stability",
                        help="P0-4: 检查 plan 稳定性（累计 A2 事件数）")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.set_defaults(fn=cmd_check_plan_stability)
 
     p = sub.add_parser("resolve-plan-defect",
                        help="P0-4: 标记某个 A2 事件已解决")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--event-id", required=True, help="事件 ID（如 a2-001）")
     p.add_argument("--resolution", required=True, help="解决方案描述")
     p.set_defaults(fn=cmd_resolve_plan_defect)
 
     p = sub.add_parser("reset-plan-defects",
                        help="P0-4: 清空 A2 计数（需要用户批准）")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--approval-hash", required=True,
                    help="用户批准消息的 SHA-256（64 位十六进制）")
     p.add_argument("--reason", required=True,
@@ -6504,7 +6952,7 @@ def main(argv=None):
 
     p = sub.add_parser("start-challenge-loop",
                        help="P0-3: 启动一个挑战循环")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-type", required=True,
                    help="循环类型（如 plan-iteration, code-review）")
     p.add_argument("--target-file", required=True,
@@ -6519,13 +6967,13 @@ def main(argv=None):
 
     p = sub.add_parser("check-loop-limit",
                        help="P0-3: 检查循环是否超过轮次上限")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-id", required=True, help="循环 ID（如 plan-iteration-001）")
     p.set_defaults(fn=cmd_check_loop_limit)
 
     p = sub.add_parser("record-challenge-round",
                        help="P0-3: 记录一轮挑战结果")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-id", required=True)
     p.add_argument("--round", type=int, required=True, help="轮次编号（从 1 开始）")
     p.add_argument("--plan-hash", required=True, help="当前 plan 文件的 SHA-256")
@@ -6539,14 +6987,14 @@ def main(argv=None):
 
     p = sub.add_parser("record-challenge-clusters",
                        help="记录 primary breadth 发现的主要矛盾与专项挑战 cluster")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-id", required=True)
     p.add_argument("--input", required=True, help="primary_contradiction/challenge_clusters JSON")
     p.set_defaults(fn=cmd_record_challenge_clusters)
 
     p = sub.add_parser("record-specialist-challenge",
                        help="记录一个 root-cause cluster 的专项挑战或显式豁免")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-id", required=True)
     p.add_argument("--cluster-id", required=True)
     p.add_argument("--status", required=True, choices=["completed", "waived"])
@@ -6557,14 +7005,14 @@ def main(argv=None):
 
     p = sub.add_parser("record-challenge-synthesis",
                        help="合并专项输出并冻结 closure review 的输入")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-id", required=True)
     p.add_argument("--input", required=True)
     p.set_defaults(fn=cmd_record_challenge_synthesis)
 
     p = sub.add_parser("record-challenge-control",
                        help="记录 scope audit、architecture reset、用户 review/scope 批准事件")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-id", required=True)
     p.add_argument("--action", required=True, choices=sorted(CHALLENGE_CONTROL_ACTIONS))
     p.add_argument("--outcome", choices=["continue", "architecture-reset", "scope-change"])
@@ -6578,7 +7026,7 @@ def main(argv=None):
 
     p = sub.add_parser("detect-loop-reset",
                        help="P0-3: 检测循环重置绕过（防重置检测）")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--check-target-file",
                    help="待检查的目标文件（检测是否与历史循环相似）")
     p.set_defaults(fn=cmd_detect_loop_reset)
@@ -6593,13 +7041,13 @@ def main(argv=None):
 
     p = sub.add_parser("show-loop-history",
                        help="P2-1: 显示循环历史和趋势")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--loop-id", help="指定循环 ID（可选，不指定则显示所有）")
     p.set_defaults(fn=cmd_show_loop_history)
 
     p = sub.add_parser("record-phase-transition",
                        help="P2-2: 记录 phase 转移事件")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", help=RUN_DIR_HELP)
     p.add_argument("--from-phase", required=True, help="源 phase（如 phase-2）")
     p.add_argument("--to-phase", required=True, help="目标 phase（如 phase-3）")
     p.add_argument("--evidence", help="收敛证据描述")
@@ -6616,6 +7064,17 @@ def main(argv=None):
     # s1a：refusal 上下文——记用户所给原文，不解释不加工（AC-1）
     _REFUSAL_CTX["cmd"] = getattr(args, "cmd", None)
     _REFUSAL_CTX["run_dir"] = getattr(args, "run_dir", None)
+    if getattr(args, "run_dir", "") is None:
+        # v0.8.1：省略 --run-dir 时回落到当前仓库的 active run（activate-run 设置）。
+        if args.cmd in RUN_DIR_NO_FALLBACK:
+            die("ARGS_INVALID: %s 的 --run-dir 必须显式给出（它指的不是 active run）" % args.cmd)
+        active = _active_run_dir_from_cwd()
+        if not active:
+            die("ARGS_INVALID: 缺 --run-dir，且当前仓库没有 active run"
+                "（用 --run-dir 指定，或先 activate-run --run-dir <run>）")
+        args.run_dir = active
+        _REFUSAL_CTX["run_dir"] = active  # 拒绝账本要记解析后的目标，否则 stats 配不上对
+        print("NOTE: --run-dir 省略，使用 active run: %s" % _rel_or_abs(active), file=sys.stderr)
     if exec_cmd is not None:
         args.exec_cmd = exec_cmd
     args.fn(args)

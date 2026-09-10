@@ -34,7 +34,7 @@ delivery 规划/执行同时读 `references/delivery-slices.md`：整体目标 �
 - **禁止自造防御系统 / 复验粒度跟随变更粒度**：见 config `SELF_BUILT_DEFENSE`、`REVALIDATION_SCOPE`。
 - **唯一真相来源**：一切回溯到用户批准的 `{ACCEPTANCE_FILE}`（FULL 路径另含 `assurance-contract.json`）；challenger 不得自行扩大范围。
 - **oracle 先于实现**：任何 AC 的"什么算对"在实现之前写下；禁止照实现补预期（phase-2/3）。
-- **从群众中来，到群众中去**：需求从用户澄清中来（phase-A 提炼矛盾分析，按交互边界合并 review）；里程碑 PASS 后拿**跑起来的实物**回到用户中检验（demo）；进度用用户语言汇报（config `PROGRESS_REPORTING`）；用户可感知的标的差异必须在决策简报中说明并取得对应授权。
+- **从群众中来，到群众中去**：需求从用户澄清中来（phase-A 提炼矛盾分析，按交互边界合并 review）；里程碑 PASS 后拿**跑起来的实物**回到用户中检验（demo）；进度用用户语言汇报、以原始 plan 总进度表开头（config `PROGRESS_REPORTING`）；要用户拍板的事攒成一批附默认建议一次问完（config `DECISION_BATCHING`，决策简报形式见 `references/user-attention.md`）；用户可感知的标的差异必须在决策简报中说明并取得对应授权。
 - **每个声明可验证**：不说"看起来做完了"，逐条核对可追溯矩阵；journal 里每条声明附实测证据。
 - **每个失败有出口**：plan challenge 用 3/5/8 出口，其他循环用 `MAX_ROUNDS`（见 config）；任何 reset 不清零历史。
 - **已批准行为不缩水**：`BEHAVIOR_POLICY = preserve-approved`；最小化按 `policies/acceptance-preserving-ponytail.md`。

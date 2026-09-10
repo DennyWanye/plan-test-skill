@@ -584,12 +584,21 @@ class TimingTestCase(GateHarness):
                       "--declared-start", "2026-07-27T09:00:00Z",
                       "--declared-end", "2026-07-27T09:01:00Z"])
         self.assertEqual(r.returncode, 2)
-        # provider_wait 缺 wait_reason → 拒绝
+        # provider_wait 缺 wait_reason → v0.8.1 起按类默认 provider_latency 并在 stderr 声明
+        # （实测 2 次拒绝，代理事后补的都是默认值；出口成本降本）。给了非法值仍拒绝。
         r = run_gate(["record-timing", "--run-dir", self.run_dir,
                       "--phase", "p", "--activity-class", "provider_wait",
                       "--declared-start", "2026-07-27T09:00:00Z",
                       "--declared-end", "2026-07-27T09:01:00Z"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("provider_latency", r.stderr)
+        r = run_gate(["record-timing", "--run-dir", self.run_dir,
+                      "--phase", "p", "--activity-class", "provider_wait",
+                      "--wait-reason", "coffee",
+                      "--declared-start", "2026-07-27T09:00:00Z",
+                      "--declared-end", "2026-07-27T09:01:00Z"])
         self.assertEqual(r.returncode, 2)
+        self.assertIn("WAIT_REASON_REQUIRED", r.stderr)
         # 非 wait 类给了 wait_reason → 拒绝
         r = run_gate(["record-timing", "--run-dir", self.run_dir,
                       "--phase", "p", "--activity-class", "implementation",
@@ -1593,6 +1602,14 @@ class PortableRepoRootTestCase(RealRepoAttestationTestCase):
         """v0.6.1：出口成本要有度量——高频摩擦有专码，其余 die 自动冠 USAGE_ERROR，
         refusal log/stats 从此能区分"门抓到违规"与"代理在门前摔跤"。"""
         self.init_real_run()
+        # v0.8.1：无二义的写法归一（automated-test-execution → automated_test）；
+        # "testing" 自动化/真人都说得通，仍拒绝并给二选一——render 的 manual/automated 拆分靠它。
+        r0 = run_gate(["record-timing", "--run-dir", self.run_dir, "--phase", "phase-3",
+                       "--activity-class", "automated-test-execution",
+                       "--declared-start", "2026-09-01T00:00:00Z",
+                       "--declared-end", "2026-09-01T00:10:00Z"], cwd=self.repo)
+        self.assertEqual(r0.returncode, 0, r0.stderr)
+        self.assertIn("已归一为 'automated_test'", r0.stderr)
         r = run_gate(["record-timing", "--run-dir", self.run_dir, "--phase", "phase-3",
                       "--activity-class", "testing",
                       "--declared-start", "2026-09-01T00:00:00Z",

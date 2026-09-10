@@ -77,7 +77,7 @@ Compiled required scenario 的最低 contract 不是空 object：producer/artifa
 场景额外要求 `fault-recovery-log` 与 `recovered_state`。这些是按场景类型合并的最低证明，不是八套
 重复 evidence 模板。
 
-手工 attach/import 时，把 provenance 放在 JSON 文件，通过 `--metadata` 入账：
+手工 attach/import 时，通过 `--metadata` 入账 provenance（文件路径或内联 JSON 均可）：
 
 ```json
 {
@@ -100,8 +100,12 @@ python {GATE_SCRIPT} attach-evidence --run-dir <run-dir> \
   --metadata evidence-metadata.json
 ```
 
-metadata 只接受 `producer_type`、`producer_version`、`artifact_kind`、`generated_at`、
-`root_run_id`、`session_id` 和 object 类型的 `business_facts`；未知字段会被拒绝。
+metadata 的已知字段：`producer_type`、`producer_version`、`artifact_kind`、`generated_at`、
+`root_run_id`、`session_id` 和 object 类型的 `business_facts`。`identity`/`facts` 信封会被抬到
+顶层（`identity.root_run_id` → `root_run_id`，`facts.*` → `business_facts`）；其他自定义字段
+（如 `host_head`、`sdk_run_id`）**原样保留在证据条目顶层**并在 stderr 声明——
+`evidence_contract.required_identity` 允许任意字段名且从顶层读取。只有与已知字段"长得像"
+的（如 `root_runid`）和与账本自有字段同名的（如 `sha256`）才拒绝。
 `record-run --exec` 会自动生成 `producer_type=gate-exec`、`artifact_kind=execution-log` 和时间戳，
 并从 `--run-id-under-test`、`--session-id`、`--business-terminal` 映射其余 metadata。
 

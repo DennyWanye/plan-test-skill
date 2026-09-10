@@ -74,6 +74,16 @@ python3 skills/plan-test/scripts/plan_test_gate.py validate-release-unit \
 python3 skills/plan-test/scripts/plan_test_gate.py record-run \
   --run-dir <D> --scenario S-1 --kind root --result pass
 
+# A fail that was NOT product flakiness (operator mistake / upstream outage / harness bug):
+# still recorded as fail and chained, but excluded from the FLAKY denominator (v0.8.1)
+python3 skills/plan-test/scripts/plan_test_gate.py record-run \
+  --run-dir <D> --scenario S-1 --kind root --result fail \
+  --invalid-reason operator_error --invalid-detail "pytest 路径写错，命令没跑起来"
+
+# Same thing after the fact (an --exec run only turns out to be an operator error once it has run):
+python3 skills/plan-test/scripts/plan_test_gate.py invalidate-run \
+  --run-dir <D> --run-index 7 --reason operator_error --detail "pytest 路径写错，命令没跑起来"
+
 # Record a test run with real execution (preferred for scripted tests, 2026-08-19 new):
 # gate runs the command itself, result comes from the exit code, and the output log
 # is automatically attached as primary evidence
@@ -346,7 +356,7 @@ The gate validates **consistency between recorded facts**, not whether the facts
 
 1. Account only facts; states are computed by validator
 2. Retry/replay/continuation are NOT root runs - only root runs count toward scenario status
-3. `blocked` is non-sticky (resolved by a subsequent root pass); `fail` is sticky
+3. `blocked` and `fail` are both non-sticky (resolved by a subsequent root pass; W4-15, 2026-08-29). FLAKY and `min_root_runs` (`STABILITY_SAMPLES_INSUFFICIENT`) count only root runs on the current tested HEAD (since the last behavioral re-attest); fails marked `--invalid-reason` / `invalidate-run` are excluded but may not outnumber real passes; the accounting is exposed in the receipt's `stability` block (v0.8.1)
 4. Evidence hierarchy: screenshots/logs/receipts are primary; reports are derived
 5. Engine terminal state ≠ business success
 6. Frozen oracle: byte changes fail unless bound to user-approved `behavior_change_id`

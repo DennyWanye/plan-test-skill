@@ -34,6 +34,9 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" finali
 - 正式 `finalize`：额外要求 auditor PASS，重新校验全部 hash/HEAD/runtime 后生成
   `gate-receipt.json`（幂等：同输入复用同 receipt digest 与首次 finalized_at）。
 - `attach-evidence --replace`：重测后证据文件更新时顶替同路径旧条目，旧条目连同旧 sha256 转入 `superseded_evidence`，动作进 integrity 链并在 report 显形——**不是静默覆盖**，也换不绿场景（状态由 append-only 的 `runs[]` 重算）。
+- `invalidate-run --run-index N --reason <operator_error|upstream_unavailable|test_harness_bug>
+  --detail <≥10 字>`：事后把一条 root fail 标记为非产品原因（追加式链条目；不改 result、不许改写；
+  report/receipt 单列；不进 FLAKY 分母）。
 - 记账辅助命令：`record-timing`（时间成本入账，--exec 实测 / declared 申报两模式）、
   `checkpoint`（工作检查点）、`phase-start`/`phase-end`（阶段事件，finalize 要求配对）
   与 `re-attest`（收尾期改动后重新采集运行时身份）——见 §5 规则 10 与 8b。
@@ -53,9 +56,10 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" finali
   Reviewer 自报 verdict 不参与收敛。
 - `compile-manifest --spec verification-spec.json --output manifest.json`：从结构化 AC/obligation/
   testcase/scenario 映射编译 manifest，冻结输入 hash 与完整 required case set；不解析 Markdown。
-- `attach-evidence` / `import-evidence --metadata <json>`：给场景级 `evidence_contract` 提供
-  producer、artifact kind、identity、生成时间和 business facts。`record-run --exec` 自动生成
-  gate-exec provenance；单独声明 `kind=primary` 不足以满足 contract。
+- `attach-evidence` / `import-evidence --metadata <json 文件或内联 JSON>`：给场景级
+  `evidence_contract` 提供 producer、artifact kind、identity、生成时间和 business facts；
+  非标准字段自动折进 `extra`。`record-run --exec` 自动生成 gate-exec provenance；
+  单独声明 `kind=primary` 不足以满足 contract。
 - `audit`：JSON output 中的 findings 与 verdict 原子入账。用 `list-audit-findings` 查看 obligation，
   用 `resolve-audit-finding` 绑定 resolution、证据和必要的 fresh retest；闭环后必须重新审计。
 - `activate-run`：仅供 `active_run_required=true` 的 run 显式绑定候选内容；init 不自动抢占，
@@ -119,7 +123,7 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
 | 15 | `APPLICABILITY_GATE_UNSATISFIED` | error | 声明某维「适用」但场景矩阵未兑现对应条件（见 §5.12） |
 | 15b | `DRIVER_APPROVAL_MISSING` | error | 输入语义敏感 + required UI 场景全 AI 驾驶，且无真人 root run、无用户批准记录 |
 | 16 | `RISK_CLOSURE_MISSING` | error | required lane 无通过的 root run |
-| 17 | `STABILITY_SAMPLES_INSUFFICIENT` | error | 非确定性场景采样不足或 FLAKY |
+| 17 | `STABILITY_SAMPLES_INSUFFICIENT` | error | 非确定性场景采样不足，或**当前被测 HEAD 上**有未解释失败（FLAKY；切点前 / 已标 invalid_reason 的失败不计） |
 | 18 | `RELEASE_UNIT_TOO_LARGE` | error | 交付体量超阈值，须拆 program plan + 垂直 slice |
 | 19 | `TESTED_RUNTIME_MISMATCH` | error | 被测**内容**指纹与当前不一致，或 adapter UNKNOWN |
 | 19b | `RETEST_REQUIRED_AFTER_CHANGE` | error | behavioral re-attest 之后，required 场景没有更晚的 root PASS |
@@ -181,6 +185,56 @@ DRAFT → ACCEPTED → IMPLEMENTED → TESTED → VALIDATED → SHIPPABLE
   argparse 自有退出路径、不经 die()，refusal 账本对这一类完全不可见（复验 handoff 实测
   连撞三次零记录）。现改经 die() 入账；usage 照旧打印、退出码仍 2。出口 = 按 usage 修正调用。
 
+**v0.8.1 出口降本（2026-09-10，v0.6.0→v0.7.3 runlog 复盘）**——不新增门，消除既有拒绝里的
+纯摩擦。事实：106 条真实 refusal 中约 75% 是 CLI 用法错误而非质量拦截（attach-evidence 元数据
+32、缺必填参数 11、timing 错词 9、路径猜错 10）；另有 9 条 `LEDGER_TAMPERED` 是 gate 自己的
+序号配对误报（见 §6 链长下界一节），代理误判为并发写、删掉两本账（r1/r2-s5b，100+ 条事实）。
+- `attach-evidence --metadata`：接受内联 JSON（以 `{` 开头即解析，否则当文件路径）；
+  `identity`/`facts` 信封抬到顶层；其他自定义字段**原样留在证据顶层**并在 stderr 声明——
+  `evidence_contract.required_identity` 允许任意字段名并从顶层读，折进子对象会让契约看不见
+  （review 抓出）。与已知字段"长得像"的（difflib ≥0.9，`root_runid`）和与账本自有字段同名的
+  （`sha256`）仍拒绝。防的实测逃逸：16 次把 JSON 当路径 + 16 次 identity/host_head/sdk_run_id/
+  tested_head/seam_count 被拒，全是有用 provenance，无一是打错的已知字段。
+- `record-timing --activity-class`：小写、`-`→`_`、**无二义**同义词表归一（automated-test-execution
+  →automated_test、manual-ui→manual_e2e、documentation→implementation…），归一时 stderr 打 NOTE，
+  账本只存规范值；`test`/`testing` 这类自动化与真人都说得通的词仍 `TIMING_CLASS_INVALID` 并给
+  二选一（render 的 manual/automated 拆分靠这一字段，不替人猜）。缺 `--wait-reason` 时
+  user_wait→user_input、provider_wait→provider_latency 并声明；给了非法值仍 `WAIT_REASON_REQUIRED`。
+- `--run-dir` 可省略：回落到当前仓库（`_find_repo_root_for`，含 worktree 的 `.git` 文件形态）
+  `.plan-test/active-run.json` 指向的 run，解析后的目标写进 refusal 账本；没有 active run 则
+  `ARGS_INVALID` 并告知 activate-run。**不回落**的子命令：init / retire / retire-status /
+  activate-run / invalidate / acknowledge / ack-status——它们的 --run-dir 天然不是 active run
+  （retire 回落会让继任者退役自己；另加守卫：继任者不得是本 run）。
+- 缺账本 / run-dir 不存在 / 输入文件不存在：拒绝消息附解析后的绝对路径、cwd、本仓库内已有账本的
+  run-dir、仓库内同名文件（≤5 个）、当前 active run。扫描有深度/条目/命中三重上限且只在仓库内
+  （review 实测无预算版本把错路径拒绝从 0.08s 拖到 67s+）；不在仓库里只看最近存在的祖先两层。
+- `record-run --exec` 写账被拒时执行日志以 `exec-<场景>-unrecorded-<pid>.log` 原地保留并在
+  stderr 指出（gate 亲眼看过的输出不作废）。
+- **稳定性只看当前被测 HEAD**（`STABILITY_SAMPLES_INSUFFICIENT`）：窗口从该场景最近一次
+  behavioral re-attest 的 runs 下标起算（与 9a 重测义务同一切点，受 impact_paths 收窄；非 required
+  场景用全局最近切点，只影响状态列）。窗口内：`min_root_runs` 个 root pass 才够样本（切点前的通过
+  是另一份代码的样本，不计）、有未解释失败即 FLAKY。失败可标记为非产品原因：自报时
+  `record-run --result fail --invalid-reason operator_error|upstream_unavailable|test_harness_bug
+  --invalid-detail <≥10 字>`，`--exec` 的失败跑完才知道，用 `invalidate-run --run-index N --reason
+  --detail` 事后标记（追加式链条目，不改 result、不许改写）。标记的失败仍是 fail、仍入链，
+  只是不进 FLAKY 分母；**标记是留痕不是赦免**：窗口内被标记的失败多于真实通过仍判 FLAKY。
+  切点前失败数 / 被标记数 / 窗口内通过数写进 receipt 的 `stability`（信息项，不进 digest）与
+  report 的"稳定性窗口"一节——"碰一行代码重开窗口"与"把失败标成手误"都在成绩单上可见。
+  底线不动：同一代码上时通时挂照样拦。防的实测逃逸：此前按全历史判，s5a r2 因 4 条旧 root fail
+  （6 条里 5 条是 cwd/路径/marker 手误）永远到不了 SHIPPABLE、s5b r3 判 FLAKY 21/26 而 5 次失败
+  成因全已修复，两次都只能开新 run-dir 干净重跑——失败史留在被 retire 的旧账里，与规则初衷相反，
+  且正是 §5.8e 要堵的"换目录洗账"。
+- 两处让 re-attest 静默退化为全量复测的病根：①doc-only 默认白名单补 `ARCHITECTURE/*.md`（根目录
+  `ARCHITECTURE.md` 本就在，目录形态漏了；只放行 md，目录里的生成器/图表代码仍是行为文本；
+  s4/s5b 各因此重测一轮）；②`init` 拒绝绝对路径或非列表的 `impact_paths`（绝对路径永远匹配不上
+  仓库相对的变更清单，s5a retro 实测每次 re-attest 都退化为全量；字符串会被逐字符迭代，`*` 匹配一切）。
+- `ARGS_INVALID`：缺必填参数时附该子命令的一行示例与 `--help` 指引。
+- `RETIRE 拒绝`：继任者未 SHIPPABLE 时列出其阻塞诊断码，并说明不必先 finalize。
+- `init` 仓库之外：消息给出 run-dir 绝对路径与仓库根，点名双仓 cwd 错配的常见病因。
+- 复审日期：2026-12-10。合法出口：以上全部是放宽/提示，无新堵死态；折叠与归一均在 stderr 显形，
+  账本可审计。守护测试：`test_cli_friction.py`（本文件自有用例，含链长配对的存量账本回归、
+  并发 --exec、worktree 回落、拒绝时日志保留、retire 自继任守卫）。
+
 **v0.6.1 追溯补丁（2026-09-01，同日复验 handoff）**：`strip_stored_repo_prefix`——
 v0.6.1 的相对化只对新账本生效，存量账本的绝对 path 命中绝对分支后走不到"新根重接"，
 12 条 sha256 完好的 testcase 仍被判缺失（exec-004 实测）。修法：剥掉账本自记的旧
@@ -209,10 +263,13 @@ evidence 路径 1D-delta 同款处理），读端按"仓库相对 → run-dir �
 1. **required rows 由 init 自动创建为 NOT_RUN**；命令只记录事实（record-run /
    attach-evidence），状态由 validator 计算，调用者不能把 NOT_RUN 改成 PASS。
 2. **retry / replay / 同意图改写 / continuation 不是 root run**——只有 root 计入场景状态。
-2b. **`blocked` 是非粘性的，`fail` 是粘性的**（2026-08-09 修）。`blocked` 的语义是"此刻做不到"
-   （环境不可达、需要用户本人授权），它被**其后的一条 root pass** 覆盖即解除；解除的唯一方式
-   是真的补一条 root pass，该有的证据/UI/negative-assertion 硬门一条不少，因此不构成绕过。
-   `fail` 仍然粘性：root 一旦红，这一轮就是红的（改完代码 HEAD 会变，本来就该开新 run）。
+2b. **`blocked` 与 `fail` 都是非粘性的**（blocked 2026-08-09 修；fail W4-15 2026-08-29 修）。
+   语义都是"此刻没过"，被**其后的一条 root pass** 覆盖即解除；解除的唯一方式是真的补一条
+   root pass，该有的证据/UI/negative-assertion 硬门一条不少，因此不构成绕过。代码变更后的重测
+   义务由 `TESTED_RUNTIME_MISMATCH` / `RETEST_REQUIRED_AFTER_CHANGE` 独立把守。非确定性场景的
+   抖动由 `STABILITY_SAMPLES_INSUFFICIENT` 把守，且 v0.8.1 起只看当前被测 HEAD 上的样本
+   （见 §4b v0.8.1）。**历史**：fail 曾是粘性的，那时改完代码只能开新 run——这正是 §8e 要
+   收拾的换目录洗账的源头。
    **旧实现是个语义陷阱**：`blocked` 排在 `fail` 之前、扫的还是全部 run 而非 root，于是记一条
    blocked = 该场景永久钉死、整轮报废；而 Stop hook 当时的文案恰恰是"做不到的项标 BLOCKED"，
    文案 + 实现的组合等于诱导代理毁掉自己正在跑的轮次（simple_harness r7/r9 实测）。
@@ -320,10 +377,11 @@ evidence 路径 1D-delta 同款处理），读端按"仓库相对 → run-dir �
 
 8e. **`SIBLING_RUN_UNRESOLVED`：换目录洗账本**（2026-08-28 加）。
 
-   - **问题**：`fail` 是粘性的——一条 root fail 记进去，这个 run-dir 就永远拿不到 receipt。
-     代理唯一能往前走的动作是新建 `run-00N+1`（`compute_scenario_status` 的注释里就是这么
-     写的，轮换是**设计内的正路**）。问题在于配套的 `retire --superseded-by`（把举证责任
-     转移给继任轮）**没有任何东西检查它做没做**。
+   - **问题（当时）**：`fail` 是粘性的——一条 root fail 记进去，这个 run-dir 就永远拿不到 receipt，
+     代理唯一能往前走的动作是新建 `run-00N+1`，轮换是**设计内的正路**。问题在于配套的
+     `retire --superseded-by`（把举证责任转移给继任轮）**没有任何东西检查它做没做**。
+     （W4-15 起 fail 非粘性、v0.8.1 起 FLAKY 只看当前 HEAD，轮换不再是必经之路；本门仍保留，
+     因为历史上开出来的兄弟轮仍要交代。）
    - **实测数据**（18 本真实账本 + 8 处轮换现场）：5 次轮换里 4 次没挂账；`retire` /
      `acknowledge` 全局使用次数为 **0**；被丢弃的账本里躺着 **75 条测试事实、142 份证据、
      16 条 root fail**——比进了 receipt 的 65 条事实还多。两张历史 SHIPPABLE receipt
@@ -436,6 +494,17 @@ evidence 路径 1D-delta 同款处理），读端按"仓库相对 → run-dir �
     `LEDGER_TAMPERED`。这不是假想：`record-run --exec`（一次写入同时追加 run 与它抓到的
     执行日志）2026-08-19 上线，给它补的折扣 2026-08-24 才上线，中间 5 天真实日志里
     5 次 `LEDGER_TAMPERED` 全部由此产生，其中一次连跑 17 次 `--exec`、缺口正好 16。
+
+    **同一根病的第二次发作（2026-09-02 实测，v0.8.1 修）**：折扣按"run 在账本里的位置 ==
+    日志文件序号"配对，而序号取自**开跑前**的账本快照。后台 `--exec` 跑 10 分钟全量回归
+    期间别人先入账一条 run，位置就错开一位，配对失败 → 下界多算 1 → `LEDGER_TAMPERED`。
+    s5b 的 r1/r2 两本账都这么死的，代理判成"并发写"并删目录重开（100+ 条事实作废）。
+    修法两条：①序号改在 `_append` 的锁内按账本当前长度定，日志先以 unrecorded 名落盘再改名，
+    两条同场景后台 `--exec` 也不再互相覆盖日志；②`expected_chain_length` 改按场景计数配对——
+    每场景折扣 min(exec run 数, 同形态 exec 日志数)，与位置无关，存量错位账本自愈。配对只看
+    路径形态 `EXEC_LOG_RE`（写读两端共用一份定义），**不看 producer_type**：该戳 08-24 才加，
+    08-19～08-24 的存量 exec 证据没有它。折扣上限仍是 exec run 数，手工 attach 一条同形态的
+    日志最多让下界松 1。
 
     症状为什么必须当回事：`LEDGER_TAMPERED` 是阻塞级、**没有任何修复命令**（有的话就等于
     "重算链即洗白"），账本一旦被误判就是死的，代理唯一的出路是换 run-dir 重开——而那正是

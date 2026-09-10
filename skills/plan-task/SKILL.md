@@ -44,7 +44,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 - 按 `../plan-test/phase-3-execute.md` 执行：**执行模式自决**（任务真独立且量大→分兵并行子代理 + worktree 隔离；环环相扣或量小→集中兵力当前 session 串行打歼灭战，决策一行留痕）、与本机 hook 共处、`{AUDITOR_ENGINE}` 可追溯矩阵审计（主要矛盾优先）、回归门对照 baseline。
 - **oracle 先于实现**（普适铁律）：动手写某条 AC 的实现前，先写下它的"什么算对"（plan 验证栏 / testcase 草稿）；禁止实现后照实现补预期。
 - **代码 review（phase-3 A4，`CODE_REVIEW = required-for-code`）**：便宜检查绿后、完成度审计前，对累计 diff 做正确性 review（执行者不自审——harness 自带 code review 或独立 challenger）；P0/P1 修完、每个修复配决定性测试、并按 A4 第 4 步分层复验（便宜层全量 + 受影响决定性测试 + 价值 smoke）才进审计。
-- **价值里程碑 PASS 后**：异步 demo 给用户（不自动等待确认）（跑起来的实物 + 一句用户语言汇报）+ 矛盾转化再分析（重答三问、重排剩余任务）。
+- **价值里程碑 PASS 后**：异步 demo 给用户（不自动等待确认）（跑起来的实物 + 一句用户语言汇报，以原始 plan 总进度表开头）+ 矛盾转化再分析（重答三问、重排剩余任务）。 要用户拍板的事攒成一批附默认建议一次问完（config `DECISION_BATCHING`）。
 
 ### 4. 验收（重点论测试 + testcase 收尾）
 
@@ -66,7 +66,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 - **⚠️ 末尾警戒（最重要）**：长任务越接近收尾，越容易用便宜的代码审计替昂贵的真机测试来"尽快合上"。**`MANUAL_TEST=required` 的 UI 测试不许降级**；测不了就 BLOCKED 升级，不许静默换等价方案（见 phase-4 ①b 兑现表）。**"功能主流程通过"≠"每条 AC 都测了"**——收尾前必回看兑现表，把设置项/开关态/角色隔离/空态/错误态逐条照见。
 - **广度计数纪律（不许自行解释）**：同一问题的重跑/改写/continuation **不得**被解释成"测了多个场景"——distinct scenario 只按 acceptance 场景矩阵 + phase-4 ①c 账本计数。任何 required 场景仍为 PENDING/PARTIAL/NOT RUN 时，**不得宣布 complete**（`MANUAL_REQUIRED_PENDING_POLICY = block`）。
 - **计划失效即回炉，不许打补丁绕**（phase-3 A2）：执行中若"补丁能让任务完成、但不能让对应 AC 真达成"，那是 plan 层缺陷——停该执行线、回 phase-2 重迭代该部分（重挑战 + 补 spike），回写 plan 后再继续。执行子代理只能上报，无权自行绕行；审计以**原始需求 AC 达成**为锚，不以 plan 任务打勾为锚，主要矛盾未解决 = 整体 FAIL。
-- **价值优先，blocker 早停**：进入打包/全量回归/完整真人矩阵等昂贵步骤前，先过 phase-4 门序的核心价值 smoke（`VALUE_SMOKE_GATE = required`）。**"主要矛盾"对应的必须 AC 一旦 FAIL，立即停止一切收尾动作**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED——可以继续诊断修复，但不许边挂着已知 BLOCKER 边收尾。
+- **价值优先，blocker 早停**：进入打包/全量回归/完整真人矩阵等昂贵步骤前，先过 phase-4 门序的核心价值 smoke（`VALUE_SMOKE_GATE = required`，必须走生产接缝，不走测试基座）。**"主要矛盾"对应的必须 AC 一旦 FAIL，立即停止一切收尾动作**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED——可以继续诊断修复，但不许边挂着已知 BLOCKER 边收尾。
 - **交付一致性**：验证必须针对已提交 HEAD，工作树须为空。会话续接先重跑当前路径声明范围的
   分级冒烟；新 AC 先进 acceptance。分级冒烟和提交态硬门不得豁免。
 - **成本纪律**：记录各阶段耗时；复测按 change-impact 路由——只重跑受本次改动影响的层，未变化的昂贵检查（全量构建/打包/全量回归）不重复执行。

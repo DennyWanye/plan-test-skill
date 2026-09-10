@@ -170,10 +170,12 @@ class RefusalFailureSafetyTestCase(unittest.TestCase):
         try:
             r = run_gate(["checkpoint", "--run-dir", empty, "--note", "x"])
             self.assertEqual(r.returncode, 2, "退出码不得因写入失败而变")
+            # v0.8.1 起缺账本的拒绝在首行之后附路径提示，提示与 refusal 机制无关；
+            # 不变量仍是"首行（码 + 消息）与无 refusal 机制时逐字节一致"。
             self.assertEqual(
-                r.stderr.strip(),
+                r.stderr.strip().splitlines()[0],
                 "ERROR: USAGE_ERROR: run-dir 缺少 plan-test-run.json，先执行 init",
-                "stderr 必须与无 refusal 机制时逐字节一致"
+                "stderr 首行必须与无 refusal 机制时逐字节一致"
                 "（v0.6.1 起 die 对无码消息统一冠 USAGE_ERROR，写入失败不改变这一点）")
             self.assertTrue(os.path.isdir(
                 os.path.join(self.home, "refusals.jsonl")), "占位目录原样保留")
