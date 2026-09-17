@@ -1,6 +1,6 @@
 # Phase 4 — 验收（围绕主要矛盾）
 
-**交互**：测试失败先诊断可自行修复的原因；BLOCKED 不自动要求用户接管。只有实际解锁需要用户时，按 `references/user-attention.md` 提供调查结果与最小动作，保持未通过事实。
+**交互**：测试失败先诊断可自行修复的原因；BLOCKED 不自动要求用户接管。BLOCKED 升级消息按 `checklists/handoff.md` 走轻量评估。只有实际解锁需要用户时，按 `references/user-attention.md` 提供调查结果与最小动作，保持未通过事实。
 
 **目的**：执行完成后的统一终验关卡。两条排布原则：**便宜的门在前，贵的门在后**；**主要矛盾先测深测，次要 AC 各过一遍**（重点论 + 两点论兜底）。
 
@@ -48,7 +48,8 @@
    **立即停止一切收尾动作**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED，
    可以继续诊断修复，修复后从本门序重过。**已知 BLOCKER 还继续收尾 = 谎报进度。**
 2. **次要 AC 各过一遍**：每条一个场景走通即可；确定性 UI（设置页/开关/CRUD/导航）一个场景即可，
-   不许把多问题门槛错误套给它们。
+   不许把多问题门槛错误套给它们。**注意："一个场景"只指输入类别数，不豁免 `checklists/handoff.md` H2——
+   新增/改动元素的真实点击、点击后的可见反馈、失败/空/等待态与真实数据路径照样要有证据。**
 3. **兑现表（防降级硬闸——本 skill 最常被偷工的一环，必须产出）**：逐条列 acceptance 每条
    "必须" AC：
 
@@ -59,7 +60,8 @@
      一律记 ❌ 未完成。后端逻辑 AC 用可复跑脚本断言作证据。
    - **禁止静默降级**：任何 required 测试无法执行（环境受阻、设备缺失）→ BLOCKED 升级给用户，
      讲清卡点；确需等价方案须用户在 chat 显式批准并在表中注明。本阶段的全部待批项（等价方案、
-     全 AI 驾驶、豁免、范围缩减）按 config `DECISION_BATCHING` 攒成一批、附默认建议一次问完。
+     全 AI 驾驶、豁免、范围缩减）按 config `DECISION_BATCHING` 攒成一批、附默认建议一次问完；
+     该消息发出前按 `checklists/handoff.md` 走**轻量评估**。
    - **"主流程通过 ≠ 每条 AC 都测了"**：设置项、开关态、权限隔离、空态、错误态最容易被
      "主流程通过"掩盖，兑现表要照见每一条。
 4. **输入语义敏感功能的广度账本**（适用性具体分析，判定见 config"真人测试广度门禁"）：
@@ -72,8 +74,15 @@
    - 修好某场景后，至少再复测 1 个未受影响类别（防修复引入回归）；
    - LLM 载荷驱动功能另按 `llm_variant`（载荷形态 × 场景）记账，required 形态未覆盖即 PENDING；
      随机性采样见 config `STOCHASTIC_MIN_RUNS`。
-   - 全 AI 驾驶须用户批准：至少 1 个 required 场景真人驾驶，或用户 chat 显式批准全 AI（表注）。
+   - 全 AI 驾驶须用户批准：至少 1 个 required 场景由用户亲自驾驶（**安排在交接评估 PASS 之后，作为用户验收**，
+     不是让用户替 agent 补测），或用户 chat 显式批准全 AI（表注）。
    - 确定性 UI 不适用本节，不许反向强套。
+
+5. **交接前自测与独立评估（`HANDOFF_CHECK`）**：叫用户验收、给 demo 或宣布完成之前，按
+   `checklists/handoff.md` H0–H4 自查，再派 `prompts/test-result-evaluator.md`（`MODE: full`，
+   评估员自行运行 `scripts/handoff_evidence.py` 取真实操作证据）。block 按 `fix_class` 处理：
+   硬伤修好后重评 PASS 才发，文字类改完即发；轮次上限见 config `HANDOFF_EVAL_MAX_ROUNDS`。
+   本步排在 ⑤ testcase 收尾之后、发消息之前——⑤ 的修复会让上一次 PASS 失效。
 
 ## ④ 完成记录（按路径分档）
 
@@ -83,6 +92,7 @@
   3. 冒烟脚本路径与输出摘要；
   4. 广度账本（适用时）；
   5. 遗留问题清单（不许悬空的"留待后续"）；
+  5b. **交接评估记录行**（每次交接一行）：时间 | 交接类型 | 模式 | 轮次 | verdict | fix_class 处置（哪几条按文字类改完即发）| 被评 HEAD | 草稿 sha256 | 评估输出文件；
   6. **终态行**（`JOURNAL_VERDICT = required`，收尾时由 phase-final 填写；
      格式见 phase-final，语义见 config `JOURNAL_VERDICT`）。
   完成判定依据 = journal + phase-final 的 DoD 清单；交付说明如实写"无机器 receipt"。
@@ -119,6 +129,6 @@
 - **同一整体 run 内的中间片**：本片真实入口、承诺、适用 review/回归与提交身份核对已完成 → 记录片里程碑并回 phase-2 准备下一片，未来 required 仍未完成；不要求下列整个 run 的最终出口，不声称 receipt 或整体完成。
 - 下列出口用于独立片交付或整个 run 的最终完成：
 - **默认**：便宜门全绿 + 决定性场景 PASS + 兑现表无 ❌ 无未批准降级 + journal 完整 +
-  testcase 已归档 → 当前片进入对应交付 DoD；有后续片时完成片终点核对再回 phase-2，整体完成另核全部原始 AC。
+  testcase 已归档 + **最近一次交接评估 PASS 或文字类已改完（记录行在 journal）** → 当前片进入对应交付 DoD；有后续片时完成片终点核对再回 phase-2，整体完成另核全部原始 AC。
 - **FULL**：以上 + `finalize --check-only` 输出 `READY_FOR_AUDIT` + full-audit PASS 已入账
   → 当前片进入对应交付 DoD；有后续片时完成片终点核对再回 phase-2，整体完成另核全部原始 AC。

@@ -11,9 +11,12 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 ## 开场（每次必做）
 
-1. **Announce**：输出 "I'm using the plan-task skill to execute and test the finalized plan."
+1. **Announce**：输出 "我正在使用 plan-task skill 执行并测试已定稿的 plan。"
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
 2a. **读交互规则**：读 `../plan-test/references/user-attention.md`；执行指令与历史批准按范围沿用，不逐阶段索取确认。
+
+**交接前检查（`HANDOFF_CHECK`）**：每次结束本轮回复前先问四问——让用户动手？要用户表态（含汇报里顺带一句）？说完成/通过/可推送？停下等用户？任一为是 = 交接：读 `../plan-test/checklists/handoff.md` 按对应档过一遍并派评估员（`MODE: full|light`），PASS 或（文字类问题改完）才发；消息第一段先写需要用户做什么。上下文压缩后第一次交接前必须重读该文件。
+
 2a-slice. **delivery 切片规则**：读 `../plan-test/references/delivery-slices.md`；整体目标 → 可交付切片 → 技术任务，当前片就绪后实施，每片真实验证后再推进，小需求可一片。
 2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
 3. **建 TodoWrite**：按下面 5 步建 todo。
@@ -57,6 +60,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 ### 5. 收尾 DoD + 文档回写 + 自我批评
 
 - 按 `../plan-test/phase-final-dod.md` 执行：文档回写（README / changelog / testcase index）→ DoD 清单逐条附证据核对 → **journal 终态行**（`JOURNAL_VERDICT`，格式见 phase-final；没有终态行 = run 未闭环）→ **自我批评一行**写进 `{PLANS_DIR}/<feature>/retro.md`（本次哪些门空转、哪里被仪式拖慢）→ 提交 →（要推送远程时）**push 前 code review 硬门**：对外发 diff 再过一遍 review，P0/P1 修完并按分层复验后再推（phase-final 第 6 步）。
+- **交付消息发出前**按 `../plan-test/checklists/handoff.md` 走完整评估（H0 先写需要用户做什么、H1 原话逐条对照、H2 真点与证据）。
 - **默认路径**：完成判定 = DoD 清单全绿（每条附证据位置），交付措辞如实写"完成判定依据 journal 与 DoD 清单，无机器 receipt"。
 - **FULL（`MACHINE_GATE` 启用）**：额外按固定顺序过机器门——文档回写 → `re-attest` → 重新 full-audit 入账 → `python {GATE_SCRIPT} finalize --run-dir <run-dir>`。**最终交付状态只取该命令的 exit code**（exit 0 + `GATE RECEIPT` 才是完成；exit 3 = fixture-only 不是完成）；跳过 re-attest 会 `TESTED_RUNTIME_MISMATCH`，跳过重新 audit 会 `AUDITOR_INPUT_STALE`；没有有效 receipt 的手写 SHIP/100% = `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。交付措辞用 receipt 模板。
 - 任何 DoD 项达不成 → BLOCKED 升级，**不谎报完成**。
@@ -70,7 +74,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 - **交付一致性**：验证必须针对已提交 HEAD，工作树须为空。会话续接先重跑当前路径声明范围的
   分级冒烟；新 AC 先进 acceptance。分级冒烟和提交态硬门不得豁免。
 - **成本纪律**：记录各阶段耗时；复测按 change-impact 路由——只重跑受本次改动影响的层，未变化的昂贵检查（全量构建/打包/全量回归）不重复执行。
-- **已知失败版本启动警告**：总体 BLOCKED 时用户要求启动测试，必须先告知"这是已知失败版本、目的是复现/补证、非验收版本、已知这些场景会失败"，不许只说"已启动"。
+- **已知失败版本启动警告**（该消息按 `../plan-test/checklists/handoff.md` 完整评估）：总体 BLOCKED 时用户要求启动测试，必须先告知"这是已知失败版本、目的是复现/补证、非验收版本、已知这些场景会失败"，不许只说"已启动"。
 - **缩小测试范围必须用户显式批准**：批准后回写 acceptance 的范围节（标注"用户批准缩减：原 S-x 移出范围"），交付结论只能表述为**用户批准后的范围**全绿，不得写成原范围全绿。
 - 按 SKILL.md（plan-test）"推进规则"执行：执行模式自决（集中兵力/分兵），oracle 先于实现贯穿始终；每阶段收尾过"100% 完成度审计 + 对应测试"才算完成，门的强度不因并行而降。
 - 所有"循环直到"受 `{MAX_ROUNDS}` 兜底，超限 → BLOCKED 升级。

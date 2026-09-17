@@ -20,6 +20,9 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 
 开场读 `references/user-attention.md`。先调查、形成可审阅的 plan；已有授权覆盖方案时自主推进。需要用户决策时先提供事实、推荐、代价与未知项。各阶段的确认、BLOCKED、demo 和续接按该 reference 解释。
 
+
+**交接前检查（`HANDOFF_CHECK`）**：每次结束本轮回复前先问四问——让用户动手？要用户表态（含汇报里顺带一句）？说完成/通过/可推送？停下等用户？任一为是 = 交接：读 `checklists/handoff.md` 按对应档过一遍并派评估员（`MODE: full|light`），PASS 或（文字类问题改完）才发；消息第一段先写需要用户做什么。上下文压缩后第一次交接前必须重读该文件。
+
 delivery 规划/执行同时读 `references/delivery-slices.md`：整体目标 → 可交付切片 → 技术任务；每片真实验证后继续，小需求只需一片。
 
 ## 核心原则
@@ -34,7 +37,7 @@ delivery 规划/执行同时读 `references/delivery-slices.md`：整体目标 �
 - **禁止自造防御系统 / 复验粒度跟随变更粒度**：见 config `SELF_BUILT_DEFENSE`、`REVALIDATION_SCOPE`。
 - **唯一真相来源**：一切回溯到用户批准的 `{ACCEPTANCE_FILE}`（FULL 路径另含 `assurance-contract.json`）；challenger 不得自行扩大范围。
 - **oracle 先于实现**：任何 AC 的"什么算对"在实现之前写下；禁止照实现补预期（phase-2/3）。
-- **从群众中来，到群众中去**：需求从用户澄清中来（phase-A 提炼矛盾分析，按交互边界合并 review）；里程碑 PASS 后拿**跑起来的实物**回到用户中检验（demo）；进度用用户语言汇报、以原始 plan 总进度表开头（config `PROGRESS_REPORTING`）；要用户拍板的事攒成一批附默认建议一次问完（config `DECISION_BATCHING`，决策简报形式见 `references/user-attention.md`）；用户可感知的标的差异必须在决策简报中说明并取得对应授权。
+- **从群众中来，到群众中去**：需求从用户澄清中来（phase-A 提炼矛盾分析，按交互边界合并 review）；里程碑 PASS 后拿**跑起来的实物**回到用户中检验（demo）；进度用用户语言汇报、以原始 plan 总进度表开头（config `PROGRESS_REPORTING`）；要用户拍板的事攒成一批附默认建议一次问完（config `DECISION_BATCHING`，格式见 `checklists/handoff.md` H3）；用户可感知的标的差异必须在决策简报中说明并取得对应授权。
 - **每个声明可验证**：不说"看起来做完了"，逐条核对可追溯矩阵；journal 里每条声明附实测证据。
 - **每个失败有出口**：plan challenge 用 3/5/8 出口，其他循环用 `MAX_ROUNDS`（见 config）；任何 reset 不清零历史。
 - **已批准行为不缩水**：`BEHAVIOR_POLICY = preserve-approved`；最小化按 `policies/acceptance-preserving-ponytail.md`。
@@ -44,7 +47,7 @@ delivery 规划/执行同时读 `references/delivery-slices.md`：整体目标 �
 
 ## 开场（每次必做）
 
-1. **Announce**：输出 "I'm using the plan-test skill to run the full plan→execute→test workflow."
+1. **Announce**：输出 "我正在使用 plan-test skill 跑完整的 计划→执行→测试 流程。"
 2. **读配置**：读本 skill 的 `config.md`；项目根存在 `.claude/plan-test.config.md` 则覆盖默认值。所有 `{大写变量}` 运行时替换。
 3. **判任务类型与路径并宣布**（`TASK_TYPE` + `FLOW_TIER`，判据见 config"流程路径"）：先判 delivery / ops；delivery 再判 DIRECT / LEAN / FULL；FULL 再判 `MACHINE_GATE` 是否启用。疑义往高风险路径判（但 ops 误判成 delivery-FULL 的代价是仪式压垮任务，类型判定按交付物本质）。
 4. **列门清单（存入 plan，不逐项要求用户阅读）**：记录本次要跑的门与跳过的门，**各附一句话理由**；理由说不出的门就是本本主义——跳过并留痕。
@@ -78,6 +81,7 @@ delivery 规划/执行同时读 `references/delivery-slices.md`：整体目标 �
 ## 子代理用法
 
 - 挑战/评估/审计/迭代类子代理：提示词在 `prompts/` 下，派发时把对应文件内容作为子代理 prompt，引擎用配置指定值（`CHALLENGER_ENGINE` / `AUDITOR_ENGINE`）。
+- **子代理 prompt 与结果转述使用用户的语言**（用户说中文就全程中文），英文结果转述后再发给用户。
 - 执行类子代理：分兵模式下用 `{EXECUTOR_ENGINE}` 并行派发（默认 `current` = 继承当前会话模型）。
 - 调研类步骤遵循 `methods/research-method.md`。
 

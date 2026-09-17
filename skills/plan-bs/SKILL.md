@@ -11,9 +11,12 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 
 ## 开场（每次必做）
 
-1. **Announce**：输出 "I'm using the plan-bs skill to brainstorm and co-create the plan with you."
+1. **Announce**：输出 "我正在使用 plan-bs skill 和你一起头脑风暴、共创 plan。"
 2. **读配置**：读 `../plan-test/config.md`；项目根有 `.claude/plan-test.config.md` 则覆盖。`{大写变量}` 运行时替换。
 2a. **读交互规则**：读 `../plan-test/references/user-attention.md`；保留共创，先查事实再问价值取舍，验收标准与 plan 合并 review。
+
+**交接前检查（`HANDOFF_CHECK`）**：每次结束本轮回复前先问四问——让用户动手？要用户表态（含汇报里顺带一句）？说完成/通过/可推送？停下等用户？任一为是 = 交接：读 `../plan-test/checklists/handoff.md` 按对应档过一遍并派评估员（`MODE: full|light`），PASS 或（文字类问题改完）才发；消息第一段先写需要用户做什么。上下文压缩后第一次交接前必须重读该文件。
+
 2a-slice. **delivery 切片规则**：读 `../plan-test/references/delivery-slices.md`；整体目标 → 可交付切片 → 技术任务，当前片细化并定稿后交 plan-task 实施，本入口不实施业务代码；小需求可一片。
 2b. **判任务类型**（`TASK_TYPE`，见 config"流程路径"）：运维/部署任务（交付物是"让服务/环境处于目标状态"）走 OPS 路径——快照/回滚出口先行、1 轮实测挑战、journal 收尾，不套软件交付的 oracle 冻结/manifest 编译/finalize receipt。
 3. **建 TodoWrite**：按下面 5 步建 todo。
@@ -66,9 +69,9 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 
 ### 5. 和用户 review 定稿
 
-- 按共享注意力规则，把验收标准与定稿 plan 一起给用户 review（用户已经明确确认的项不再问）：主要矛盾、方案选择及理由、任务清单概览、迭代中被挑战出的关键改动、**关键假设验证结果**（哪些假设、怎么验的、证据是什么）。
+- 该 review 消息按 `../plan-test/checklists/handoff.md` 走轻量评估 + 表 1 原话对照；按共享注意力规则，把验收标准与定稿 plan 一起给用户 review（用户已经明确确认的项不再问）：主要矛盾、方案选择及理由、任务清单概览、迭代中被挑战出的关键改动、**关键假设验证结果**（哪些假设、怎么验的、证据是什么）。
 - 用户通过后，在 `plan.md` 头部写入标记：`<!-- plan-status: finalized (plan-bs) -->`。
-- 收尾输出：plan 与 acceptance 的路径 + 提示"执行与测试请运行 `/plan-task <plan 文件夹路径>`"。
+- 收尾输出（交接消息，完整评估）：plan 与 acceptance 的路径 + 提示"执行与测试请运行 `/plan-task <plan 文件夹路径>`"。
 
 ## 何时不要用
 

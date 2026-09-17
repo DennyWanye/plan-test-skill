@@ -223,7 +223,7 @@ Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Archite
    用户可见行为变化仅带入 review 作为选项。
 4. 修改后同步 AC/任务映射；不得制造 MUST AC 覆盖空洞。无建议即结束，不循环、不凑 finding。
 
-收敛后按 `references/user-attention.md` 核对授权：需要确认时，向用户一起展示 acceptance、行为差异、plan 和决策简报并等待；已有授权覆盖时直接定稿。写入 `<!-- plan-status: finalized -->`，同时记录真实授权来源与适用范围，不自造批准记录。
+收敛后按 `references/user-attention.md` 核对授权：需要确认时，向用户一起展示 acceptance、行为差异、plan 和决策简报并等待（该 review 消息按 `checklists/handoff.md` 走**轻量评估 + 表 1 原话对照**）；已有授权覆盖时直接定稿。写入 `<!-- plan-status: finalized -->`，同时记录真实授权来源与适用范围，不自造批准记录。
 
 ## B. 锁定绿色基线（执行前必做）
 

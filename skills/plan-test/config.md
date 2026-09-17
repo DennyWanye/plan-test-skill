@@ -50,7 +50,7 @@
 
 | 路径 | 触发条件（取最高风险） | 跑什么 | 不跑什么 |
 |------|----------------------|--------|----------|
-| **DIRECT** | 同时满足：可快速回滚；不涉权限/资金/身份/迁移；无新持久化状态；不改公共协议；不跨信任边界；不引新依赖 | 不启动 plan-test：一句 AC → Ponytail 最小实现 → 最小决定性测试 → 变更入口 smoke → 提交态硬门 | 不建 run-dir/plan/contract，不派子代理，不做 ledger/receipt/full-audit |
+| **DIRECT** | 同时满足：可快速回滚；不涉权限/资金/身份/迁移；无新持久化状态；不改公共协议；不跨信任边界；不引新依赖 | 不启动 plan-test：一句 AC → Ponytail 最小实现 → 最小决定性测试 → 变更入口 smoke → 提交态硬门 → 交接前按 `HANDOFF_CHECK` 四问自查 | 不建 run-dir/plan/contract，**除交接评估外**不派子代理，不做 ledger/receipt/full-audit |
 | **LEAN**（默认） | 单个明确业务切面；用户可见变化；风险可局部隔离；有自动化出口；无高风险迁移或共享基础设施 | phase-A/1/2/3/4/final；挑战按重点论收窄（主要矛盾走完整四阶段，其余一轮 breadth）；完成记录 = journal | 不启用机器账本（manifest/init/record-run/receipt/full-audit）、不做 assurance-contract.json（摘要节代替）、次要 AC 不做多轮挑战与多轮 testcase 迭代 |
 | **FULL** | 权限/身份/支付/数据完整性、schema/迁移、多阶段状态机、公共 Provider/API、跨服务、LLM 驱动状态机、不可逆副作用、共享基础设施或 `input_sensitive=true` | 全套 6 阶段 + `MACHINE_GATE` 判定（见下） | —— |
 
@@ -132,9 +132,11 @@
     价值 smoke 一枪；触及 UI/用户可见行为才回昂贵层（含 ①c 复测广度规则）。
     每个 P0/P1 修复必配一条决定性测试并入回归套件。
 - `MANUAL_TEST`: required
-  - MCP 真人点击/输入测试。对有 UI 的被测对象不可省略、不可降级。
+  - MCP 真人点击/输入测试。对有 UI 的被测对象不可省略、不可降级。脚本（`javascript_tool`/`$wire`/
+    `dispatchEvent`/直调接口）只能读状态或造前置数据，**不能代替点击**；点不了 → BLOCKED 并按
+    `checklists/handoff.md` H3 请用户批准等价方案，"如实说明没真点"不是出口。
 - `MCP_DRIVER`: auto
-  - auto = 按平台与被测对象自动选：Web→Claude-in-Chrome MCP，原生桌面→computer-use/macos-mcp。
+  - auto = 按平台与被测对象自动选：Web→harness 内置浏览器优先，其次 Claude-in-Chrome MCP；原生桌面→computer-use/macos-mcp。
 - `TEST_STRATEGY`: route
   - route = 按被测对象路由（见 phase-4）：UI→手工；API/CLI/库/管道→脚本；两者皆有→都做。
 
@@ -339,10 +341,20 @@
 - `USER_ATTENTION`: protect（默认）
   - 交互语义统一见 `references/user-attention.md`，三个入口开场读取。沿用已有授权、合并需要的 review、先调研再提交决策，不添加机器诊断码。
   - 项目覆盖不得将沉默视为批准、扩大已授权范围或降低 required 验收证据。
-- `DECISION_BATCHING`: required（2026-09-10 runlog 复盘新增；`USER_ATTENTION` 决策简报的打包形式）
+- `HANDOFF_CHECK`: required（2026-09-15 新增；四样登记——防的实测逃逸 = 2026-09-11~15 用户亲自拦下 7 次
+  （需求做少 1、UI 代点/自测不净/demo 无反馈 3、决策讲不清 3），以及 08-28~09-10 留出集复现的同类逃逸；
+  防的诊断码 = 无（流程门，非账本门）；复审日期 = 2026-12-15；
+  **合法出口** = 评估 FAIL 且范围内修不了 → BLOCKED + 决策批次；评估员误读事实且已在重评中给出反证 → DISPUTED 交接并逐条告知用户）
+  - 规程全文见 `checklists/handoff.md`：回合末四问判断是不是交接；完整/轻量/自查三档；
+    `MODE: full|light` + `ROUND: n` 派 `prompts/test-result-evaluator.md`；评估员只认 `scripts/handoff_evidence.py`
+    的真实操作步骤号，不认自述；block 按 `fix_class` 分级——硬伤修好重评、文字类改完即发。
+  - DIRECT 同样适用，但只在四问命中时才派评估员（用户 2026-09-15 决定）。
+- `HANDOFF_EVAL_MAX_ROUNDS`: 3（首评 1 + 重评 ≤ 2，每个交接点独立计数；**不走 `MAX_ROUNDS`**）
+  - 早停：连续两轮 open block 的 ID 集合不变且无新证据即停，按 `checklists/handoff.md` 的出口处理。
+- `DECISION_BATCHING`: required（2026-09-10 runlog 复盘新增；2026-09-15 格式并入 `HANDOFF_CHECK`）
   - 任何需要用户拍板的事项（范围缩减、豁免、全 AI 驾驶批准、方案二选一、acceptance 修订）
-    **攒成一批一次问**：一条消息、编号列表，每项四要素——问题一句话 / 默认建议 / 不决策的后果 /
-    是否阻塞当前工作。用户只需回编号（或"全按默认"）。
+    **攒成一批一次问**：一条消息、编号列表；每项按 `checklists/handoff.md` H3 三段写
+    （要决定什么 + 用户看得到的例子 / 选项与用户可见后果 / 默认与不回复的后果）。用户只需回编号（或"全按默认"）。
   - 批次未回复前不再发新的决策请求，除非出现新的阻塞项；能按最佳实践自决的不问
     （`EXECUTE_AUTONOMY: high`）。用户回复"全按默认"即视为逐项批准，原话 hash 入账一次即可。
   - 病根：timing 账本里 `user_wait` 占 s5a r2 的 40%（375/928 分钟）、s5b r3 的 47%
@@ -365,6 +377,7 @@
   - 每次收尾在 `{PLANS_DIR}/<feature>/retro.md` 写一两行自我批评：本次哪些门空转、哪里被
     仪式拖慢、哪个环节真拦住了问题。它是门禁退休评审（`GATE_REGISTRY_DISCIPLINE`）的数据源。
 - `PROGRESS_REPORTING`: user-language（2026-08-31 DGX 复盘新增；2026-09-10 runlog 复盘加固）
+  - **汇报里出现要用户回答的具体问题（含顺带一句）就是交接**，按 `checklists/handoff.md` 走轻量评估；纯进度汇报只自查。
   - 每个里程碑用**用户语言**汇报结果、下一验证点和是否需要用户；可靠时提供速率/ETA，否则说明未知。demo 不自动产生等待点；细则见 `references/user-attention.md`。
   - **进度汇报以"原始 plan 总进度表"开头**：先列 program/plan 级的全部交付单元及各自状态
     （✅ 闭合 / ⚠️ 部分 / ❌ 未开始），再讲当前切片的细节。切片进度不得冒充整体进度

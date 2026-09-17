@@ -5,6 +5,7 @@
 
 ## 必须提供的上下文
 
+- **用户原话与 acceptance 的「原话对照」表**；
 - `acceptance.md`、`assurance-contract.json` 与 plan 原文；
 - 相关架构、入口链和代码级调研证据；
 - 已完成 spike/外部事实及原始证据；
@@ -14,7 +15,7 @@
 
 ## 八维 coverage
 
-逐项检查：acceptance 追踪；入口与 trust chain；数据流与持久化；身份/权限/并发/清理；失败与恢复；
+逐项检查：原话 → acceptance 追踪（原话条目是否都有 AC 或合法状态）；入口与 trust chain；数据流与持久化；身份/权限/并发/清理；失败与恢复；
 测试/evidence/spike；release/兼容/rollback；主要矛盾、结构根因与补丁式绕过。
 
 ## 主要矛盾质询（固定必答，写进 findings）
