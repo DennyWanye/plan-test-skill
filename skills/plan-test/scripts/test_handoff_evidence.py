@@ -252,6 +252,15 @@ class TestAudit(Base):
         steps, _, _ = self.collect()
         self.assertEqual(HE.audit(steps), [])
 
+    def test_text_fix_handoff_line_without_evaluator_is_reported(self):
+        """handoff.md 末行新增「文字类已改」写法后，提取脚本同样要认出它。"""
+        self.write([
+            rec(type="user", timestamp="2026-09-10T00:59:00Z", message={"content": "x"}),
+            text_msg("2026-09-10T01:00:00Z", "改好了\n交接评估：文字类已改（eval-2.json）"),
+        ])
+        steps, _, _ = self.collect()
+        self.assertEqual(len(HE.audit(steps)), 1)
+
     def test_re_eval_via_send_message_counts_as_evaluator_call(self):
         self.write([
             rec(type="user", timestamp="2026-09-10T00:59:00Z", message={"content": "x"}),

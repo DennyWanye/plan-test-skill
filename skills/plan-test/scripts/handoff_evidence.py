@@ -58,7 +58,7 @@ def is_read_segment(seg):
 
 GIT_COMMIT = re.compile(r"\bgit\s+(commit|merge|rebase|revert|cherry-pick)\b")
 READ_LOOKUP = re.compile(r"\b(grep|rg|cat|head|tail|sed -n|awk|find|ls|git (log|show|blame|diff|status))\b|SELECT\s|artisan\s+(tinker|route:list)|psql|mysql", re.I)
-HANDOFF_LINE = re.compile(r"交接评估[：:]\s*(PASS|FAIL|DISPUTED)")
+HANDOFF_LINE = re.compile(r"交接评估[：:]\s*(PASS|FAIL|DISPUTED|文字类已改)")
 EVALUATOR_DISPATCH = re.compile(r"test-result-evaluator|测试结果评估员")
 
 
