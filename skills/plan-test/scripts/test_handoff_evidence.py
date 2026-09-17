@@ -198,6 +198,23 @@ class TestWindowAndFiles(Base):
         self.assertEqual(HE.main(["--session-id", self.sid, "--root", self.root]), 2)
 
 
+class TestBashCommands(Base):
+    def classes(self, cmd):
+        return [c for c, _, _ in HE.leaf("Bash", {"command": cmd})]
+
+    def test_pure_reads_are_source_clues(self):
+        self.assertEqual(self.classes("cat cli.py | head -20; git log --oneline -3"), ["来源线索"])
+        self.assertEqual(self.classes("S=docs; ls $S; cat $S/a.md"), ["来源线索"])
+
+    def test_running_the_cli_is_recorded(self):
+        """真实冒烟：命令行工具的交付靠终端实跑，原来整条被丢掉，评估员引用不到步骤号。"""
+        self.assertEqual(self.classes('python3 cli.py greet; echo "exit=$?"'), ["命令运行"])
+        self.assertEqual(self.classes("python3 -m unittest -v 2>&1 | tail -5"), ["命令运行"])
+        long_prefix = "SP=/" + "x" * 150 + "; "
+        self.assertEqual(self.classes(long_prefix + "python3 cli.py greet"), ["命令运行"], "不得只看截断后的前 120 字")
+        self.assertEqual(self.classes("cat > notes.md <<'EOF'\n# 标题\n正文 python3 x\nEOF\nwc -l notes.md"), ["来源线索"])
+
+
 class TestAudit(Base):
     def test_handoff_line_without_evaluator_is_reported(self):
         """不装 hook 时，这是唯一能查出'交接了但没派评估员'的地方。"""
@@ -215,6 +232,33 @@ class TestAudit(Base):
                      {"prompt": "读 prompts/test-result-evaluator.md 评估"}, "t1"),
             tool_result("2026-09-10T00:59:40Z", "t1"),
             text_msg("2026-09-10T01:00:00Z", "都做完了\n交接评估：PASS（eval-1.json）"),
+        ])
+        steps, _, _ = self.collect()
+        self.assertEqual(HE.audit(steps), [])
+
+    def test_handoff_line_quoted_by_evaluator_subagent_is_ignored(self):
+        """真实冒烟：评估员输出里引用了固定行，曾把主会话随后的交接误报为没评估。"""
+        self.write([
+            rec(type="user", timestamp="2026-09-10T00:59:00Z", message={"content": "x"}),
+            tool_use("2026-09-10T00:59:30Z", "Agent",
+                     {"prompt": "读 prompts/test-result-evaluator.md 评估"}, "t1"),
+            tool_result("2026-09-10T00:59:50Z", "t1"),
+            text_msg("2026-09-10T01:00:00Z", "都做完了\n交接评估：PASS（eval-1.json）"),
+        ])
+        sub = os.path.join(self.proj, self.sid, "subagents")
+        os.makedirs(sub)
+        self.write([text_msg("2026-09-10T00:59:45Z", "发送时末行写 交接评估：PASS（eval-1.json）")],
+                   os.path.join(sub, "agent-a1.jsonl"))
+        steps, _, _ = self.collect()
+        self.assertEqual(HE.audit(steps), [])
+
+    def test_re_eval_via_send_message_counts_as_evaluator_call(self):
+        self.write([
+            rec(type="user", timestamp="2026-09-10T00:59:00Z", message={"content": "x"}),
+            tool_use("2026-09-10T00:59:30Z", "SendMessage",
+                     {"to": "a1", "message": "ROUND: 2 请按 test-result-evaluator.md 复评"}, "t1"),
+            tool_result("2026-09-10T00:59:40Z", "t1"),
+            text_msg("2026-09-10T01:00:00Z", "改好了\n交接评估：PASS（eval-2.json）"),
         ])
         steps, _, _ = self.collect()
         self.assertEqual(HE.audit(steps), [])

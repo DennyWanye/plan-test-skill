@@ -42,6 +42,20 @@ JS_NET = re.compile(r"\bfetch\s*\(|XMLHttpRequest|\baxios\.|\$\.(ajax|post|get)\
 JS_NET_WRITE = re.compile(r"""method\s*:\s*['"`](POST|PUT|PATCH|DELETE)|axios\.(post|put|patch|delete)|\$\.post""", re.I)
 BASH_DRIVER = re.compile(r"playwright|puppeteer|selenium|cypress|xdotool|cliclick|"
                          r"osascript[^\n]*click|artisan\s+tinker|curl[^\n]*(-X\s*(POST|PUT|PATCH|DELETE)|--data|\s-d\s)", re.I)
+HEREDOC_BODY = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?\n.*?\n\1\b", re.S)
+SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|\n]")
+ENV_PREFIX = re.compile(r"^\s*(\w+=\S*\s+)*")
+READ_ONLY_HEAD = re.compile(r"(echo|printf|wc|cd|export|true|sort|uniq|cut|tr|jq|diff|shasum)\b")
+
+
+def is_read_segment(seg):
+    seg = seg.strip()
+    if re.fullmatch(r"\w+=\S*", seg):
+        return True  # 只是给变量赋值
+    seg = ENV_PREFIX.sub("", seg)
+    return bool(READ_LOOKUP.match(seg) or READ_ONLY_HEAD.match(seg) or re.match(r"(psql|mysql)\b", seg))
+
+
 GIT_COMMIT = re.compile(r"\bgit\s+(commit|merge|rebase|revert|cherry-pick)\b")
 READ_LOOKUP = re.compile(r"\b(grep|rg|cat|head|tail|sed -n|awk|find|ls|git (log|show|blame|diff|status))\b|SELECT\s|artisan\s+(tinker|route:list)|psql|mysql", re.I)
 HANDOFF_LINE = re.compile(r"交接评估[：:]\s*(PASS|FAIL|DISPUTED)")
@@ -107,16 +121,19 @@ def leaf(name, inp):
     if short in OBSERVE:
         return [("观察", short, "")]
     if short == "Bash":
-        cmd = (inp.get("command") or "")[:120].replace("\n", " ")
-        if GIT_COMMIT.search(cmd):
+        full = inp.get("command") or ""
+        cmd = full[:120].replace("\n", " ")
+        if GIT_COMMIT.search(full):
             return [("代码改动", "git", cmd)]
-        if BASH_DRIVER.search(cmd):
+        if BASH_DRIVER.search(full):
             return [("脚本自动化(Bash)", "bash", cmd)]
-        if READ_LOOKUP.search(cmd):
+        segs = [x for x in SEGMENT_SPLIT.split(HEREDOC_BODY.sub("", full)) if x.strip()]
+        if segs and all(is_read_segment(x) for x in segs):
             # 读代码/查记录也是"断言有没有来源"的证据：不列出来，评估员会把
             # "读过代码才写下的结论"误判成无来源（2026-09-16 留出集 2 核查实测）。
             return [("来源线索", "bash", cmd)]
-        return []
+        # 命令行工具的交付，终端里跑用户会敲的命令就是真实操作，评估员要能引用步骤号
+        return [("命令运行", "bash", cmd)] if segs else []
     if short in CODE_EDIT_TOOLS:
         return [("代码改动", short, str(inp.get("file_path") or "")[-60:])]
     if short in LOOKUP_TOOLS:
@@ -185,7 +202,8 @@ def collect(session_id, root, since, until, include_subagents=True):
                         continue
                     if b.get("type") == "tool_use":
                         name = b.get("name", "")
-                        if name in ("Agent", "Task") and EVALUATOR_DISPATCH.search(
+                        # SendMessage 续用同一个评估员做重评，也算评估员调用
+                        if name in ("Agent", "Task", "SendMessage") and EVALUATOR_DISPATCH.search(
                                 json.dumps(b.get("input") or {}, ensure_ascii=False)):
                             steps.append({"ts": ts, "role": role, "cls": "评估员调用", "act": name,
                                           "detail": "test-result-evaluator", "status": "ok"})
@@ -222,12 +240,16 @@ def collect(session_id, root, since, until, include_subagents=True):
 
 
 def audit(steps):
-    """交接评估核对：每条交接固定行前面应能找到评估员调用。"""
+    """交接评估核对：主会话每条交接固定行前面应能找到评估员调用。
+
+    评估员自己的输出里也会引用固定行（如"发送时末行写 交接评估：PASS"），
+    只看主会话，否则会吃掉那次评估员调用、把随后真正的交接误报为没评估。
+    """
     issues, last_eval = [], None
     for s in steps:
         if s["cls"] == "评估员调用":
             last_eval = s["step"]
-        elif s["cls"] == "交接固定行":
+        elif s["cls"] == "交接固定行" and s["role"] == "main":
             if last_eval is None:
                 issues.append("%s 交接固定行（%s）之前没有评估员调用" % (s["step"], s["detail"]))
             last_eval = None
