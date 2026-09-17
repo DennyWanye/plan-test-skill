@@ -112,7 +112,8 @@
    当前 run 仍须重新执行取证。
 2. **实际结果回写**：写在 `{TESTCASE_DIR}/<组>/results/` 或 journal——FULL 路径**不许**回填进
    被冻结的 oracle 文件（会触发 `FROZEN_ORACLE_CHANGED`，这是设计不是误报）；确需修改期望
-   本身 → 走 `behavior_changes` 用户批准。
+   本身 → 走 `behavior_changes` 用户批准——**不挂起等批准**：记为待决项、继续不依赖它的工作，
+   在下一个交接点按 H3 一次问（config `DECISION_BATCHING`）；只有它阻塞全部后续工作才立即问。
 3. **脚本纳入回归套件**：API/CLI/库类 testcase 落成可复跑脚本登记，下次跑本 skill 一并跑。
 4. **幂等性审查**：对照 `checklists/idempotency-review.md`，逐条审"遍历 + 写副作用"的代码。
 5. **语义等价审查**（输入敏感功能）：同一问题的改写/重跑有没有被记成多个 distinct 场景？

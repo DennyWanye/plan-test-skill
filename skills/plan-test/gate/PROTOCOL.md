@@ -250,6 +250,38 @@ evidence 路径 1D-delta 同款处理），读端按"仓库相对 → run-dir �
 旧账本兼容。check-only 的 HISTORICAL RECEIPT 提示自此区分"内容漂移"与"仓库不可达"两种
 成因——把不可达说成漂移是安抚性错误解释。
 
+**v0.9.0 closure 按矛盾地位路由（2026-09-17，放宽既有门 `CLOSURE_FINDING_COVERAGE_INVALID`，非新码）**
+- 放宽了什么：clustered closure 此前要求复核集合 == synthesis canonical 集合。现在 synthesis canonical finding
+  可带可选字段 `contradiction_role`（`decisive` | `secondary`，缺省 decisive = 旧行为）；同时满足
+  标 secondary、非 P0、synthesis 里已 resolved/advisory、`violated_acceptance_ids` **非空**且与 loop
+  `primary_contradiction.acceptance_ids` 无交集的 finding，closure 可不复核，其 latest 状态取 synthesis 闭环状态。
+  地位由 AC 绑定推导，agent 自标 secondary 不能豁免碰到主要矛盾、P0 或仍 open 的 finding；严重度、scope 与 AC 绑定
+  按该 ID **全部历史记录**（各轮 + specialist + synthesis）取最严——只看 synthesis 自填字段时，把第 1 轮 P0 改写成 P2
+  或把主要矛盾 AC 换绑就能跳过复核（SL-2 code review F-1 实测判成 CONVERGED）；曾是 scope-change-proposal 的不省；
+  synthesis 之后记过 architecture-reset 的整轮不省（F-2）。
+- 防的实测逃逸（该门原本防什么，放宽后仍防住）：closure 只挑好复核的 finding 做、把决定性问题留在 open 却宣称收敛。
+  放宽只覆盖"次要 + 已闭环 + 不碰主要矛盾"，决定性侧判定不变。
+- 为什么放宽：phase-2 重点论规定次要部分 primary 覆盖一次即收，gate 却强制每轮重审全部 finding；
+  一次 FULL 运行对 2 条次要 AC 跑了 5 轮挑战，挑战循环占 FULL 耗时 20–37%。回放见私有 plan 记录 AC-7(c)。
+- 合法出口：被拒时错误列出缺少/多余 ID；要省略就在 synthesis 标 secondary（`print-schema --target synthesis`），
+  碰主要矛盾的只能复核。账本字段是唯一新增（acceptance 已批准的例外），旧账本不带该字段判定不变
+  （36 个本机历史账本 `finalize --check-only` 改动前后逐字一致）。
+- 回放实测（一次 FULL 运行的 5 轮真实挑战）：没绑 AC 的 finding 不许省——唯一可省的 P1 语义上支撑决定性 AC，
+  只因没填绑定才"不碰主要矛盾"；收紧后该记录可省 0 条，本门放宽对它**不省时间**，收益取决于 synthesis 是否认真填绑定。
+  复审时用 refusal log 与账本统计实际被省条数，零收益则退回。
+- 守护测试：`test_closure_routing.py`（放行 + 6 种拒绝 + 旧行为）。复审日期：2026-12-17。
+
+**v0.9.0 CLI 摩擦（2026-09-17，非新码，改报错与路径解析）**：v0.8.1 后 13 条真实拒绝 10 条是摩擦、0 条防住真问题。
+- `attach-evidence` / `import-evidence --path`、`audit --input/--output`：接受 run 相对、仓库/cwd 相对或绝对路径，
+  落在 run-dir 内自动转 run 相对存储（账本格式不变；run-dir 判定逐级 samefile，兼容 macOS 大小写与符号链接 run-dir）；
+  找不到时列出两种解析结果；在 run-dir 外拒绝并给出做法。行为变化：`audit` 此前会接受 run-dir 外的绝对路径并原样入账，
+  现在拒绝——与其报错原文"须已写入 run-dir"的本意一致，账本里的审计产物必须在 run 目录内才进得了指纹链。
+- 未知子命令：refusal 记下敲错的命令名（此前 cmd=null）；`record-behavior-change` 等按意图给正确做法，不再被 difflib 导向字面相近的错误命令。
+- `CLOSURE_FINDING_COVERAGE_INVALID` 列缺少/多余 ID；`CLOSURE_PLAN_UNCHANGED` 提示先改 plan 再算 hash；
+  `CHALLENGE_SYNTHESIS_ALREADY_RECORDED` 补冒号使 refusal 码可识别（此前被冠 USAGE_ERROR）并给下一步；
+  `PRIMARY_CHALLENGE_REQUIRED` 给当前轮次与下一步；`print-schema --target clusters|synthesis`。
+- 合法出口：全部是提示/放宽，无新堵死态。守护测试：`test_cli_friction_v09.py`。复审日期：2026-12-17。
+
 **退休记录（2026-08-29）**：`LOOP_LIMIT_EXCEEDED` / `LOOP_REGRESSION` / `LOOP_NO_PROGRESS`
 - 三码自 2026-08-14 登记以来**从未有产生点**（第 5 轮审计实证：全文件仅 `CANONICAL_ORDER`
   声明处 1 次引用；1888 次真实调用零触发）。它们从未防住过任何东西——

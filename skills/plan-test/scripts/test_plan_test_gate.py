@@ -287,10 +287,13 @@ class GateTestCase(GateHarness):
                             "--path", "..\\outside.txt", "--kind", "primary"])
         self.assertEqual(escaped.returncode, 2)
         self.assertIn("逃逸 run-dir", escaped.stderr)
+        # v0.9.0 AC-10a：run-dir 内的绝对路径改为接受并归一（见 test_cli_friction_v09）；
+        # 仍拒绝的是 run-dir 之外的绝对路径——证据必须落在 run-dir 里才进得了指纹链。
+        outside = self.write("outside-abs.txt", "x")
         absolute = run_gate(["attach-evidence", "--run-dir", self.run_dir,
-                             "--path", p, "--kind", "primary"])
+                             "--path", outside, "--kind", "primary"])
         self.assertEqual(absolute.returncode, 2)
-        self.assertIn("不能是绝对路径", absolute.stderr)
+        self.assertIn("须在 run-dir 内", absolute.stderr)
         self.attach("artifacts\\log.txt", scenario="S-1")
         self.record("S-1")
         with open(os.path.join(self.run_dir, "plan-test-run.json"), encoding="utf-8") as f:

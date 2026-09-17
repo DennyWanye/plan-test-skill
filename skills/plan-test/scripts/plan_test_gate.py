@@ -80,6 +80,9 @@ FINDING_SEVERITIES = {"P0", "P1", "P2"}
 FINDING_SCOPE_RELATIONS = {"in-scope", "out-of-scope", "scope-change-proposal"}
 FINDING_ORIGINS = {"pre-existing", "patch-induced", "new-external-fact"}
 FINDING_STATUSES = {"open", "resolved", "advisory"}
+#: synthesis canonical finding 的可选字段 contradiction_role（2026-09-17，v0.9.0 SL-2 AC-7a）。
+#: 缺省 = decisive = 旧行为（closure 必须逐 ID 复核）。见 _closure_skippable_ids。
+CONTRADICTION_ROLES = {"decisive", "secondary"}
 CHALLENGE_REVIEW_MODES = {"breadth", "diff", "consolidated"}
 CHALLENGE_SPECIALTIES = {
     "architecture", "data-state", "failure-recovery", "security-privacy",
@@ -167,6 +170,16 @@ RUN_DIR_HELP = ("verification run 目录；省略时用当前仓库的 active ru
 # 指定谁成为 active、invalidate/acknowledge 是在否定某一轮）——回落会把继任者退役给它自己。
 RUN_DIR_NO_FALLBACK = {"init", "retire", "retire-status", "activate-run", "invalidate",
                        "acknowledge", "ack-status"}
+#: AC-10b：代理按意图猜的不存在命令 → 正确做法（difflib 会把它们导向字面相近但语义错误的命令）。
+_INTENT_HINTS = {
+    "record-behavior-change": "行为变更（behavior_changes）不能事后单独登记：写进 verification spec "
+                              "的 behavior_changes（含用户批准 artifact），再 compile-manifest 并用新 manifest init；"
+                              "口径见 config ORACLE_FREEZE",
+    "record-behavior-changes": "同 record-behavior-change：写进 verification spec 的 behavior_changes 再 compile-manifest",
+    "approve": "登记用户批准用 record-approval；记录人的决定用 record-decision",
+    "record-finding": "挑战 finding 随轮次记：record-challenge-round --findings <json>；审计 finding 用 audit",
+}
+
 # 缺必填参数时附的一行示例（实测 11 次 ARGS_INVALID：usage 只列参数名，不告诉值长什么样）。
 _CLI_EXAMPLES = {
     "record-run": "--run-dir <run> --scenario S-1 --kind root --exec -- pytest tests/x.py -q",
@@ -533,6 +546,60 @@ def normalize_run_relative_path(path):
 def run_relative_abspath(run_dir, path):
     normalized = normalize_run_relative_path(path)
     return os.path.join(run_dir, *normalized.split("/"))
+
+
+def _run_relative_if_inside(run_dir, abs_path):
+    """abs_path 落在 run_dir 内则返回 run 相对 POSIX 路径，否则 None。
+
+    逐级向上用 samefile 比对祖先目录：大小写不敏感的文件系统（macOS）与 run_dir 本身是
+    符号链接时都能认出来；不解析 abs_path 自身的符号链接，与 run 相对分支同口径（存链接名）。"""
+    try:
+        run_stat = os.stat(run_dir)
+    except OSError:
+        return None
+    current, parts = os.path.abspath(abs_path), []
+    while True:
+        parent, name = os.path.split(current)
+        if parent == current:
+            return None
+        parts.append(name)
+        try:
+            if os.path.samestat(os.stat(parent), run_stat):
+                return "/".join(reversed(parts))
+        except OSError:
+            pass
+        current = parent
+
+
+def resolve_run_path(run_dir, path, label):
+    """AC-10a：接受 run 相对、仓库/cwd 相对或绝对路径；落在 run-dir 内就归一成 run 相对。
+
+    此前只认 run 相对：代理按仓库相对传 plans/x/verification/exec-1/a.log，被拼成
+    run_dir/plans/x/... 后报"不存在"，报错里打印的是拼坏的路径（v0.8.1 后 refusal 摩擦第一名）。
+    两种解析都找不到时把两种结果都列出来。返回 run 相对 POSIX 路径。"""
+    if not isinstance(path, str) or not path:
+        die("%s 路径不能为空" % label)
+    candidates, run_rel_error = [], None
+    try:
+        rel = normalize_run_relative_path(path)
+        as_run = run_relative_abspath(run_dir, rel)
+        candidates.append(("相对 run-dir", as_run))
+        if os.path.exists(as_run):
+            return rel
+    except ValueError as exc:
+        run_rel_error = str(exc)
+    as_cwd = os.path.abspath(path)
+    candidates.append(("相对当前目录/绝对", as_cwd))
+    if os.path.exists(as_cwd):
+        rel = _run_relative_if_inside(run_dir, as_cwd)
+        if not rel:
+            die("%s 须在 run-dir 内: %s\n  解析为: %s\n  run-dir: %s\n"
+                "  先把文件复制进 run-dir（如 artifacts/）再传它" % (
+                    label, path, as_cwd, os.path.abspath(run_dir)))
+        return normalize_run_relative_path(rel)
+    die("%s 不存在: %s\n%s\n  cwd=%s%s" % (
+        label, path, "\n".join("  按%s解析: %s" % c for c in candidates), os.getcwd(),
+        "\n  不按 run 相对解析的原因: %s" % run_rel_error if run_rel_error else ""))
 
 
 def canonical_json(obj):
@@ -3175,14 +3242,10 @@ def cmd_record_run(args):
 
 
 def cmd_attach_evidence(args):
-    try:
-        rel_path = normalize_run_relative_path(args.path)
-    except ValueError as exc:
-        die(str(exc))
+    if str(args.path or "").lstrip().startswith(("{", "[")):
+        die("EVIDENCE_PATH_NOT_FOUND: --path 是文件路径，不接受内联 JSON——先把内容写成文件再 attach")
+    rel_path = resolve_run_path(args.run_dir, args.path, "EVIDENCE_PATH_NOT_FOUND: 证据文件")
     p = run_relative_abspath(args.run_dir, rel_path)
-    if not os.path.exists(p):
-        die("EVIDENCE_PATH_NOT_FOUND: 证据文件不存在: %s（参数是相对 run-dir 的文件路径，"
-            "不接受内联 JSON——先把内容写成文件再 attach）" % p)
     imported_from = getattr(args, "from_run", None)
     metadata = {}
     if getattr(args, "metadata", None):
@@ -3562,9 +3625,8 @@ def cmd_audit(args):
     if not AUDIT_ENGINE_RE.match(args.engine or ""):
         die("--engine 须为引擎/模型身份（小写字母数字加 - .，如 opus-4.8），不接受方法名或"
             "含下划线/空格的值: %r。审计方法写进 auditor-output，引擎身份写在这里。" % args.engine)
-    for f in (args.input, args.output):
-        if not os.path.exists(os.path.join(args.run_dir, f)):
-            die("auditor 文件不存在（须已写入 run-dir）: %s" % f)
+    args.input = resolve_run_path(args.run_dir, args.input, "auditor --input 文件")
+    args.output = resolve_run_path(args.run_dir, args.output, "auditor --output 文件")
     file_verdict = read_output_verdict(args.run_dir, args.output)
     if file_verdict is None:
         # 读不出结论时**不能**静默采信命令行——那等于"审计产物随便写，verdict 我说了算"。
@@ -5402,11 +5464,61 @@ def _validate_finding_payload(payload, round_no, loop):
             "findings": normalized}, errors
 
 
+def _closure_skippable_ids(loop):
+    """closure 可以不逐条复核的 canonical finding（phase-2 重点论的机器兑现，AC-7a）。
+
+    synthesis 必须显式标 contradiction_role=secondary 且该 finding 在 synthesis 里已闭环
+    （resolved/advisory）；其余条件按该 ID 的**全部历史记录**（第 1 轮起各轮、specialist、synthesis）
+    取最严：任一记录是 P0、任一记录是 scope-change-proposal、AC 绑定并集为空、或并集碰到
+    primary_contradiction.acceptance_ids → 必须复核。只看 synthesis 自填字段时，把第 1 轮 P0
+    改写成 P2、或把主要矛盾 AC 换绑成次要 AC 就能跳过复核（2026-09-17 SL-2 code review F-1）。
+    没绑 AC 的一律复核：一次 FULL 运行的 5 轮挑战回放里唯一可省的 P1 语义上支撑决定性 AC-1，只因
+    specialist 没填 violated_acceptance_ids 才"不碰主要矛盾"（AC-7c 回放）。
+    synthesis 之后记过 architecture-reset 的，一律不省（F-2：根本矛盾可能已变）。"""
+    synthesis_record = loop.get("synthesis") or {}
+    synthesis = synthesis_record.get("payload") or {}
+    after = int(synthesis_record.get("after_round") or 0)
+    if any(e.get("action") == "architecture-reset" and int(e.get("after_round") or 0) >= after
+           for e in loop.get("control_events") or []):
+        return set()
+    decisive_ac = set((loop.get("primary_contradiction") or {}).get("acceptance_ids") or [])
+    history = {}
+    sources = [f for r in loop.get("rounds") or [] for f in r.get("findings") or []]
+    sources += [f for rec in loop.get("specialist_challenges") or []
+                for f in ((rec.get("output") or {}).get("findings") or [])]
+    sources += list(synthesis.get("canonical_findings") or [])
+    for f in sources:
+        if isinstance(f, dict) and f.get("id"):
+            history.setdefault(f["id"], []).append(f)
+    skippable = set()
+    for f in synthesis.get("canonical_findings") or []:
+        if not isinstance(f, dict):
+            continue
+        records = history.get(f.get("id"), [f])
+        bound = set(ac for r in records for ac in (r.get("violated_acceptance_ids") or []))
+        if (f.get("contradiction_role") == "secondary"
+                and f.get("status") in {"resolved", "advisory"}
+                and not any(r.get("severity") == "P0" for r in records)
+                and not any(r.get("scope_relation") == "scope-change-proposal" for r in records)
+                and bound and not (bound & decisive_ac)):
+            skippable.add(f.get("id"))
+    return skippable
+
+
 def _latest_finding_states(loop):
     latest = {}
     for round_record in loop.get("rounds") or []:
         for finding in round_record.get("findings") or []:
             latest[finding["id"]] = (round_record["round"], finding)
+    skippable = _closure_skippable_ids(loop)
+    if skippable:
+        # 被合法跳过复核的次要 finding：closure 之后没再出现时，以 synthesis 的闭环状态为准，
+        # 否则第 1 轮里的 open 记录会一直算作阻塞，loop 永远到不了 CONVERGED。
+        after = int((loop.get("synthesis") or {}).get("after_round") or 0)
+        for f in (loop["synthesis"].get("payload") or {}).get("canonical_findings") or []:
+            fid = f.get("id")
+            if fid in skippable and (fid not in latest or latest[fid][0] <= after):
+                latest[fid] = (after, f)
     return latest
 
 
@@ -5618,12 +5730,20 @@ def cmd_record_challenge_round(args):
         synthesis_payload = (loop.get("synthesis") or {}).get("payload") or {}
         canonical_ids = {f.get("id") for f in synthesis_payload.get("canonical_findings", [])}
         closure_ids = {f.get("id") for f in normalized.get("findings") or []}
-        if closure_ids != canonical_ids:
-            die("CLOSURE_FINDING_COVERAGE_INVALID: closure 必须逐 ID 复核完整 canonical finding 集")
+        required_ids = canonical_ids - _closure_skippable_ids(loop)
+        missing, extra = required_ids - closure_ids, closure_ids - canonical_ids
+        if missing or extra:
+            die("CLOSURE_FINDING_COVERAGE_INVALID: closure 须逐 ID 复核 canonical finding"
+                "（synthesis 标 contradiction_role=secondary、非 P0、已闭环、绑了 AC 且不碰主要矛盾 AC 的可省）\n"
+                "  缺少: %s\n  多余（不在 canonical 集）: %s"
+                % (",".join(sorted(missing)) or "无", ",".join(sorted(extra)) or "无"))
         if (any(d.get("action") == "plan-change"
                 for d in synthesis_payload.get("decisions") or [] if isinstance(d, dict))
                 and args.plan_hash == loop["rounds"][-1]["plan_hash"]):
-            die("CLOSURE_PLAN_UNCHANGED: synthesis 声明 plan-change，但 target plan hash 未变化")
+            die("CLOSURE_PLAN_UNCHANGED: synthesis 声明 plan-change，但 target plan hash 未变化\n"
+                "  下一步：先按 synthesis 的 plan_actions 修改 %s，再重新计算 --plan-hash"
+                "（shasum -a 256 <plan>），--based-on-plan-hash 仍填上一轮的 %s"
+                % (loop.get("target_file"), loop["rounds"][-1]["plan_hash"]))
     historical_ids = {
         f.get("id") for r in loop.get("rounds") or [] for f in r.get("findings") or []
     }
@@ -5751,7 +5871,11 @@ def cmd_record_challenge_clusters(args):
             die("CHALLENGE_CLUSTERS_ALREADY_RECORDED: 仅 architecture-reset 之后"
                 "可重聚类（旧 clusters/specialists/synthesis 将归档进 clusters_history）")
     elif rounds_n != 1:
-        die("PRIMARY_CHALLENGE_REQUIRED: clusters 必须紧接第一轮 breadth challenge 记录")
+        die("PRIMARY_CHALLENGE_REQUIRED: clusters 必须紧接第一轮 breadth challenge 记录"
+            "（当前已记 %d 轮）\n  下一步：%s" % (rounds_n, (
+                "先 record-challenge-round --round 1 记 breadth primary，再 record-challenge-clusters"
+                if rounds_n == 0 else
+                "clusters 只能在第 1 轮后记录；已过该时点，要重聚类须先记 architecture-reset")))
     payload = _read_json_file(args.input, "challenge clusters")
     normalized, errors = _validate_challenge_clusters(payload)
     if errors:
@@ -5951,7 +6075,10 @@ def cmd_record_challenge_synthesis(args):
     if not loop:
         die("找不到 loop_id: %s" % args.loop_id)
     if loop.get("synthesis"):
-        die("CHALLENGE_SYNTHESIS_ALREADY_RECORDED")
+        die("CHALLENGE_SYNTHESIS_ALREADY_RECORDED: 本 loop 已有 synthesis，不能重记\n"
+            "  下一步：按 synthesis 改 plan 后 record-challenge-round --round %d 做 closure；"
+            "若根本矛盾变了，先记 architecture-reset 控制事件再重聚类重合成"
+            % (len(loop.get("rounds") or []) + 1))
     state = _challenge_state(loop)
     if state == "SPECIALIST_CHALLENGE_REQUIRED":
         die("SPECIALIST_CHALLENGE_REQUIRED: required cluster 尚未完成或有效豁免")
@@ -5975,6 +6102,13 @@ def cmd_record_challenge_synthesis(args):
     finding_errors = _validate_cluster_finding_items(payload.get("canonical_findings"), loop)
     if finding_errors:
         die("SCHEMA_INVALID: synthesis canonical_findings: %s" % "; ".join(finding_errors))
+    bad_roles = sorted(
+        str(f.get("id")) for f in payload.get("canonical_findings") or []
+        if isinstance(f, dict) and "contradiction_role" in f
+        and f.get("contradiction_role") not in CONTRADICTION_ROLES)
+    if bad_roles:
+        die("SCHEMA_INVALID: synthesis canonical_findings contradiction_role 须为 %s（可省略，缺省 decisive）: %s"
+            % ("/".join(sorted(CONTRADICTION_ROLES)), ",".join(bad_roles)))
     canonical_ids = {f.get("id") for f in payload.get("canonical_findings") or []}
     specialist_ids = {
         f.get("id") for record in (loop.get("specialist_challenges") or [])
@@ -6545,6 +6679,11 @@ def cmd_print_schema(args):
     def enum(name, values):
         return "  %-22s %s" % (name, " | ".join(sorted(values)))
 
+    target = getattr(args, "target", "findings")
+    if target in ("clusters", "synthesis"):
+        _print_cluster_schema(target, args.format)
+        return
+
     if args.format == "template":
         template = {
             "review_mode": "breadth",
@@ -6597,6 +6736,64 @@ def cmd_print_schema(args):
     print("可复制模板： plan_test_gate.py print-schema --format template")
 
 
+def _print_cluster_schema(target, fmt):
+    """AC-10c：clusters / synthesis 载荷此前没有 schema 输出，只能读源码或撞 SCHEMA_INVALID。"""
+    item = {
+        "id": "missing-rollback", "severity": "P1", "scope_relation": "in-scope",
+        "origin": "pre-existing", "violated_acceptance_ids": ["AC-1"],
+        "assurance_contract_ids": ["ASR-1"], "evidence": "plan.md:42 没有回滚步骤",
+        "status": "resolved", "root_cause": "发布步骤只写了正向迁移",
+    }
+    if target == "clusters":
+        template = {
+            "primary_contradiction": {"id": "pc-rollback", "summary": "主要矛盾一句话",
+                                      "acceptance_ids": ["AC-1"]},
+            "challenge_clusters": [{
+                "cluster_id": "cluster-release", "parent_finding_ids": ["missing-rollback"],
+                "specialty": "release", "question": "要专项回答的问题",
+                "required_evidence": ["plan.md 发布节"], "specialist_required": True}],
+        }
+        notes = [
+            "record-challenge-clusters --input 指向的 JSON；紧接第 1 轮 breadth 之后记录。",
+            "primary_contradiction.acceptance_ids = 决定性 AC；closure 路由据此推导 finding 地位。",
+            "challenge_clusters[].parent_finding_ids 须引用第 1 轮 finding id。",
+        ]
+    else:
+        secondary = dict(item, id="doc-wording", severity="P2", violated_acceptance_ids=["AC-3"],
+                         assurance_contract_ids=[], contradiction_role="secondary")
+        template = {
+            "source_cluster_ids": ["cluster-release"],
+            "canonical_findings": [item, secondary],
+            "resolved_finding_ids": ["missing-rollback", "doc-wording"],
+            "open_finding_ids": [],
+            "decisions": [{"canonical_finding_id": "missing-rollback",
+                           "source_finding_ids": ["missing-rollback"],
+                           "action": "plan-change", "rationale": "补回滚步骤"},
+                          {"canonical_finding_id": "doc-wording",
+                           "source_finding_ids": ["doc-wording"],
+                           "action": "plan-change", "rationale": "改措辞"}],
+            "conflicts": [], "required_spikes": [], "plan_actions": ["补回滚步骤", "改措辞"],
+        }
+        notes = [
+            "record-challenge-synthesis --input 指向的 JSON；所有 required cluster 完成后记录，每个 loop 只记一次。",
+            "必填数组：source_cluster_ids, canonical_findings, resolved_finding_ids, open_finding_ids, "
+            "decisions, conflicts, required_spikes, plan_actions。",
+            "canonical_findings[] 字段同 findings（print-schema），另有可选 contradiction_role: "
+            + " | ".join(sorted(CONTRADICTION_ROLES)) + "（缺省 decisive）。",
+            "closure 可不复核的 finding：contradiction_role=secondary 且非 P0、已 resolved/advisory、"
+            "violated_acceptance_ids 非空且与 primary_contradiction.acceptance_ids 无交集；其余须逐 ID 复核。",
+            "decisions[].action: evidence | plan-change | scope-change-proposal | spike；"
+            "evidence 须带 evidence_refs，spike 须带 spike_ids。",
+        ]
+    if fmt == "template":
+        print(json.dumps(template, ensure_ascii=False, indent=2))
+        return
+    print("%s 载荷 schema" % target)
+    for line in notes:
+        print("  - " + line)
+    print("\n可复制模板： plan_test_gate.py print-schema --target %s --format template" % target)
+
+
 class _SuggestingParser(argparse.ArgumentParser):
     """W4-16：子命令敲错时给近似建议——rollout 实证代理反复猜不存在的命令名
     （status 12 次、skills 23 次、report 4 次），argparse 原生报错只回枚举全表。"""
@@ -6607,8 +6804,14 @@ class _SuggestingParser(argparse.ArgumentParser):
             m = re.search(r"invalid choice: '([^']+)'.*choose from (.+)\)", message)
             if m:
                 choices = [c.strip().strip("'") for c in m.group(2).split(",")]
+                if message.startswith("argument cmd:"):
+                    # AC-10b：敲错的是子命令本身时记下它（否则 stats 里是 null）；参数值写错不改 cmd
+                    _REFUSAL_CTX["cmd"] = m.group(1)
+                intent = _INTENT_HINTS.get(m.group(1))
                 close = difflib.get_close_matches(m.group(1), choices, n=3, cutoff=0.4)
-                if close:
+                if intent:
+                    message += "\n没有这个命令。%s" % intent
+                elif close:
                     message += "\n是不是想敲: %s" % "  ".join(close)
         # v0.6.1 P1（2026-09-01 复验 handoff）：argparse 层的参数错误（缺必填、参数名
         # 写错）此前走 argparse 自己的退出路径，不经过 die()，refusal 账本对这一类
@@ -6644,6 +6847,9 @@ def main(argv=None):
     p = sub.add_parser("print-schema",
                        help="输出 findings 载荷的合法字段、枚举值与可复制模板")
     p.add_argument("--format", choices=("human", "template"), default="human")
+    p.add_argument("--target", choices=("findings", "clusters", "synthesis"), default="findings",
+                   help="findings=record-challenge-round；clusters=record-challenge-clusters；"
+                        "synthesis=record-challenge-synthesis")
     p.set_defaults(fn=cmd_print_schema)
 
     p = sub.add_parser("record-decision",
@@ -6704,7 +6910,7 @@ def main(argv=None):
 
     p = sub.add_parser("attach-evidence")
     p.add_argument("--run-dir", help=RUN_DIR_HELP)
-    p.add_argument("--path", required=True, help="相对 run-dir 的证据路径")
+    p.add_argument("--path", required=True, help="证据文件路径：run 相对、仓库/cwd 相对或绝对均可（须落在 run-dir 内）")
     p.add_argument("--kind", required=True, choices=["primary", "derived"])
     p.add_argument("--scenario")
     p.add_argument("--id")
@@ -6723,7 +6929,7 @@ def main(argv=None):
                        help="显式导入**开账之前**产生的历史证据（保留 chain of custody）；"
                             "普通 attach 遇到早于开账的文件会被 EVIDENCE_PREDATES_LEDGER 拦截")
     p.add_argument("--run-dir", help=RUN_DIR_HELP)
-    p.add_argument("--path", required=True, help="相对 run-dir 的证据路径")
+    p.add_argument("--path", required=True, help="证据文件路径：run 相对、仓库/cwd 相对或绝对均可（须落在 run-dir 内）")
     p.add_argument("--kind", required=True, choices=["primary", "derived"])
     p.add_argument("--from-run", required=True, dest="from_run",
                    help="来源说明：原始 run 目录/会话/采集时间——历史证据必须能说明出处")

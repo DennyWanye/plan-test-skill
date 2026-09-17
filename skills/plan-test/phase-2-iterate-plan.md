@@ -15,6 +15,11 @@
 - **其余部分**（次要 AC、外围任务）：只在 primary breadth 轮被覆盖**一次**，无 in-scope P0
   即收——不派 specialist、不进入多轮 closure。两点论兜底：这一轮 breadth 不许跳过。
 - 例外：次要部分暴露出 in-scope P0，或与主要矛盾解法存在结构耦合 → 升入完整挑战范围。
+- **增量补丁**（已上线功能上只动已有次要 AC，不新增决定性 AC、不改已上线决定性 AC 的行为）：挑战 = primary 一轮 +
+  closure 一轮；决定性 AC 只做回归测试，不重开挑战。改到决定性 AC 行为的不算增量补丁。
+- **机器门兑现**（FULL clustered loop）：synthesis 里把次要且已闭环的 canonical finding 标 `contradiction_role: secondary`，
+  closure 轮只须逐 ID 复核其余 finding。gate 按该 finding 全部历史记录推导地位：没绑 AC、碰到 `primary_contradiction.acceptance_ids`、
+  任一轮是 P0、仍 open、曾是 scope-change-proposal 的，标了 secondary 也必须复核；不标 = 旧行为（全部复核）。字段与模板：`print-schema --target synthesis`。
 - challenger 对主要矛盾有固定质询：写成复合句、防御排第一优先 = P0 打回；
   **plan 是否在用补丁绕过真架构问题**（判定见下方强约束）。
 
