@@ -36,7 +36,7 @@
 - [ ] 终态行与 DoD 结论一致 —— journal 末行（RULES R12）
 - [ ] code review（A4 + push 前）P0/P1 全闭环且各有决定性测试 —— journal
 - [ ] retro.md 自我批评 —— 路径
-- [ ] 最近一次交接评估 PASS/DISPUTED 已记录（`HANDOFF_CHECK`）—— journal + 评估输出
+- [ ] 最近一次交接评估 PASS/文字类已改/DISPUTED 已记录（`HANDOFF_CHECK`）—— journal + 评估输出
 - 追加：输入语义敏感 → `conditional/phase-final-dod.md`；FULL → `full/phase-final-dod.md`。
 
 > **末尾自检**：UI 测试被换成审计？受阻场景未升级就替代？重跑充多场景？验证的 ≠ 交付的？命中 → 补或 BLOCKED。
