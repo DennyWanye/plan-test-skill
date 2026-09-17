@@ -282,6 +282,49 @@ evidence 路径 1D-delta 同款处理），读端按"仓库相对 → run-dir �
   `PRIMARY_CHALLENGE_REQUIRED` 给当前轮次与下一步；`print-schema --target clusters|synthesis`。
 - 合法出口：全部是提示/放宽，无新堵死态。守护测试：`test_cli_friction_v09.py`。复审日期：2026-12-17。
 
+
+**v0.9.0 零触发诊断码复审表（2026-09-17 登记，不删代码；复审日期 2026-12-17）**
+数据来源：本机 36 个 run 账本 `finalize --check-only` 当前诊断 + 本机 refusal log（62 行）；全部 56 个 canonical 码减去触发过的 = 34 个。
+口径局限：check-only 不跑 full/render 分支，审计阶段专有码在此口径下结构上出不来——**零触发 ≠ 无用**；另 plan 调研时估计 39 个，数据范围不同，以本表为准。
+行号为 2026-09-17 版本（G=scripts/plan_test_gate.py，P=本文件，R=rationale.md），代码改动后以码名 grep 为准。复审时按 GATE_REGISTRY_DISCIPLINE 对照"当初防的逃逸"再决定退不退。
+
+| 码 | 当初防的逃逸（出处） | 产生点 | 零触发的可能原因 |
+|---|---|---|---|
+| `LEDGER_TAMPERED` | 在 CLI 之外手改账本（如改一行 `runs[].result`），改完再敲一条无害命令，用新条目把篡改痕迹盖掉（P:104、P:498-504） | Diag 1867（validate，所有 mode 都查）；die 3079（`_append` 写入前先验链） | 本机样本没走到：本机账本没有被手改或链错位，refusal 里也没有这个码。P:190、P:521-527 记录过其他数据源里的真实触发（`--exec` 序号配对误报），说明这个码结构上能出现 |
+| `DELIVERY_VERDICT_CONTRADICTS_LEDGER` | 没有有效 receipt、required 也没全 PASS，却手写 SHIP / 100% COMPLETE（P:51-52、P:109；R:47-48） | Diag 2120 | 本机样本没走到：要先用 `set-delivery --verdict SHIP` 之类的命令写入交付结论（G:3331）。skill 的 md 流程文档里没搜到调用 `set-delivery` 的地方（只出现在 G 头部示例和测试里），真实流程基本不写这个字段 |
+| `UI_EVIDENCE_MISSING` | UI 场景判 PASS，却没有真实 UI 操作的 primary 证据（P:110；具体逃逸案例未找到出处） | Diag 1939 | 本机样本没走到 / 被前置门遮蔽：条件是 required 且 `ui` 且 PASS 且没有 `ui_action` 的 primary 证据。compiled 流程要求 UI 场景的 contract 含 `ui-capture` 和 `session_id`（G:2743-2747），缺证据时通常先报 `EVIDENCE_CONTRACT_UNSATISFIED`（本机触发过） |
+| `EVIDENCE_MISSING` | 登记过的证据文件不存在，或 `depends_on` 指向不存在的证据（P:112；具体逃逸案例未找到出处） | Diag 1968、1987；1987 查依赖；2382 查 auditor 文件（只在 full/render 查） | 本机样本没走到：attach 时文件必须存在才能算 sha256（G:3281-3283），所以要事后删掉证据文件、或 `--depends-on` 填了不存在的 ID 才会触发；auditor 文件那一支只在 full/render 查 |
+| `PRIMARY_EVIDENCE_MISSING` | 声明了 evidence contract 的场景拿不出 primary 证据；单独声明 `kind=primary` 不够（P:114、P:62、P:308-309） | Diag 1252（`validate_evidence_contract`，从 validate 2021 调用，所有 mode） | 本机样本没走到：只有场景一条 primary 证据都没有时才报；本机有 contract 的场景至少挂了一条 primary，缺口表现为 `EVIDENCE_CONTRACT_UNSATISFIED`（本机触发过） |
+| `EVIDENCE_PRODUCER_UNTRUSTED` | primary 证据的 producer 不在 contract 允许的集合里（比如代理自报冒充 gate-exec）（P:116；G:1264-1265 注释：防"可信空记录与不可信自报拼接洗白"） | Diag 1260 | 本机样本没走到：要 contract 声明了 `producer_types`，而且所有 primary 证据的 producer 都不在集合里（全部不合格才报）；任意一条合格就不触发 |
+| `EVIDENCE_DEPENDENCY_CYCLE` | 两份汇总互相引用，冒充独立证据（P:117） | Diag 2008 | 本机样本没走到：要用 `--depends-on` 构造出环；skill 的 md 流程文档没搜到 `--depends-on` 的用法（只在测试里有，如 test_plan_test_gate.py:317） |
+| `EVIDENCE_PREDATES_LEDGER` | 先测后补账："先测三小时、账本两分半补写完"（P:45-46；G:1971-1974 DeskPet 截图早于开账） | Diag 1980 | 本机样本没走到：attach 的证据文件 mtime 要早于开账超过 300 秒宽限（G:213），而且没走 `import-evidence` |
+| `DERIVED_EVIDENCE_ONLY` | required 场景只有 auditor 报告、交付汇总这类 derived 证据，没有 primary（P:119、P:306-307） | Diag 2018 | 本机样本没走到：要"有证据但全是 derived"；G:2513 注释说零证据时反而不触发，本机样本不满足这个组合 |
+| `BEHAVIOR_APPROVAL_REQUIRED` | 冻结的 oracle 被改动，只挂一个 behavior_change_id，却没有用户批准的 artifact（P:121、P:314-315） | Diag 2084、2093 | 本机样本没走到：`behavior_changes` 只能在 init 时从 manifest 带入（G:2928），G:176-177 拒绝事后登记；本机 testcase 变更表现为不带 change_id 的 `FROZEN_ORACLE_CHANGED`（本机触发过） |
+| `RELEASE_UNIT_TOO_LARGE` | 交付体量超阈值却不拆成 program plan + 垂直 slice（P:127；G:4744 "Phase 3 开工前硬门"；具体逃逸案例未找到出处） | Diag 2288（validate 读 manifest 带入的 `release_unit` 指标，G:2948）；print 4805（`check-release-unit` 子命令） | 其他 / 只在 FULL 出现：validate 分支要 manifest 填了 `release_unit` 数值指标才有输入；子命令按 phase-3-execute.md:12 只在 FULL 调用，而且结果打到 stdout，不进账本，账本扫描看不到 |
+| `RELEASE_UNIT_UNDECLARED` | release_unit 缺 slice_id / parent_program / scope_hash 声明（G:4824-4831 docstring；P §4 表没有登记；具体逃逸案例未找到出处） | 无 Diag/die 产生点；print 4837、4849（`validate-release-unit` 子命令） | 结构上不进账本诊断：只在独立子命令里 print；skill 的 md 流程文档没搜到调用 `validate-release-unit` 的地方 |
+| `WIP_ACCUMULATION_UNSAFE` | 未提交的 WIP 超过行数或文件数阈值（G:4862-4868 docstring；具体逃逸案例未找到出处） | 无 Diag/die 产生点；print 4922（`check-wip-limit` 子命令） | 结构上不进账本诊断：只在独立子命令里 print；skill 的 md 流程文档没搜到调用 `check-wip-limit` 的地方 |
+| `LOOP_RESET_EVASION` | 改名或换 loop_id 重开挑战循环，绕过轮次限制（G:6401-6407；P:286 说明它有真实产生点，所以不退休） | 无 Diag/die 产生点；print 6429（`detect-loop-reset` 子命令） | 结构上不进账本诊断，本机也没走到：要显式传 `--check-target-file`，还要存在 status=active 的循环、且新旧文件相似度 >0.8；skill 流程文档只在 P:286 提到这个命令，没有调用步骤 |
+| `SCOPE_AUDIT_REQUIRED` | 挑战轮次失控：到第 3 轮仍有新 critical 却不做范围审计（P:284-285 "3/5/8 阶梯"；phase-2-iterate-plan.md:127-128） | 无 Diag/die 产生点；是 `_challenge_state` 的返回值 5574，由 `check-loop-limit` 以 `LOOP_STATE:` 行打印（5644；另 5744、6378 同样打印） | 结构上不可达（作为诊断码）：它是循环状态字符串，不是 Diag。进账本诊断时被 `PLAN_CHALLENGE_UNRESOLVED` 包起来（G:2257-2263，只出现在 detail 文本里），本机触发的是外层码 |
+| `ARCHITECTURE_RESET_REQUIRED` | 连续两轮 patch-induced P0 还在打补丁，不做结构重置（phase-2-iterate-plan.md:129；P:284-285） | 无 Diag/die 产生点；状态返回 5539、5561 | 同 `SCOPE_AUDIT_REQUIRED`：只是循环状态，进账本诊断时被 `PLAN_CHALLENGE_UNRESOLVED` 包住 |
+| `USER_REVIEW_REQUIRED` | 到第 5 轮仍有新 critical，却不向用户报告（phase-2-iterate-plan.md:127-128；P:284-285） | 无 Diag/die 产生点；状态返回 5569 | 同上：只是循环状态，不是 Diag |
+| `USER_SCOPE_APPROVAL_REQUIRED` | 未经用户批准就改 scope/profile/trusted boundary；也防预先记一条批准来预授权（phase-2-iterate-plan.md:130；G:5486-5491） | 无 Diag/die 产生点；状态返回 5536、5554 | 同上：只是循环状态，不是 Diag |
+| `PLAN_UNSTABLE` | 执行期 plan defect（A2）累计 ≥3 条仍继续叠加 WIP，phase-2 其实没收敛（phase-3-execute.md:65-67；G:5071-5074） | 无 Diag/die 产生点；print 5084（`check-plan-stability` 子命令） | 结构上不进账本诊断，而且只在 FULL 出现：独立子命令按 phase-3-execute.md:65 只在 FULL 路径调用，还要先用 `record-plan-defect` 入账 ≥3 条未解决的 defect |
+| `LEDGER_STALLED` | 账本长时间零增长，可能在绕过 gate 或空转（G:4939-4942、G:4972） | 无 Diag/die 产生点；print 4970、5001（`check-ledger-progress` 子命令） | 结构上不进账本诊断：只在独立子命令里 print；skill 的 md 流程文档没搜到调用 `check-ledger-progress` 的地方 |
+| `AUDITOR_MISSING` | 没做独立 full-audit（或审计判 FAIL）就交付；full-audit 放在输入冻结之后（P:130；R:56-60） | Diag 2346、2349 | 只在 FULL+审计阶段出现：只在 mode full/render 查（G:2344），check-only 明确不查（P:32-33）；`compute_state` 在审计前还专门把它扣掉（G:2585） |
+| `AUDITOR_VERDICT_MISMATCH` | 审计报告写 FAIL，命令行敲 PASS（P:131、P:543-545；G:2355-2356） | Diag 2359、2363（full/render）；die 1719（`audit` 命令里 JSON verdict 与 report_markdown 结论不一致，G:3617 调用） | 只在 FULL+审计阶段出现；而且 `audit` 写入时已先把不一致拒掉，要事后改 auditor-output 才能到 Diag 分支（这时同时会报 EVIDENCE_HASH_MISMATCH） |
+| `AUDITOR_INPUT_STALE` | 审计之后又改代码、testcase 或结果，继续沿用旧的 PASS（P:132、P:316-317；R:56-58） | Diag 2353 | 只在 FULL+审计阶段出现：要 mode full/render 且账本里已有 auditor 记录 |
+| `RECEIPT_STALE` | 拿到 receipt 后输入又变了（如文档回写后提交），旧 receipt 继续当交付证据（P:134、P:316-317；R:39-43） | Diag 3833、3837、3841（只在 `cmd_render` 里） | 只在 FULL+审计阶段出现：只有 render 会产生；finalize 和 check-only 都不输出这个码 |
+| `PHASE_UNPAIRED` | 阶段没收尾就 finalize，耗时归属不完整（P:138、P:476；G:3451 DeskPet 3.5 小时只能靠会话日志考古） | Diag 2504、2508 | 只在 FULL+审计阶段出现：P:138 写明 check-only 不查，G:2483 只在 full/render 查 |
+| `PHASE_TELEMETRY_MISSING` | 全 run 零 phase 事件，档位压缩效果无法评估（P:168-170；R:82-85 "18 本仅 9 本有阶段事件"） | Diag 2489（advisory） | 只在 FULL+审计阶段出现：只在 full/render 查（G:2483）；按 P:168-170 的实测，存量账本里本该大量命中，check-only 扫描看不到 |
+| `FLOW_TIER_BASIS_FALSE` | 判 LEAN 却 `input_sensitive=true`，判档依据失实，让 FULL 的环节合法消失（P:165-167；R:81-83） | Diag 2242 | 本机样本没走到：要 manifest 同时声明 `flow_tier.value=LEAN` 和 `input_sensitive=true`；本机触发的是 `FLOW_TIER_UNDECLARED`，说明多数账本根本没声明 flow_tier，这个交叉校验没有输入 |
+| `PLAN_SCOPE_EXPANSION` | plan 体量比 baseline 增长 >1.5 倍，scope 悄悄扩张（G:6450-6452 docstring；具体逃逸案例未找到出处） | 无 Diag/die 产生点；print 6471（`check-plan-growth` 子命令，advisory，exit 0） | 结构上不进账本诊断：只在独立子命令里 print；skill 的 md 流程文档没搜到调用 `check-plan-growth` 的地方 |
+| `AUDITOR_INDEPENDENCE_UNVERIFIED` | 审计者和实现者是同一个引擎，自审自判（P:139、P:545-547） | Diag 2370、2374（advisory） | 只在 FULL+审计阶段出现：要 full/render 且有 auditor；另外 `audit --engine` 必填并过正则（G:214），"未标注"一支只剩 engine 填 unknown/self/same 才进得去 |
+| `RUN_ATTESTATION_FANOUT` | 一次 smoke 或 pytest 复制成多个场景的 root pass，冒充独立断言（P:140、P:576-577；R:68-71） | Diag 2043（条件 error，所有 mode，fixture 免检） | 本机样本没走到：要同一 command 且同一 `recorded_at` 扇出 ≥2 个场景，并且其中有 required 场景缺 primary 证据；`record-run --exec` 会逐条自动产生 primary 日志，自然避开这个条件 |
+| `EVIDENCE_FREE_FINALIZE` | required 全 PASS，但整本账零 primary 证据，结论全靠自报（P:141；G:2511-2514 simple_harness 4 个 slice evidence=0） | Diag 2518（advisory） | 只在 FULL+审计阶段出现：只在 full/render 查（G:2515），还要 required 全 PASS |
+| `EXECUTOR_ENGINE_UNDECLARED` | manifest 不声明实现引擎，独立性核对没有对照对象（P:142；G:2388-2390 "executor_engine 全部 None"） | Diag 2394（advisory） | 只在 FULL+审计阶段出现：只在 full/render 查（G:2392）；按 G:2389 的描述，存量账本里本该常见，check-only 看不到 |
+| `AUDITOR_ENGINE_MISMATCH` | 实际审计引擎偏离 init 冻结的声明，引擎配置被静默换掉（P:143；G:2388-2389 "默认 opus-4.8，实际 4 次审计全是 gpt-5"） | Diag 2402（advisory） | 只在 FULL+审计阶段出现：要 full/render、manifest 声明了 `auditor_engine`、并且已有 audit 记录 |
+| `OPEN_DEFERRALS` | 审计里"留待后续 slice"的承诺在 run 收尾后悬空（P:144；G:2406-2408 simple_harness run-4） | Diag 2411（advisory） | 只在 FULL+审计阶段出现：只在 full/render 查（G:2392 块内），还要 auditor-output 里有 deferred 项 |
+
 **退休记录（2026-08-29）**：`LOOP_LIMIT_EXCEEDED` / `LOOP_REGRESSION` / `LOOP_NO_PROGRESS`
 - 三码自 2026-08-14 登记以来**从未有产生点**（第 5 轮审计实证：全文件仅 `CANONICAL_ORDER`
   声明处 1 次引用；1888 次真实调用零触发）。它们从未防住过任何东西——

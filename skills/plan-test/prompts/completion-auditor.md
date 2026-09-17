@@ -24,7 +24,7 @@ AC-x → plan 任务 → 代码改动(文件:行) → testcase → distinct scen
 
 **full-audit 下任何一环缺失 = 未完成。**代码证据只是链条的前半段——后半段（场景→真实运行→证据→终态）同样逐环核对，不许"代码在就算完成"。
 
-**计数纪律（full-audit）**：核对 phase-4 ①c 账本时，retry/重放/同意图改写不算 distinct，continuation 不算新问题；每个 required distinct scenario 必须有至少一次真实 UI root run 的证据。
+**计数纪律（full-audit）**：核对真人覆盖广度账本（`conditional/phase-4-stage-gate.md` §输入语义敏感）时，retry/重放/同意图改写不算 distinct，continuation 不算新问题；每个 required distinct scenario 必须有至少一次真实 UI root run 的证据。
 
 ## 你必须核对
 

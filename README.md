@@ -14,13 +14,14 @@
 | `/plan-task` | 校验定稿 plan → 绿色基线 → 执行 + 审计 → 围绕主要矛盾的验收 + testcase 收尾 → DoD | 已有定稿 plan（通常来自 plan-bs），只要执行 + 测试 |
 | `/plan-test` | 上面两段的一条龙自动版（需求澄清不走头脑风暴对话，走快速确认） | 需求已基本清楚，直接端到端做完 |
 
-三个 skill 共享 `skills/plan-test/` 下的阶段文档、子代理提示词与配置。plan-bs 定稿时会在 `plan.md` 头部写 `<!-- plan-status: finalized -->` 标记，plan-task 开工前校验它——这是两段之间的交接契约。
+三个 skill 共享 `skills/plan-test/` 下的阶段文档、子代理提示词与配置。铁律与通用规则的正文只在 `skills/plan-test/RULES.md`（R1–R14），阶段文档只写本阶段怎么做并以 `（RULES Rn）` 指回；FULL 专用内容在 `full/`，条件命中才读的内容在 `conditional/`，病根与历史叙述在 `guides/history-*`（v0.9.0）。plan-bs 定稿时会在 `plan.md` 头部写 `<!-- plan-status: finalized -->` 标记，plan-task 开工前校验它——这是两段之间的交接契约。
 
 灵感来自 superpowers 的 plan / test 系列 skill，针对"代码级可执行 plan + 子代理对抗迭代 + 真人测试"的工作流做了端到端编排。
 
 ## 设计原则
 
-- **减少用户打断（v0.8.0）**：根据已有目标和授权调查、制定计划并自主执行，不重复询问阶段切换或是否继续修复。确需用户决策时，先提供事实、推荐、代价与剩余未知；保留明确的等待、停止和操作授权边界。详见 [注意力与决策规则](skills/plan-test/references/user-attention.md)。
+- **减少用户打断（v0.8.0）**：根据已有目标和授权调查、制定计划并自主执行，不重复询问阶段切换或是否继续修复。确需用户决策时，先提供事实、推荐、代价与剩余未知；保留明确的等待、停止和操作授权边界。详见 [RULES R11](skills/plan-test/RULES.md)，续接与授权细则见 [user-attention](skills/plan-test/references/user-attention.md)。
+- **交接前检查与分层加载（v0.9.0）**：结束一轮回复前命中交接四问（做少了、要用户动手、要用户决策、交付完成）就按 `checklists/handoff.md` 过档并派独立评估员，PASS 才发。LEAN 一次完整运行的必读文档压到 60KB 以内；closure 轮对已解决的次要 finding 可按历史推导跳过复核（仍由 gate 校验）。
 - **按可交付能力切片（v0.8.0）**：整体目标 → 可用能力切片 → 片内技术任务。每片有真实入口、实现前测试预期、依赖和保留能力；当前片细化后实施，整体风险提前调查。每片实际验证并形成可追溯提交后自主推进，原始全部验收与必要组合验证保留；小需求可以只有一片。详见 [切片规则](skills/plan-test/references/delivery-slices.md)。
 - **战略上藐视，战术上重视（v0.7.0 总纲）**：战略上敢裁剪仪式——默认 LEAN、默认一页 journal 收尾、挑战与测试力度按矛盾地位收窄、说不出理由的门跳过留痕；战术上每条声明必须有实测证据——决定性 AC 必须真验证、真人测试不降级、提交态必须干净。**砍的是仪式，不是证据。**
 - **围绕主要矛盾（毛选方法论为流程骨架）**：acceptance 第一节是矛盾分析四问（主要矛盾是什么/产生原因/怎么解决+最小验证动作/矛盾的主要方面）；每条 AC 标注决定性/次要，挑战轮次、执行火力、测试深度全按它路由；关键假设实践先行（写 plan 时当场 spike 真跑）；价值里程碑 PASS 后 demo 给用户 + 矛盾转化再分析；收尾写一行自我批评进 retro.md（门禁退休评审的数据源）。
@@ -93,7 +94,7 @@ git pre-push 与 CI 锚点不随插件自动启用，见 `hooks/README.md`。
 
 ```markdown
 EXECUTOR_ENGINE: claude     # 默认 current=跟随当前会话模型；这里固定为 Claude 子代理
-PLAN_ITERATIONS: 5          # plan 至少迭代 5 轮
+MAX_ROUNDS: 10              # 修复/复审循环上限（默认 15），超限 BLOCKED
 MANUAL_TEST: required
 ```
 

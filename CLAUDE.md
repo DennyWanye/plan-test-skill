@@ -232,9 +232,7 @@ The gate has 25+ stable diagnostic codes in canonical order (see `gate/PROTOCOL.
 - `RELEASE_UNIT_TOO_LARGE`: MUST AC count, plan lines, or high-risk subsystems exceed limits
 - `RELEASE_UNIT_UNDECLARED`: Ledger missing release_unit declaration (slice_id/parent_program/scope_hash)
 - `WIP_ACCUMULATION_UNSAFE`: Uncommitted changes exceed safe threshold (>5000 lines or >20 files)
-- `LOOP_LIMIT_EXCEEDED`: Challenge loop exceeded MAX_ROUNDS (15)
-- `LOOP_REGRESSION`: Plan hash reverted to an earlier round
-- `LOOP_NO_PROGRESS`: Challenge loop stuck (3+ rounds with no reduction in critical findings)
+- ~~`LOOP_LIMIT_EXCEEDED` / `LOOP_REGRESSION` / `LOOP_NO_PROGRESS`~~: retired 2026-08-29 (never had an emission point; see gate/PROTOCOL.md §4b)
 - `LOOP_RESET_EVASION`: Attempt to bypass loop limit by deleting ledger or changing target
 - `PLAN_UNSTABLE`: Phase 3 A2 plan defects >= 3 (Phase 2 did not truly converge)
 - `LEDGER_STALLED`: Ledger has no progress (runs/evidence/timing) for >90 minutes
@@ -369,9 +367,9 @@ The gate validates **consistency between recorded facts**, not whether the facts
 
 ## Never Do This
 
-- Don't add prompt-only rules claiming they solve problems - known violations must go into the validator
+- Don't claim a prompt-only rule enforces anything - machine-checkable known violations go into the validator; prompt-level checks (e.g. `HANDOFF_CHECK` + independent evaluator) must be described as discipline, not enforcement
 - Don't allow hand-written PASS/status fields
-- Don't bypass `finalize` exit code with another delivery decision mechanism
+- When `MACHINE_GATE` is enabled, don't bypass `finalize` exit code with another delivery decision mechanism
 - Don't modify historical evidence or fixture expectations to make history green
 - Don't mix declared timing into measured aggregates without the `measured:false` flag
 - Don't push to remote without explicit user request

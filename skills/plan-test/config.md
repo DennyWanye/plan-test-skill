@@ -1,414 +1,61 @@
 # plan-test 配置
 
-本文件是 skill 的**默认配置**。运行时，若项目根存在 `.claude/plan-test.config.md`，其中出现的同名键**覆盖**这里的默认值（只需写要改的键）。
+键=默认值→细则(Rn=RULES.md，full=full/config.md，cond§X=conditional/config.md §X)。项目 `.claude/plan-test.config.md` 同名键覆盖，不得视沉默为批准、扩大授权或降 required 证据。(交接)=按 checklists/handoff.md 评估。
 
-所有 `{大写变量}` 在各阶段文档里被引用，运行时替换为下面的值。
+## 引擎与路径
+- `EXECUTOR_ENGINE`: current — 继承当前会话模型(不指定 model)
+- `CHALLENGER_ENGINE`: claude；`AUDITOR_ENGINE`: opus-4.8
+- `PLANS_DIR`: ./plans；`TESTCASE_DIR`: ./testcase；`ACCEPTANCE_FILE`: ./acceptance.md
+- 已撤销：ARCH_DIR、PARALLEL_TRACKS
 
-## 子代理引擎
-
-- `EXECUTOR_ENGINE`: current
-  - 执行阶段并行实现用。`current` = **跟随用户当前会话使用的大模型**（派发子代理时不指定
-    model，自动继承当前模型——用户用 DeepSeek V4 Pro 执行子代理就是 DeepSeek V4 Pro，
-    用 Claude 就是 Claude），不再默认绑定某个固定模型（如 GPT 系）。
-  - 需要固定引擎时，在项目根 `.claude/plan-test.config.md` 里覆盖本键（如 `claude`）。
-- `CHALLENGER_ENGINE`: claude
-  - 挑战 plan / 挑战架构文档 / 迭代 testcase 的子代理。
-- `AUDITOR_ENGINE`: opus-4.8
-  - 完成度终审、测试覆盖最终确认。
-
-## 路径
-
-- `PLANS_DIR`: ./plans
-- `TESTCASE_DIR`: ./testcase
-- `ACCEPTANCE_FILE`: ./acceptance.md
-
-（原 `ARCH_DIR` 已随 phase-0 撤销：现状调查并入 phase-1，结论写进 plan，不再维护独立架构文档。）
-
-## 流程路径（`FLOW_TIER`，默认 auto）
-
-> 分档是为了让裁剪变成明示的、有边界的选择，而不是偷偷跳步。（病根见 rationale.md「流程分档（FLOW_TIER）的由来」）
-
-- `TASK_TYPE`: auto（**先于风险分档判定的正交维度**，2026-08-31 DGX 复盘新增）
-  - `delivery` = 软件交付：交付物是代码/功能变更 → 按下表 DIRECT/LEAN/FULL 分档。
-  - `ops` = 运维/部署：交付物是"让服务/环境处于某种目标状态"（部署、安装、升级、
-    基础设施迁移、配置变更）→ 走 **OPS 路径**，不按软件交付分档。
-  - **病根**：DGX 双机部署被"共享基础设施→FULL"推入最重的软件交付仪式（oracle 冻结、
-    提交态门、Stage A/B），而运维任务的真实风控是快照/回滚/串行锁；错配直接导致 49.5h
-    里仪式占 22%、agent 自造平行防御系统成最大故障源。
-- **OPS 路径**（模板 = 2026-08-27 dgx-200k-model-matrix 被实践验证的形态：单会话、1 轮挑战、4h 拿到 receipt）：
-  - **跑**：acceptance（含一句话主要矛盾 + 最小验证动作）；1 轮 primary 挑战（只读实测取向，
-    specialist 仅在真发现结构性风险时追加）；**回滚出口先行**（动任何共享状态前先验证快照/回滚可用）；
-    多任务共享机器时的串行部署锁；价值里程碑硬门（phase-3 A 节）；分级冒烟；
-    完成记录 = 一页 journal（目标服务在生产入口活着 + 冒烟 PASS + 回滚出口已验证 + 用户明确要求时的人工验收）。
-  - **不跑**：oracle 冻结、提交态硬门、testcase inventory/场景矩阵、Stage A/B manifest 编译、
-    finalize receipt（机器门对 OPS 为 opt-in，不作完成权威）。
-  - **铁律不变**：BLOCKED 升级纪律、`SELF_BUILT_DEFENSE: forbidden`、复验粒度跟随变更粒度。
-- `FLOW_TIER`: auto（仅 `TASK_TYPE=delivery` 时适用）
-  - `auto` = 按下表自动判路径并在开场明确依据；用户可指定 `DIRECT`/`LEAN`/`FULL`。
-  - 自动判定优先选择满足条件的最低成本路径：全部 DIRECT 条件满足才 DIRECT；命中任一 FULL
-    条件即 FULL；其余有用户可见交付的单切面默认 LEAN。
-
-| 路径 | 触发条件（取最高风险） | 跑什么 | 不跑什么 |
-|------|----------------------|--------|----------|
-| **DIRECT** | 同时满足：可快速回滚；不涉权限/资金/身份/迁移；无新持久化状态；不改公共协议；不跨信任边界；不引新依赖 | 不启动 plan-test：一句 AC → Ponytail 最小实现 → 最小决定性测试 → 变更入口 smoke → 提交态硬门 → 交接前按 `HANDOFF_CHECK` 四问自查 | 不建 run-dir/plan/contract，**除交接评估外**不派子代理，不做 ledger/receipt/full-audit |
-| **LEAN**（默认） | 单个明确业务切面；用户可见变化；风险可局部隔离；有自动化出口；无高风险迁移或共享基础设施 | phase-A/1/2/3/4/final；挑战按重点论收窄（主要矛盾走完整四阶段，其余一轮 breadth）；完成记录 = journal | 不启用机器账本（manifest/init/record-run/receipt/full-audit）、不做 assurance-contract.json（摘要节代替）、次要 AC 不做多轮挑战与多轮 testcase 迭代 |
-| **FULL** | 命中下方「FULL 硬条件」任一条 | 全套 6 阶段 + `MACHINE_GATE` 判定（见下）；挑战按矛盾地位路由、增量补丁减轮、待决不挂起（见 phase-2「挑战范围」与下方 `DECISION_BATCHING`） | —— |
-
-**FULL 判定对象**：本片**上线时首次进入生产的全部改动**——包括随本片一起首次上线的前序片和合并进来的分支。
-每片重新判；"沿用上一片档位"不是理由。事实未知（行数、写入频率、是否被外键引用）先查，查不到按命中处理并写明未知项。
-
-**FULL 硬条件**（命中任一即 FULL）：
-- **鉴权**：改鉴权机制，或改变已有角色对已有数据的可见/可写范围——新功能让某角色能写此前写不了的已有行或列，也算；
-  新增读或写任何生产凭据（含第三方平台 token、密钥）。为本次**新建**的数据按既有角色体系配置访问不算，写成次要 AC 并测试。
-- **生产数据批量改写**：对已有生产数据批量更新、回填、删除、合并。唯一例外：可从源头全量重算的派生列，且回退步骤**已实测**；未实测不适用例外。
-- **大表/热表 DDL**：表行数 ≥ 10 万，或该表有周期 ≤ 1 小时的定时批量写入、或被用户操作实时写入，执行任何需要元数据锁的 DDL
-  （含 `CREATE TABLE … LIKE`、加外键）；写入频率未知按热表处理。
-- **状态机与 LLM**：多阶段状态机；LLM 结论决定落库状态或对外发出的内容。
-- **对外契约**：公共 Provider / 对外 API 协议 / 跨服务契约。
-- **外部副作用**：新增不可逆外部副作用（发消息、真实上架/下单、写第三方系统）；或改变生产上已在运行的外部副作用的
-  触发时机、次数、重试方式、授权来源——"用户动作 → 外部写请求"链上任一环节（建任务、派发、鉴权）有改动都算；
-  写非本服务 owner 维护的系统（含公司内其他团队的库）的生产数据，在已有写入里新增列也算。
-- **共享基础设施**；`input_sensitive = true`。
-
-不设"可降档表"：2026-09-15 用带降档表的草案对 9 个历史 FULL 运行两轮盲判，仍 9/9 FULL——FULL 判定本身基本正当，
-耗时来自 FULL 内部（挑战循环 20–37%、待决挂起），降耗做在内部而不是降档。
-
-- `MACHINE_GATE`: full-high-externality-only（2026-09-01 毛选方法论重构新增，反对党八股）
-  - 机器账本层（manifest 编译 / init 开账 / record-run / attach-evidence / re-attest /
-    finalize receipt / 独立 full-audit）**仅在 `FLOW_TIER=FULL` 且命中高外部性条件**
-    （权限/身份/支付、schema/迁移、公共 Provider/API、共享基础设施、不可逆副作用）时启用。
-  - 其余情况完成记录 = **一页 journal**（OPS 路径已实践验证的形态：核心价值 smoke 结果 +
-    兑现表 + 冒烟输出 + 遗留清单）；交付说明如实写"完成判定依据 journal 与 DoD 清单，
-    无机器 receipt"，不得使用 receipt/SHIP 措辞。
-  - 病根：2026-08-31 DGX 复盘实测机器门 100% 荒废、仪式占 22%；砍的是记账仪式，
-    不是证据纪律——journal 里每条声明同样必须附实测证据。
-- `JOURNAL_VERDICT`: required（2026-09-01 审计整改；四样登记按 `GATE_REGISTRY_DISCIPLINE`——
-  防的实测逃逸 = 2026-09-01 审计实锤"默认路径下'算不算通过'要靠通读 journal"；
-  防的诊断码 = 无（默认路径无 validator；FULL 路径同类问题由
-  `DELIVERY_VERDICT_CONTRADICTS_LEDGER` 拦）；复审日期 = 2026-12-01；
-  **合法出口** = 结论定不了 SHIPPED 就如实写 BLOCKED + 一句卡点——BLOCKED 是合法终态
-  不是惩罚，任何状态下都写得出来，本门不存在堵死态）
-  - journal 收尾必须以终态行结束，这是默认路径下"该 run 算不算通过"的标准化结论，
-    随 `{PLANS_DIR}` 进 git 供日后审计；**没有终态行 = run 未闭环**（本句为唯一规范表述，
-    他处只引用）。**终态行格式的唯一出处是 phase-final**，此处不复制，防两处规范漂移。
-  - 本键是纪律不是机器门（默认路径按 v0.7.0 设计无 validator）；启用了强制锚点的项目
-    可在 hook/CI 里用一行 `grep -q '^VERDICT: ' <journal>` 兜底。
-- DIRECT 是"不启动本 skill"的决定；一句 AC 和提交态硬门是项目级 invariant。
-- LEAN 的挑战收窄只压缩范围与轮数，不改变"primary 先行"的顺序；primary 之前不得先平铺专项子代理。
-- LEAN/FULL 不可裁剪：acceptance 唯一真相、提交态硬门、按路径分级 smoke、决定性 AC 的真人测试
-  不降级、oracle 先于实现、`BEHAVIOR_POLICY: preserve-approved`、BLOCKED 升级纪律。
-- 路径有疑义 → 往高风险路径判。裁剪的代价是漏测，判高的代价只是慢。
+## 流程分档
+裁剪须明示有边界，不偷偷跳步；疑义往高判。
+- `TASK_TYPE`: auto — 先判。`delivery`=交付代码/功能→`FLOW_TIER`；`ops`=让服务/环境到目标状态(部署/安装/升级/迁移/配置变更)→ cond§OPS
+- `FLOW_TIER`: auto — 仅 delivery，开场写依据，用户可指定；DIRECT 条件全满足才 DIRECT；中任一 FULL 硬条件即 FULL；其余单切面 LEAN
+  - DIRECT：可快速回滚、不涉权限/资金/身份/迁移、无新持久化状态、不改公共协议、不跨信任边界、不引新依赖 → 不启动本 skill，cond§DIRECT
+  - LEAN(默认)：单个业务切面、用户可见、风险可局部隔离、有自动化出口、无高风险迁移/共享基础设施 → A…final；主要矛盾挑战四阶段、其余一轮；不跑机器账本、assurance-contract.json(摘要节代替)、次要 AC 多轮挑战/testcase 迭代
+  - FULL：全套 + `MACHINE_GATE` 判定；挑战路由与增量补丁减轮见 phase-2，待决不挂起 R11
+- **判定对象**：本片上线时首次进生产的全部改动(含同时首次上线的前序片、合并分支)。每片重判，沿用上片档位不是理由。事实未知(行数/写入频率/外键引用)先查，查不到按命中，写明未知项。
+- **FULL 硬条件**(任一)：
+  - 改鉴权机制；改已有角色对已有数据的可见/可写范围(能写此前写不了的行/列也算)；新增读写生产凭据(含第三方 token/密钥)。为本次新建数据按既有角色配访问不算，写次要 AC 并测
+  - 批量改写已有生产数据(更新/回填/删除/合并)；唯一例外：可从源头全量重算的派生列且回退已实测
+  - ≥10 万行或热表(≤1 小时周期批量写/用户实时写，频率未知算热)上跑需元数据锁的 DDL(含 `CREATE TABLE … LIKE`、加外键)
+  - 多阶段状态机；LLM 结论决定落库状态或对外内容
+  - 公共 Provider / 对外 API / 跨服务契约
+  - 新增不可逆外部副作用(发消息、上架/下单、写第三方)；改已运行外部副作用的时机/次数/重试/授权来源("用户动作→外部写请求"链任一环节)；写非本服务 owner 系统的生产数据(已有写入加列也算)
+  - 共享基础设施；`input_sensitive = true`
+- 不设降档表。DIRECT 仍须一句 AC + 提交态硬门。LEAN 收窄不改 primary 先行，不先平铺专项。LEAN/FULL 不可裁剪 R1/R3/R5/R6/R8/R9/R13。
+- `MACHINE_GATE`: full-high-externality-only — 仅 FULL 且命中权限/身份/支付、schema/迁移、公共 Provider/API、共享基础设施、不可逆副作用才启用 → full；否则记录=一页 journal(每条附实测证据)，措辞 R12(交接)
+- 切片见 references/delivery-slices.md；每片继承全局风险，不靠分片降适用门
+- `RELEASE_UNIT_LIMITS`: MUST AC ≤ 8 / Task ≤ 10 / plan ≤ 2000 行 / 高风险子系统 ≤ 3 / 同改 UI、Session、Harness、Provider、权限 ≤ 3 类 → full
 
 ## 轮次与出口
+- `ASSURANCE_PROFILE`: standard → cond§保障等级
+- `PLAN_ITERATIONS`: 1 — 无 open P0/P1 即收敛不凑轮 → phase-2
+- → R9，细则 full：`PLAN_CHALLENGE_SOFT_LIMIT`: 3；`PLAN_CHALLENGE_USER_REVIEW_ROUND`: 5；`PLAN_CHALLENGE_HARD_LIMIT`: 8
+- `MAX_ROUNDS`: 15 — 执行/审计兜底，非挑战预算 → R9
+- `TESTCASE_ITERATIONS`: 2 → cond§testcase 迭代
+- `AUDIT_RETRY`: until-100 — 未达 100% 循环补完
 
-- `ASSURANCE_PROFILE`: standard
-  - `standard`：信任当前开发者账户、OS/kernel 与系统绝对路径程序；防错误目标、误操作、
-    非预期网络/持久化、敏感信息泄漏和产品状态污染。
-  - `hardened`：额外不信任项目输入、远程目标和运行数据，但仍信任开发者账户与 gate。
-  - `hostile-host`：宿主环境也可能被篡改，必须声明独立信任锚；仅可由用户显式批准启用。
-  - 保障等级或可信边界变化属于 scope/cost 变化，challenger 只能提出 proposal，不能自行升级。
-- `PLAN_ITERATIONS`: 1
-  - 第一轮建立 breadth baseline；后续只审 open findings + diff + 有证据证明第一轮不可知的
-    新事实。无 open in-scope P0/P1 即收敛，不凑轮数。
-- `PLAN_CHALLENGE_SOFT_LIMIT`: 3
-  - 第 3 轮仍有新增 in-scope P0/P1 → `SCOPE_AUDIT_REQUIRED`；记录控制事件后才能续轮。
-- `PLAN_CHALLENGE_USER_REVIEW_ROUND`: 5
-  - 第 5 轮仍有新增问题 → `USER_REVIEW_REQUIRED`，不得静默继续。
-- `PLAN_CHALLENGE_HARD_LIMIT`: 8
-  - 第 8 轮仍有 open in-scope P0/P1 → 当前 plan loop `BLOCKED`；architecture reset 不清零历史。
-- `TESTCASE_ITERATIONS`: 2
-  - testcase 迭代策略：
-    - **第一轮**：检查 MUST AC 覆盖完整性 + 关键风险覆盖 + 目标绑定审查
-    - **第二轮**：只审新增 diff 和未闭环的 AC/risk obligation
-    - **收敛条件**：
-      * 所有 MUST AC 都有 required testcase 覆盖
-      * 所有 required testcase 都有明确的 AC 或 risk 绑定
-      * 没有新增 required obligation
-    - **继续条件**：只能新增 exploratory testcase 时，不阻断 plan 定稿
-    - **最大轮次**：受 MAX_ROUNDS 兜底，但优先按收敛条件判断
-    
-    注意：不再固定"至少两轮必须继续加内容"，而是按边际收益收敛。
-- `AUDIT_RETRY`: until-100
-  - 完成度未达 100% 就循环补完（受 `MAX_ROUNDS` 兜底）。
-- `MAX_ROUNDS`: 15
-  - 其他执行/审计循环的全局兜底；不再充当 plan challenge 的日常预算。
+## 测试与交付一致性
+- `VALUE_SMOKE_GATE`: required → R4(交接)
+- `MANUAL_TEST`: required；`TEST_STRATEGY`: route → R5(交接)；`MCP_DRIVER`: auto → cond§UI
+- `CODE_REVIEW`: required-for-code → R7(交接)
+- `COMMIT_STATE_GATE`: required → R6
+- → R8：`FULL_SURFACE_SMOKE`: required；`INCREMENTAL_AC_MODE`: on(小功能也走流程)；`REVALIDATION_SCOPE`: change-scoped
+- 冒烟：脚本存盘可复跑；affected 按入口依赖/impact_paths；全量另含改启动装配/中间件、映射覆盖不全
+- `WIRING_CHECK`: required → phase-4；`EXECUTION_MODE`: self-decide → phase-3
+- cond§输入语义敏感：MANUAL_SCENARIO_MATRIX, MANUAL_MIN_DISTINCT_CLASSES, MANUAL_REQUIRE_NEGATIVE_CLASS, MANUAL_REQUIRED_PENDING_POLICY(交接), MANUAL_MIN_POSITIVE_SAMPLES
+- cond§LLM 载荷：LLM_PAYLOAD_ADVERSARIAL, STOCHASTIC_MIN_RUNS；cond§冷启动：COLD_START_SCENARIO
 
-## 测试
+## 机器门禁(启用才生效)→ full
+- `ORACLE_FREEZE`: required → R3；`BLOCKED_SEMANTICS` → R9(hash 冻结/机器语义在 full)
+- GATE_SCRIPT, RUN_DIR, RUN_EXIT_PATHS, APPLICABILITY_DECLARATION, AUDITOR_INDEPENDENCE, LEDGER_INTEGRITY, SELF_REPORT_EXPOSURE, TIMING_HARD_GATE, EVIDENCE_REALTIME, IMPACT_SCOPED_RETEST, EVIDENCE_CLASSES, MANIFEST_COMPILATION, EVIDENCE_CONTRACT, AUDIT_FINDINGS, ACTIVE_RUN_BINDING, ARTIFACT_DEDUPE, AI_DRIVING_APPROVAL(交接)
 
-- `CODE_REVIEW`: required-for-code（2026-09-01 新增；四样登记按 `GATE_REGISTRY_DISCIPLINE`——
-  防的实测逃逸 = 2026-09-01 v0.7.1 实测：执行者自写的归档代码经独立 review 查出 5 个
-  数据丢失级正确性 bug（并发 TOCTOU / 残缺归档 / 重复归档 / utf-8 毒丸 / 读取层缺失），
-  自审全部漏过；防的诊断码 = 无（流程门，非账本门）；复审日期 = 2026-12-01；
-  **合法出口** = review 环境不可用 → BLOCKED 升级，或用户在 chat 显式批准跳过并在
-  journal 留痕）
-  - 适用：`TASK_TYPE = delivery` 且本次改动含非平凡代码；OPS 与纯文档改动不适用
-    （开场门清单声明，一句话理由留痕）。
-  - 两个挂点：**phase-3 A4**（便宜门后、昂贵门前——主战场，bug 在进昂贵层前修掉）＋
-    **phase-final push 前硬门**（照见 A4 之后新增的改动，P0/P1 修完再推）。
-  - **引擎独立性（执行者不自审）**：优先用 harness 自带 code review 能力，否则派独立
-    `{CHALLENGER_ENGINE}` 子代理。
-  - review 修复后的复验分层见 phase-3 A4 第 4 步：便宜层全量 + 受影响 AC 决定性测试 +
-    价值 smoke 一枪；触及 UI/用户可见行为才回昂贵层（含 ①c 复测广度规则）。
-    每个 P0/P1 修复必配一条决定性测试并入回归套件。
-- `MANUAL_TEST`: required
-  - MCP 真人点击/输入测试。对有 UI 的被测对象不可省略、不可降级。脚本（`javascript_tool`/`$wire`/
-    `dispatchEvent`/直调接口）只能读状态或造前置数据，**不能代替点击**；点不了 → BLOCKED 并按
-    `checklists/handoff.md` H3 请用户批准等价方案，"如实说明没真点"不是出口。
-- `MCP_DRIVER`: auto
-  - auto = 按平台与被测对象自动选：Web→harness 内置浏览器优先，其次 Claude-in-Chrome MCP；原生桌面→computer-use/macos-mcp。
-- `TEST_STRATEGY`: route
-  - route = 按被测对象路由（见 phase-4）：UI→手工；API/CLI/库/管道→脚本；两者皆有→都做。
-
-## 真人测试广度门禁（只对"输入语义敏感"功能生效）
-
-> **输入语义敏感的判定**：功能的输出质量随输入语义变化——LLM 对话/生成、搜索、调研/agent、推荐、分类等。反之，设置页、开关、单按钮、CRUD 表单、导航等**确定性 UI 不适用**，一个场景即可，不许把多问题门槛错误套给它们。
-
-- `MANUAL_SCENARIO_MATRIX`: required-for-input-sensitive
-  - 输入敏感功能必须在 acceptance 里有"测试场景矩阵"（见 phase-A）；没有 → 暂停依赖任务，按 plan-task 输入校验第 4 项补齐或提交真实待决项；不把缺矩阵自动当作重复授权理由。
-- `MANUAL_MIN_DISTINCT_CLASSES`: 3
-  - 真人测试最少覆盖的**语义不等价输入类别**数。重试、重放、同意图改写、continuation 都不增加此计数。
-- `MANUAL_REQUIRE_NEGATIVE_CLASS`: when-applicable
-  - 适用时额外包含 1 个错误态/低证据/对抗场景（验证诚实降级），计入类别数之外。
-- `MANUAL_REQUIRED_PENDING_POLICY`: block
-  - 任何 required 场景处于 PENDING/PARTIAL/NOT RUN 时，门禁与 DoD 一律 FAIL/BLOCKED，不得用"核心 PASS"掩盖。
-- `MANUAL_MIN_POSITIVE_SAMPLES`: 1
-  - **正向价值样本**下限：自然用户语言、走真实生产入口、真实 provider、得到**非空有效业务结果**、内容经人工检查、达到 acceptance 声明的最低质量线。所有样本都是 partial/insufficient/空结果时，**即使系统没崩也不得完成**——"诚实降级成功"只是负向安全门 PASS，不等于产品质量 PASS。
-- `VALUE_SMOKE_GATE`: required（**普适原则，所有任务类型与路径生效**，2026-08-31 升级）
-  - 价值优先 smoke（"先跑通，再加固"总纲的门禁形态）：进入打包、封存、全量回归、审计仪式、
-    完整真人矩阵等**任何昂贵步骤之前**，必须先执行 acceptance 声明的"最小验证动作"证明主要矛盾
-    成立（输入敏感功能为 2–5 个自然语言正向 smoke）；失败 → 立即 BLOCKED 早停，不继续投入昂贵收尾。
-  - **最小验证动作必须走生产接缝**（2026-09-10 runlog 复盘新增）：从用户实际会用的入口
-    （CLI / HTTP / WebSocket / 桌面 UI 通道）进入，经真实装配、真实存储、真实 provider 跑到业务
-    终态。测试基座手工按序调用内部函数、替换生产接缝的 smoke **只证明"组件存在"，不证明
-    "端到端可驱动"**，不满足本门（病根：s5b 的 smoke 走 pytest 基座，基座恰好补上每一处生产
-    装配缺口，9 个既有缺陷全部留到验收阶段一次性爆出；用户原话"不应该事先调研好吗"）。
-  - 适用性不再由 `input_sensitive` 判定——此前部署类任务判"不适用"使本门合法消失，
-    价值时刻被推迟到第 46 小时（2026-08-31 DGX 复盘；总纲出处：用户 08-30 原话
-    "先试着跑起来先，先把主要任务做好，主要矛盾处理好"）。
-
-## LLM 载荷对抗门禁（只对"LLM 生成结构化载荷驱动 UI/状态机"的功能生效）
-
-> **LLM 载荷驱动的判定**：功能里存在"LLM 输出（结构化 payload / 工具调用 / 生成内容）直接驱动端侧状态机、卡片渲染或流程推进"。LLM 只做纯文本展示、不驱动端侧状态的，不适用。
-
-- `LLM_PAYLOAD_ADVERSARIAL`: required-for-llm-driven
-  - 功能含"LLM 输出驱动端侧状态机/卡片/流程推进"时，acceptance 必须含
-    「LLM 行为变异清单」：乱序、重复、schema 违约（必填字段缺失/写错位置）、
-    超长文本、拒不调用工具——每类至少一条端侧容错断言（容错/自救/降级出口）。
-    缺失 → plan-task 开工 BLOCKED（同场景矩阵门禁待遇）。
-- `STOCHASTIC_MIN_RUNS`: 2
-  - LLM 驱动的多步流程（测验/多轮会话），真机 root run 至少 2 次独立完整跑，
-    且至少 1 次在**长上下文会话**（≥10 轮历史）中进行；两次都完整收尾才计 PASS。
-    单次跑过记 PASS = 对随机性故障采样不足，不达标。
-- `COLD_START_SCENARIO`: required-for-stateful-init
-  - 功能行为依赖"异步注册的服务/远程配置/登录态"时，场景矩阵必须含一条
-    冷路径场景：**全新安装（或清数据）→ 首次登录 → 直达功能页**，断言功能
-    在该路径可用。**暖重启（杀进程重进）不算冷路径。**
-
-## 交付一致性门禁（防"半截提交"：验证过的代码 ≠ 提交了的代码）
-
-> 以下门专堵"半截提交"这条路。（病根见 rationale.md「提交态与内容身份」）
-
-- `COMMIT_STATE_GATE`: required
-  - 提交态硬门：宣布完成前 `git status --porcelain -- . ':(exclude)<run-dir>'` 必须为空（**排除 gate run-dir**，否则刚写入的 receipt/report 会让本门自己失败），且验证针对的是 HEAD 的代码；
-    **对未提交工作树的任何 PASS 一律不作数**。多代理/worktree 参与实现时，
-    额外要求"干净态复验"（见 phase-final-dod）。
-- `FULL_SURFACE_SMOKE`: required
-  - 冒烟按当前路径声明范围，每个范围内用户入口各打最小一枪，断言非 404/500/未接通；
-    脚本存盘可复跑。会话续接时重跑同一声明范围。
-    
-    **分级触发策略**（防止对所有改动都全量打历史端点）：
-    - **change-entry-smoke**：DIRECT 只跑本次变更入口
-    - **critical-surface-smoke**：LEAN/FULL 必做少量核心历史入口
-    - **affected-surface-smoke**（条件触发）：根据入口依赖和 impact_paths 运行受影响的端点
-    - **full-surface-smoke**：全量历史端点，仅在以下高风险条件强制：
-      * 路由层、公共基础设施、启动装配有改动
-      * 共享 provider、中间件、权限系统有改动
-      * 正式 release 前的完整验证
-      * 无 impact_paths 映射或映射覆盖不完整时（fail-closed）
-    
-    LEAN 默认 critical + affected；FULL 默认 critical + affected，命中高风险条件再升级 full-surface。
-- `WIRING_CHECK`: required
-  - 服务层-路由接线断言：services / prompts 等处新 `export` 的函数/枚举/新增入参，
-    routes / 入口层必须有真实引用；运行时白名单数组必须与对应类型全集同步
-    （`satisfies` + exhaustiveness 断言测试，见 phase-4 ②）。
-- `INCREMENTAL_AC_MODE`: on
-  - 增量 AC 模式：后续会话增量加功能时，新 AC 必须先进 `{ACCEPTANCE_FILE}` 唯一真相；
-    允许只跑受影响 AC 的兑现表与 DoD 对应行，但**按路径分级冒烟 + 提交态硬门不得豁免**。
-    "小功能就不走流程"不被允许。
-
-## 机器门禁（仅 `MACHINE_GATE` 启用时生效，见 `gate/PROTOCOL.md`）
-
-> **本节所有键仅在 `MACHINE_GATE` 判定为启用（FULL 且高外部性）时生效**；默认路径的完成记录
-> 是 journal（见"流程路径"节），不使用本节机制。
-> 启用时：Markdown 只是给人读的视图；状态 authority 是结构化账本 + deterministic validator。
-> （病根见 rationale.md「Markdown 不是状态 authority」）
-
-- `GATE_SCRIPT`: `${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py`
-  - 路径解析：装为插件时 `${CLAUDE_PLUGIN_ROOT}` 由 harness 注入；在源码仓库内开发或
-    手工复制安装（未装插件）时，依次退回仓库相对路径 `skills/plan-test/scripts/plan_test_gate.py`
-    与 `~/.claude/skills/plan-test/scripts/plan_test_gate.py`。
-  - canonical gate command。plan-task/plan-test 的**最终交付判定只接受**
-    `python {GATE_SCRIPT} finalize --run-dir <run-dir>` 的 exit code 与结构化 stdout，
-    不接受代理手写结论。没有有效 `gate-receipt.json` 的手写 SHIP/100% COMPLETE 一律视为
-    `DELIVERY_VERDICT_CONTRADICTS_LEDGER`。
-- `RUN_DIR`: `<plan-folder>/verification/<run-id>/`
-  - 每次验证的固定 run 目录；唯一状态账本 `plan-test-run.json` 只存原始 fact，
-    所有 status/state 由 validator 重算。目录布局与稳定诊断码见 `gate/PROTOCOL.md`。
-- `BLOCKED_SEMANTICS`（易踩的语义陷阱，见 `gate/PROTOCOL.md` §5.2b）
-  - 流程层"标记 BLOCKED 升级给用户" = 写给人看的结论；`record-run --result blocked` = 机器事实。
-    机器 `blocked` 会让该场景保持 BLOCKED **直到真的补上一条 root pass**，required 场景因此
-    过不了门。**临时受阻（需要用户本人输密码/系统授权等 AI 代不了的步骤）→ 保持 NOT_RUN**，
-    把阻塞原因写进证据、在报告里 BLOCKED 升级；不要拿机器 blocked 当逃生口。
-- `RUN_EXIT_PATHS`（历史 run 的两条正当出口，其余一律不算）
-  - `retire --superseded-by <继任轮>`：继任轮须已 SHIPPABLE、同 acceptance、覆盖前轮全部
-    required 场景——**举证责任转移，不是赦免**。
-  - `acknowledge --reason ... --approval-hash <用户批准原话 sha256>`：继任轮还没跑完、用户
-    决定放弃这一轮时用。**放弃 ≠ 通过**：该 run 从此报 `RUN_ABANDONED`，永远拿不到 receipt，
-    也不能当别人的继任轮；不可撤销，须用户显式拍板。
-- `ORACLE_FREEZE`: required
-  - 实现前 init 冻结 black-box testcase 逐文件 hash（`testcase_lock`）。任何 byte 变化
-    默认 `FROZEN_ORACLE_CHANGED`；唯一例外是绑定 exact old/new + 用户消息 hash +
-    scope/expiry 的 `behavior_changes` 批准 artifact。失败后不许把 expected result
-    改成当前实现结果。
-- **切片定义与渐进细化**：见 `references/delivery-slices.md`；按可用能力切分，体量只作上限保护。小需求可一片；当前片代码级就绪，整体风险先验证，未来片细节可后补。每片继承相关全局风险，不能靠分片降低实际适用门。
-- `RELEASE_UNIT_LIMITS`: MUST AC ≤ 8 / Task ≤ 10 / plan ≤ 2000 行 / 高风险子系统 ≤ 3 /
-  同时改 UI、Session、Harness、Provider、权限 ≤ 3 类
-  - 超限 → validator 返回 `RELEASE_UNIT_TOO_LARGE`，要求拆 program plan + 垂直 slice，
-    每个 slice 独立验收。阈值可在 manifest `thresholds` 覆盖（须用户知情），不许为卡数字压缩文字。
-- `APPLICABILITY_DECLARATION`: required
-  - **本节以下各条件门（输入语义敏感 / LLM 载荷驱动 / 冷启动）的适用性判定必须写进 manifest 的
-    `applicability`，不再是口头自决**：三维各一条 `{value, rationale(≥10 字), decided_by}`，
-    由 init 冻结、进 receipt digest、进 report.md。缺任一维 → `APPLICABILITY_UNDECLARED`。
-  - 判「不适用」合法且不拦截——但理由留痕、可追责；判「适用」则场景矩阵必须真的兑现
-    （input_class 去重 ≥ `MANUAL_MIN_DISTINCT_CLASSES` 且含 positive-value 场景 /
-    至少一条 `min_root_runs ≥ 2` / 含 `cold_start` 场景），否则 `APPLICABILITY_GATE_UNSATISFIED`。
-  - （病根见 rationale.md「适用性判定为何必须入账」）
-- `LEDGER_INTEGRITY`: on
-  - 账本每次 CLI 写入追加 integrity 链条目；手工改一行 `runs[].result` → `LEDGER_TAMPERED`。
-    防的是顺手改，不是有决心的伪造（见 `gate/PROTOCOL.md` §5.13）。
-- `AUDITOR_INDEPENDENCE`: expose
-  - `audit --engine` 必填；与 `executor_engine` 相同或未标注 → advisory
-    `AUDITOR_INDEPENDENCE_UNVERIFIED`（曝光不拦截）。审计产物里的 verdict 与命令行不一致 →
-    直接拒绝（`AUDITOR_VERDICT_MISMATCH`）——以产物为准，不许命令行改判。
-  - 引擎声明入账（1.4.0 起）：manifest 可声明 `executor_engine` / `auditor_engine` /
-    `challenger_engine`（init 冻结）。executor 未声明 → advisory `EXECUTOR_ENGINE_UNDECLARED`；
-    实际审计引擎偏离声明 → advisory `AUDITOR_ENGINE_MISMATCH`。曝光不拦截，但
-    "配置写在 Markdown 里、实际用了别的引擎"从此在 report/receipt 里可见。
-- `SELF_REPORT_EXPOSURE`: on（schema 1.4.0）
-  - 脚本测试优先 `record-run --exec -- <cmd>`：gate 亲自执行，result 由 exit code 决定，
-    输出日志自动记为 primary 证据。自报模式下：同一命令同一时间戳扇出 ≥2 个场景的
-    root pass → advisory `RUN_ATTESTATION_FANOUT`；required 全 PASS 但零 primary 证据 →
-    advisory `EVIDENCE_FREE_FINALIZE`；auditor 产物含 deferred findings →
-    advisory `OPEN_DEFERRALS`（"留待后续"不许悬空）。均曝光不拦截、fixture 免检。
-- `EVIDENCE_CLASSES`: primary / derived
-  - 截图、原始日志、命令回执、DB 记录是 primary；auditor 报告与交付汇总是 derived。
-    derived 只辅助审计，不能单独满足 AC/testcase；证据依赖图存在环 →
-    `EVIDENCE_DEPENDENCY_CYCLE`（两份互引汇总不构成独立证据）。
-- `MANIFEST_COMPILATION`: structured
-  - 新 run 从 `verification-spec.json` 编译 manifest；编译器核对 assurance AC、obligation、reuse
-    decision、testcase inventory 和 scenario 双向映射，并冻结 `case_sets.full`。不解析 Markdown
-    猜映射。命令与格式见 `references/evidence-audit-lifecycle.md`。
-- `EVIDENCE_CONTRACT`: per-scenario
-  - compiled workflow 的每个 required scenario 按证明需要声明统一 `evidence_contract`。手工证据通过
-    `attach-evidence/import-evidence --metadata <json 文件或内联 JSON>` 提供 provenance（自定义
-    字段原样留在顶层）；`record-run --exec` 自动生成 gate-exec metadata。旧场景无 contract 时
-    保持旧语义。
-- `AUDIT_FINDINGS`: structured-json
-  - JSON auditor output 的 findings 由 `audit` 原子导入；open/deferred P0/P1 为硬门。整改用
-    `list-audit-findings` / `resolve-audit-finding`，闭环后必须重审。
-- `ACTIVE_RUN_BINDING`: compiled-default
-  - `compile-manifest` 对真实交付默认设置 `active_run_required=true`；旧 raw manifest 需显式开启。
-    init 不自动抢占，适合并行 slice。每次 re-attest 后重新 activate。
-- `ARTIFACT_DEDUPE`: logical-sha256
-  - 不移动 evidence 文件；receipt 按现有 SHA-256 区分 record、distinct artifact、distinct root
-    run，并列出共享 artifact hash。
-- `TIMING_HARD_GATE`: on（schema 1.3.0）
-  - 真实 run 活动跨度 > 30 分钟而 timing 覆盖 < 20% → `TIMING_MISSING`；记账覆盖区间
-    合并后仍有 > 120 分钟空洞 → `TIMING_GAP`。两者均 error；漏记时段用申报模式
-    `record-timing --declared-start/--declared-end` 补覆盖。阶段进出必须
-    `phase-start`/`phase-end` 配对（`PHASE_UNPAIRED`）。
-- `EVIDENCE_REALTIME`: on（schema 1.3.0）
-  - `attach-evidence` 记录证据文件 mtime，早于开账 → `EVIDENCE_PREDATES_LEDGER`
-    （防"先测三小时、账本两分半补写完"，DeskPet 实锤）；历史证据必须走
-    `import-evidence --from-run`（chain of custody 入账并在 report 显形）。
-- `IMPACT_SCOPED_RETEST`: on（schema 1.3.0）
-  - manifest 场景可声明 `impact_paths` glob；behavioral re-attest 只 stale 命中的场景。
-    **fail-closed**：无映射/清单截断/变更未被覆盖 → 全量复测；未声明映射的场景永远算受影响。
-- `EXECUTION_MODE`: self-decide（2026-09-01 替代原 `PARALLEL_TRACKS`，验证准备轨已撤销）
-  - 执行模式由 agent 按任务结构自决并一行留痕：任务真独立（文件不相交、无顺序依赖）且量大
-    → **分兵**（并行子代理 + worktree）；环环相扣或量小 → **集中兵力**（当前 session 串行
-    打歼灭战，按当前片实现、验证并形成可交付提交终点）。疑义时集中兵力。判据全文见 phase-3 开场。
-  - 原验证准备轨的 black-box 精髓保留为普适规则 **oracle 先于实现**（见 phase-2 /
-    phase-3 A.4）：写实现前先写下"什么算对"，禁止照实现补预期。
-- `AI_DRIVING_APPROVAL`: required-for-input-sensitive（schema 1.3.0）
-  - 输入语义敏感 + required UI 场景全 AI 驾驶时，须至少 1 次 `--driver human` root run，
-    或 `record-approval --kind all-ai-driving --message-hash <用户批准消息 sha256>`；
-    否则 `DRIVER_APPROVAL_MISSING`。`audit --engine` 必须是引擎身份（拒绝方法名）。
-- `GATE_REGISTRY_DISCIPLINE`: required（2026-08-26；第四问 2026-08-29）
-  - 规则集只进不出是本套流程的病。**新增任何门（诊断码/检查项）必须在提交说明或
-    `gate/PROTOCOL.md` 里声明四样：它防的诊断码是什么、防的是哪条实测逃逸、
-    复审日期是哪天、以及——**代理在这道门拒绝它的那个状态下，合法出口是什么**。
-    答不出第四问的门不许合入。（依据：本仓每一次实测事故都是同一形状——
-    门堵死合法出口 → 代理换 run-dir → 前面测试全废，作废率实测 56%。）
-  - 退休的数据来源有两个：`python {GATE_SCRIPT} stats --root <repo> [--window N]`
-    统计各账本当前状态的触发情况；refusal log（`stats` 末尾的按码计数）补上
-    "历史上拦过谁"这一半。连续 N 个 run 零触发的门列为退休候选。候选只是候选：
-    退门是设计决定，须对照该门当初防的逃逸再拍板。
-
-## 用户交互
-
-- `USER_ATTENTION`: protect（默认）
-  - 交互语义统一见 `references/user-attention.md`，三个入口开场读取。沿用已有授权、合并需要的 review、先调研再提交决策，不添加机器诊断码。
-  - 项目覆盖不得将沉默视为批准、扩大已授权范围或降低 required 验收证据。
-- `HANDOFF_CHECK`: required（2026-09-15 新增；四样登记——防的实测逃逸 = 2026-09-11~15 用户亲自拦下 7 次
-  （需求做少 1、UI 代点/自测不净/demo 无反馈 3、决策讲不清 3），以及 08-28~09-10 留出集复现的同类逃逸；
-  防的诊断码 = 无（流程门，非账本门）；复审日期 = 2026-12-15；
-  **合法出口** = 评估 FAIL 且范围内修不了 → BLOCKED + 决策批次；评估员误读事实且已在重评中给出反证 → DISPUTED 交接并逐条告知用户）
-  - 规程全文见 `checklists/handoff.md`：回合末四问判断是不是交接；完整/轻量/自查三档；
-    `MODE: full|light` + `ROUND: n` 派 `prompts/test-result-evaluator.md`；评估员只认 `scripts/handoff_evidence.py`
-    的真实操作步骤号，不认自述；block 按 `fix_class` 分级——硬伤修好重评、文字类改完即发。
-  - DIRECT 同样适用，但只在四问命中时才派评估员（用户 2026-09-15 决定）。
-- `HANDOFF_EVAL_MAX_ROUNDS`: 3（首评 1 + 重评 ≤ 2，每个交接点独立计数；**不走 `MAX_ROUNDS`**）
-  - 早停：连续两轮 open block 的 ID 集合不变且无新证据即停，按 `checklists/handoff.md` 的出口处理。
-- `DECISION_BATCHING`: required（2026-09-10 runlog 复盘新增；2026-09-15 格式并入 `HANDOFF_CHECK`）
-  - 任何需要用户拍板的事项（范围缩减、豁免、全 AI 驾驶批准、方案二选一、acceptance 修订）
-    **攒成一批一次问**：一条消息、编号列表；每项按 `checklists/handoff.md` H3 三段写
-    （要决定什么 + 用户看得到的例子 / 选项与用户可见后果 / 默认与不回复的后果）。用户只需回编号（或"全按默认"）。
-  - **不挂起**（2026-09-17 v0.9.0）：需要用户批准的事项（冻结用例改动、范围缩减、豁免、acceptance 修订）记为待决项，
-    **继续做不依赖它的工作**，在下一个交接点按 H3 一次问完；只有它阻塞了全部后续工作才立即问。
-    病根：exec-002 撞 `FROZEN_ORACLE_CHANGED` 后用 AskUserQuestion 挂起 439 分钟未回，其余可做的工作全停，最终无 receipt。
-  - 批次未回复前不再发新的决策请求，除非出现新的阻塞项；能按最佳实践自决的不问
-    （`EXECUTE_AUTONOMY: high`）。用户回复"全按默认"即视为逐项批准，原话 hash 入账一次即可。
-  - 病根：timing 账本里 `user_wait` 占 s5a r2 的 40%（375/928 分钟）、s5b r3 的 47%
-    （420/893 分钟）；acceptance 修订一次开到 A1–A15 各要一次批准；用户两次原话
-    "我不知道要决策什么"、"能把需要和我确认的一次性和我确认好吗"。
-
-## 行为开关
-
-- `SELF_BUILT_DEFENSE`: forbidden（2026-08-31 DGX 复盘新增）
-  - **禁止为单次任务自造防御系统**：不得新造 receipt 协议、锁协议、自写校验器/审计器，
-    除非 acceptance 显式要求；优先用现成工具（systemd、sha256sum、flock、git）。
-  - **病根**：DGX 部署中约 15 个连环 fail-closed 全是任务内自造校验器的 bug，42 张自造
-    receipt 无终态，自造 receipt 两次拒绝了控制器自己的失败清理——防御系统的主要交战对象是它自己。
-- `REVALIDATION_SCOPE`: change-scoped（2026-08-31 DGX 复盘新增）
-  - **复验粒度跟随变更粒度**：已通过的资格/验证（网络资格、镜像封存、trust 配置、冒烟）是
-    内容寻址的——**输入没变就不过期**；修一处只复验受影响面，禁止"改一行配置重走全链封存"。
-  - **病根**：DGX 部署为修一行 Nginx 配置重跑"提交→117 项回归→重封存→NCCL 复验→冷启动"
-    全链，同一资格动作重复 23 次。
-- `SELF_CRITICISM`: required（2026-09-01 毛选方法论重构新增，批评与自我批评）
-  - 每次收尾在 `{PLANS_DIR}/<feature>/retro.md` 写一两行自我批评：本次哪些门空转、哪里被
-    仪式拖慢、哪个环节真拦住了问题。它是门禁退休评审（`GATE_REGISTRY_DISCIPLINE`）的数据源。
-- `PROGRESS_REPORTING`: user-language（2026-08-31 DGX 复盘新增；2026-09-10 runlog 复盘加固）
-  - **汇报里出现要用户回答的具体问题（含顺带一句）就是交接**，按 `checklists/handoff.md` 走轻量评估；纯进度汇报只自查。
-  - 每个里程碑用**用户语言**汇报结果、下一验证点和是否需要用户；可靠时提供速率/ETA，否则说明未知。demo 不自动产生等待点；细则见 `references/user-attention.md`。
-  - **进度汇报以"原始 plan 总进度表"开头**：先列 program/plan 级的全部交付单元及各自状态
-    （✅ 闭合 / ⚠️ 部分 / ❌ 未开始），再讲当前切片的细节。切片进度不得冒充整体进度
-    （病根：s5b 会话把单个 increment 汇报成 program 全貌，用户追问"你还有好多没做完，
-    找到原始 plan 再对比"；"说人话/大白话/我看的很迷茫"同批出现 ≥4 次）。
-  - **用户可感知的标的/行为差异必须复述确认**：模型版本、端口、默认模式等在 plan 定稿前
-    用一句人话向用户复述（病根：H3 用户要越狱版、计划静默换成官方版，部署完才被发现）。
-- `EXECUTE_AUTONOMY`: high
-  - high = 主 Agent 在已授权目标、MUST AC、用户行为、保障与成本/操作边界内自主调研、执行和修订计划；A2 回炉仍需挑战与验证。BLOCKED 是否需要用户由实际解锁条件决定，见 `references/user-attention.md`。
-- `BEHAVIOR_POLICY`: preserve-approved
-  - 不静默减少用户已批准的外部行为；内部实现可删除、替换或重构；acceptance 明确批准删除的
-    旧行为可以删除。最小化规则见 `policies/acceptance-preserving-ponytail.md`。
+## 用户与行为
+- → R11：`USER_ATTENTION`: protect；`EXECUTE_AUTONOMY`: high；`DECISION_BATCHING`: required；`PROGRESS_REPORTING`: user-language(交接)
+- `HANDOFF_CHECK`: required → checklists/handoff.md
+- `HANDOFF_EVAL_MAX_ROUNDS`: 3 — 每交接点独立计，不走 MAX_ROUNDS；两轮 open block ID 不变且无新证据即早停
+- `SELF_BUILT_DEFENSE`: forbidden → R14；`BEHAVIOR_POLICY`: preserve-approved → R13
+- → R12：`JOURNAL_VERDICT`: required(终态行格式唯一出处；journal 随 `{PLANS_DIR}` 进 git)；`SELF_CRITICISM`: required
+- `GATE_REGISTRY_DISCIPLINE`: required → cond§规则变更

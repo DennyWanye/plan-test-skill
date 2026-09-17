@@ -1,135 +1,47 @@
 # Phase 4 — 验收（围绕主要矛盾）
 
-**交互**：测试失败先诊断可自行修复的原因；BLOCKED 不自动要求用户接管。BLOCKED 升级消息按 `checklists/handoff.md` 走轻量评估。只有实际解锁需要用户时，按 `references/user-attention.md` 提供调查结果与最小动作，保持未通过事实。
+- 失败先自修；BLOCKED 不自动要求用户接管，升级消息按 `checklists/handoff.md` 轻量评估；只有实际解锁需要用户时才给调查结果与最小动作，保持未通过事实（RULES R9）。
+- **便宜的门在前，贵的门在后**；**主要矛盾先测深测，次要 AC 各过一遍**（RULES R2）。
+- 条件命中读 `conditional/phase-4-stage-gate.md`；FULL 读 `full/phase-4-stage-gate.md`。
 
-**目的**：执行完成后的统一终验关卡。两条排布原则：**便宜的门在前，贵的门在后**；**主要矛盾先测深测，次要 AC 各过一遍**（重点论 + 两点论兜底）。
+## 片验收
+按 `references/delivery-slices.md` 先明确片承诺、原始 AC 映射、继承风险、run 对应；真实入口与承诺必须实测；不机械重跑无变化的昂贵项目（RULES R8）；UI/provider/机器门不因切片降级。
 
-## 当前片验收与跨片回归
+## ① 路由（`TEST_STRATEGY = route`）
+- 有 UI：MCP 真人点击/输入（`checklists/manual-test-mcp.md`），`MANUAL_TEST = required`。
+- API/CLI/数据管道/库/定时任务：自动化脚本（正确手段非降级），必须存盘、可复跑、纳入回归套件。
+- 兼有：两者都做（脚本验逻辑，MCP 验交互）。
 
-按 `references/delivery-slices.md` 先明确片承诺、原始 AC 映射、继承风险和 run 对应关系。机器 required 始终取该 run 冻结范围，不因进入某片而缩小。同一整体 run 内的片只是能力里程碑，未来 required 保留 NOT_RUN；下文 READY_FOR_AUDIT/finalize 等整体出口等原 run 全范围完成才执行。各片独立 run 则对本片完整冻结范围执行全部适用出口。每片真实入口与其承诺必须实测；先前产物按内容身份、变更影响和必要组合风险复验，不机械重跑无变化的昂贵项目。命中现有 UI/provider/机器门时照常执行，不能因切片降级。
+## ② 便宜门序（红则先修，不进下一层；冷启动适用时排最前）
+1 类型检查 → 2 lint →
+3 接线断言（`WIRING_CHECK = required`）：新 export/枚举/入参在入口层须有真实引用（无引用→人工确认，漏接即 FAIL）；运行时白名单用 `satisfies` + exhaustiveness 断言与类型全集同步 →
+4 单元/集成 →
+5 核心价值 smoke：跑 acceptance 声明的最小验证动作，失败立即 BLOCKED 早停，不进任何昂贵步骤（RULES R4）→
+6 分级冒烟（`FULL_SURFACE_SMOKE`）：范围内每个入口打一枪，任一 404/500/未接通即 FAIL；点了没反应先 grep 路由是否存在/挂载/取用新入参 →
+7 含 LLM 结构化输出：provider 契约门（conditional）。
 
-## ① 测试策略路由（先决定怎么测）
+## ③ 场景测试
+1. 决定性 AC 先测深测；任一 FAIL → 停一切收尾（打包/发布/DoD/"接近完成"），只能 BLOCKED，修后重过门序。已知 BLOCKER 还继续收尾 = 谎报进度。
+2. 次要 AC 各一个场景；确定性 UI（设置/开关/CRUD/导航）不套多问题门槛。"一个场景"只指输入类别数，不豁免 `checklists/handoff.md` H2 证据。
+3. **兑现表（必产出）**，每条必须 AC 一行：AC | 矛盾地位 | 含 UI | 方式 | 驾驶者 | 真机证据位置 | 状态。
+   - 含 UI 的 AC 证据须是实际 MCP 操作，"代码审计/逻辑等价"记 ❌；后端 AC 用可复跑脚本断言。
+   - 任何 required 测试无法执行（环境受阻、设备缺失）→ BLOCKED 升级（发前按 `checklists/handoff.md` 轻量评估）不静默降级，等价方案须用户批准并表注（RULES R5）。
+   - 待批项（等价方案/全 AI 驾驶/豁免/范围缩减）攒一批一次问（RULES R11）；发出前按 `checklists/handoff.md` 轻量评估。
+   - 主流程外逐条照见设置项、开关态、权限隔离、空态、错误态。
+4. 输入语义敏感：广度账本见 conditional。全 AI 驾驶须用户批准，否则至少 1 个 required 场景由用户亲自驾驶，排在交接评估 PASS 之后作用户验收。
+5. **`HANDOFF_CHECK`**：叫用户验收、给 demo 或宣布完成前，按 `checklists/handoff.md` H0–H4 自查后派 `MODE: full` 评估（评估员自跑 `scripts/handoff_evidence.py`；fix_class 与轮次按该文件）；排在 ⑤ 之后、发消息之前。
 
-按被测对象选择测试方式（`TEST_STRATEGY = route`）：
+## ④ journal.md
+1 核心 smoke 命令+摘要；2 兑现表；3 冒烟脚本路径+摘要；4 广度账本（适用时）；5 遗留问题（不许悬空"留待后续"）；5b 交接记录行（每次一行：时间|类型|模式|轮次|verdict|fix_class 处置|HEAD|草稿 sha256|评估文件）；6 终态行，phase-final 填（RULES R12）。
+完成判定 = journal + phase-final DoD；交付说明如实写"无机器 receipt"。
 
-| 被测对象 | 测试方式 |
-|----------|----------|
-| 有 UI 的 Web / 桌面应用 | **MCP 真人点击/输入**（见 `checklists/manual-test-mcp.md`），`MANUAL_TEST = required` |
-| 后端 API / CLI / 数据管道 / 库 / 定时任务 | **自动化测试脚本**（单元/集成/e2e/API），可重复运行 |
-| 既有 UI 又有后端逻辑 | **两者都做**：脚本兜底逻辑，MCP 验交互 |
-
-> 自动化脚本不是"手工测不了时的降级"，而是某些被测对象的**正确手段**。脚本必须存盘、可复跑、纳入回归套件。
-
-## ② 便宜门序（红则先修，不进下一层）
-
-> 冷路径场景适用时（`COLD_START_SCENARIO`）必须排在最前——环境准备会把系统弄成暖态，遮蔽冷启动缺陷；暖重启不算冷路径。
-
-1. 类型检查（tsc --noEmit / dart analyze 等）
-2. lint
-3. **服务层-路由接线断言（`WIRING_CHECK = required`）**：本次新 `export` 的函数/枚举/新增入参，
-   入口层必须有真实引用（`grep -rL "<新导出名>" <routes目录>` 命中"无引用"→ 人工确认，漏接即
-   FAIL）；运行时白名单数组与类型全集同步（`satisfies` + exhaustiveness 断言——数组少一个枚举值
-   tsc 不报错，必须让它变红）。**类型检查绿 ≠ 运行时白名单同步。**
-4. 单元 / 集成测试脚本
-5. **核心价值 smoke（`VALUE_SMOKE_GATE`，主要矛盾的最小验证动作）**：执行 acceptance 声明的
-   最小验证动作（输入敏感功能为 2–5 个自然语言正向问题，走真实入口 + 真实 provider）。
-   **失败 → 立即 BLOCKED 早停，不进任何昂贵步骤**——主要矛盾没验证前，别的测了也白测。
-6. **分级冒烟（`FULL_SURFACE_SMOKE`，范围分级见 config）**：声明范围内每个用户入口各打一枪，
-   任一 404/500/未接通即 FAIL。排查口诀：功能点了没反应 → 先 `grep -rn <路由名> <routes目录>`
-   看路由在不在、挂没挂、有没有真的取用服务层新入参。脚本存盘、可复跑。
-7. **真实 provider 契约门**（含 LLM 结构化输出的功能必做）：用当前真实 provider 的实际输出过
-   生产 validator，确认 schema 兼容。手工构造的 payload 只能测 validator 本身。
-
-## ③ 真人测试（重点论排布）
-
-**测试顺序与深度跟随矛盾地位**：
-
-1. **决定性 AC 场景先测、深测**：主要矛盾对应的场景排最前；任一决定性场景 FAIL →
-   **立即停止一切收尾动作**（打包、发布、DoD 推进、"接近完成"的表述），状态只能是 BLOCKED，
-   可以继续诊断修复，修复后从本门序重过。**已知 BLOCKER 还继续收尾 = 谎报进度。**
-2. **次要 AC 各过一遍**：每条一个场景走通即可；确定性 UI（设置页/开关/CRUD/导航）一个场景即可，
-   不许把多问题门槛错误套给它们。**注意："一个场景"只指输入类别数，不豁免 `checklists/handoff.md` H2——
-   新增/改动元素的真实点击、点击后的可见反馈、失败/空/等待态与真实数据路径照样要有证据。**
-3. **兑现表（防降级硬闸——本 skill 最常被偷工的一环，必须产出）**：逐条列 acceptance 每条
-   "必须" AC：
-
-   | AC | 矛盾地位 | 是否含 UI | 测试方式 | 驾驶者 | 真机证据（截图/log 位置） | 状态 |
-   |----|----------|----------|----------|--------|---------------------------|------|
-
-   - 含 UI 的 AC，"真机证据"列必须是实际 MCP 点击证据（截图/交互）。填"代码审计""逻辑等价"的
-     一律记 ❌ 未完成。后端逻辑 AC 用可复跑脚本断言作证据。
-   - **禁止静默降级**：任何 required 测试无法执行（环境受阻、设备缺失）→ BLOCKED 升级给用户，
-     讲清卡点；确需等价方案须用户在 chat 显式批准并在表中注明。本阶段的全部待批项（等价方案、
-     全 AI 驾驶、豁免、范围缩减）按 config `DECISION_BATCHING` 攒成一批、附默认建议一次问完；
-     该消息发出前按 `checklists/handoff.md` 走**轻量评估**。
-   - **"主流程通过 ≠ 每条 AC 都测了"**：设置项、开关态、权限隔离、空态、错误态最容易被
-     "主流程通过"掩盖，兑现表要照见每一条。
-4. **输入语义敏感功能的广度账本**（适用性具体分析，判定见 config"真人测试广度门禁"）：
-   - 深度（失败→重试→恢复）与广度（语义不等价输入）分开记账；distinct 场景数 ≥
-     `{MANUAL_MIN_DISTINCT_CLASSES}`，retry/改写/continuation 不增加计数；
-   - **业务终态判定**：positive-value 场景必须"非空有效结果 + 达 quality_bar（人工检查）"才 ✅；
-     engine completed 但业务空结果 = 安全 PASS、产品 FAIL；negative-safety 的诚实失败不得拿来
-     证明任何正向 AC；fallback 不崩只是可靠性 PASS，语义退化了照记 ❌；
-   - required 场景 PENDING/PARTIAL/NOT RUN → 门禁 FAIL/BLOCKED（`MANUAL_REQUIRED_PENDING_POLICY = block`）；
-   - 修好某场景后，至少再复测 1 个未受影响类别（防修复引入回归）；
-   - LLM 载荷驱动功能另按 `llm_variant`（载荷形态 × 场景）记账，required 形态未覆盖即 PENDING；
-     随机性采样见 config `STOCHASTIC_MIN_RUNS`。
-   - 全 AI 驾驶须用户批准：至少 1 个 required 场景由用户亲自驾驶（**安排在交接评估 PASS 之后，作为用户验收**，
-     不是让用户替 agent 补测），或用户 chat 显式批准全 AI（表注）。
-   - 确定性 UI 不适用本节，不许反向强套。
-
-5. **交接前自测与独立评估（`HANDOFF_CHECK`）**：叫用户验收、给 demo 或宣布完成之前，按
-   `checklists/handoff.md` H0–H4 自查，再派 `prompts/test-result-evaluator.md`（`MODE: full`，
-   评估员自行运行 `scripts/handoff_evidence.py` 取真实操作证据）。block 按 `fix_class` 处理：
-   硬伤修好后重评 PASS 才发，文字类改完即发；轮次上限见 config `HANDOFF_EVAL_MAX_ROUNDS`。
-   本步排在 ⑤ testcase 收尾之后、发消息之前——⑤ 的修复会让上一次 PASS 失效。
-
-## ④ 完成记录（按路径分档）
-
-- **默认（journal，一页）**：记入 plan 文件夹 `journal.md`——
-  1. 核心价值 smoke 结果（命令 + 输出摘要）；
-  2. 兑现表（上面 ③3）；
-  3. 冒烟脚本路径与输出摘要；
-  4. 广度账本（适用时）；
-  5. 遗留问题清单（不许悬空的"留待后续"）；
-  5b. **交接评估记录行**（每次交接一行）：时间 | 交接类型 | 模式 | 轮次 | verdict | fix_class 处置（哪几条按文字类改完即发）| 被评 HEAD | 草稿 sha256 | 评估输出文件；
-  6. **终态行**（`JOURNAL_VERDICT = required`，收尾时由 phase-final 填写；
-     格式见 phase-final，语义见 config `JOURNAL_VERDICT`）。
-  完成判定依据 = journal + phase-final 的 DoD 清单；交付说明如实写"无机器 receipt"。
-- **FULL 且高外部性（`MACHINE_GATE` 启用，判定见 config）**：走机器账本全流程——
-  复用实现前已 `compile-manifest` + `init` 的账本（冻结 testcase hash、场景矩阵、`applicability` 三维
-  判定、release_unit；机器挑战要求先开账，见 delivery-slices），不在每片测试时重新 init；每条测试当场 `record-run` + `attach-evidence`（脚本测试优先
-  `record-run --exec`）；时间入账 `record-timing`；测完 `finalize --check-only` 输出
-  `READY_FOR_AUDIT` 才进收尾。命令与语义见 `gate/PROTOCOL.md` 与
-  `references/evidence-audit-lifecycle.md`；BLOCKED 语义陷阱见 config `BLOCKED_SEMANTICS`
-  （临时受阻保持 NOT_RUN，不要记机器 blocked）。
-
-## ⑤ testcase 收尾（原 phase-5 并入此处）
-
-1. **写分步 testcase 并归档**：每个 testcase 一步一步、每步给预期结果；头部标注绑定的 AC
-   （及矛盾地位）；存放 `{TESTCASE_DIR}/<按测试范围命名的文件夹>/`；维护 `{TESTCASE_DIR}/index.md`。
-   设计前先查已有资产（`references/testcase-lifecycle.md`）：能复用 oracle 就复用，
-   当前 run 仍须重新执行取证。
-2. **实际结果回写**：写在 `{TESTCASE_DIR}/<组>/results/` 或 journal——FULL 路径**不许**回填进
-   被冻结的 oracle 文件（会触发 `FROZEN_ORACLE_CHANGED`，这是设计不是误报）；确需修改期望
-   本身 → 走 `behavior_changes` 用户批准——**不挂起等批准**：记为待决项、继续不依赖它的工作，
-   在下一个交接点按 H3 一次问（config `DECISION_BATCHING`）；只有它阻塞全部后续工作才立即问。
-3. **脚本纳入回归套件**：API/CLI/库类 testcase 落成可复跑脚本登记，下次跑本 skill 一并跑。
-4. **幂等性审查**：对照 `checklists/idempotency-review.md`，逐条审"遍历 + 写副作用"的代码。
-5. **语义等价审查**（输入敏感功能）：同一问题的改写/重跑有没有被记成多个 distinct 场景？
-   有 → 合并计数，不达标就补真正不等价的类别并补测。
-6. **challenger 迭代**（重点论）：决定性 AC 的 testcase 覆盖存疑、或 FULL 路径 → 派
-   `{CHALLENGER_ENGINE}` 用 `prompts/testcase-iterator.md` 迭代一轮（收敛条件见 config
-   `TESTCASE_ITERATIONS`）；次要 AC 覆盖清晰时不派。
-7. **FULL 额外**：状态一致性机检（`declare-status` 五处口径对账，`STATUS_CONFLICT` 即修文档）、
-   改动后 `re-attest`、末尾独立 full-audit（`{AUDITOR_ENGINE}` 声明 `MODE: full-audit`，
-   全链闭环核查后 `audit` 入账；整改循环见 `references/evidence-audit-lifecycle.md` §3）。
+## ⑤ testcase 收尾
+1. 分步、每步给预期，头部标绑定 AC 与矛盾地位；存 `{TESTCASE_DIR}/<测试范围>/`，维护 `{TESTCASE_DIR}/index.md`。先查已有资产（`references/testcase-lifecycle.md`），复用 oracle 但当前 run 仍须重新执行取证；必要性判据见 conditional。
+2. 实际结果写 `<组>/results/` 或 journal。改期望本身走 `behavior_changes` 用户批准，不挂起：记待决项，下一交接点 H3 一次问，仅阻塞全部工作才立即问（RULES R11）。
+3. API/CLI/库类用例落成可复跑脚本进回归套件。4. 对照 `checklists/idempotency-review.md` 审"遍历 + 写副作用"代码。
+5. 决定性 AC 覆盖存疑或 FULL → `{CHALLENGER_ENGINE}` 跑 `prompts/testcase-iterator.md`（`TESTCASE_ITERATIONS`）；次要 AC 清晰不派。
 
 ## 出口
-
-- **同一整体 run 内的中间片**：本片真实入口、承诺、适用 review/回归与提交身份核对已完成 → 记录片里程碑并回 phase-2 准备下一片，未来 required 仍未完成；不要求下列整个 run 的最终出口，不声称 receipt 或整体完成。
-- 下列出口用于独立片交付或整个 run 的最终完成：
-- **默认**：便宜门全绿 + 决定性场景 PASS + 兑现表无 ❌ 无未批准降级 + journal 完整 +
-  testcase 已归档 + **最近一次交接评估 PASS 或文字类已改完（记录行在 journal）** → 当前片进入对应交付 DoD；有后续片时完成片终点核对再回 phase-2，整体完成另核全部原始 AC。
-- **FULL**：以上 + `finalize --check-only` 输出 `READY_FOR_AUDIT` + full-audit PASS 已入账
-  → 当前片进入对应交付 DoD；有后续片时完成片终点核对再回 phase-2，整体完成另核全部原始 AC。
+- 中间片：见 conditional，不声称 receipt 或整体完成。
+- 默认：便宜门全绿 + 决定性 PASS + 兑现表无 ❌ 无未批准降级 + journal 完整 + testcase 归档 + 最近交接评估 PASS 或文字类已改 → 交付 DoD；有后续片做片终点核对回 phase-2；整体完成另核全部原始 AC。
+- FULL：另加 full 出口。

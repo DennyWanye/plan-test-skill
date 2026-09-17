@@ -1,250 +1,66 @@
 # Phase 2 — 迭代 plan + 锁定绿色基线
 
-**目的**：把 plan 迭代到"100% 代码可执行"，并在动手前记录一份绿色基线，供执行后回归比对。
+目标"100% 代码可执行" + 绿色基线。FULL（`MACHINE_GATE`）入账见 `full/phase-2-iterate-plan.md`；条件细则见 `conditional/phase-2-iterate-plan.md`（下称 conditional）。
 
-## 切片作用域
-
-按 `references/delivery-slices.md`：先检查整体 AC 归属、依赖、架构/可行性/重大成本假设，再挑战当前片的交付表与实现细节。下文逐任务代码级收敛只针对当前片；未来片细节可待细化，不能因此缺整体 AC 或隐藏全局风险。进入下一片前补足它的调查、spike、挑战与基线差异检查。
+切片（`references/delivery-slices.md`）：先挑战整体 AC 归属、依赖、架构/可行性/重大成本假设，再挑战当前片；代码级收敛只针对当前片，不得缺整体 AC 或藏全局风险。进下一片前补足其调查、spike、挑战、基线差异检查。
 
 ## A. 迭代 plan
 
-### 挑战范围（重点论：火力集中在主要矛盾）
+### 挑战范围（重点论）
 
-- **主要矛盾相关部分**（决定性 AC 对应的任务、解法核心链路、矛盾的主要方面触及的模块）：
-  走完整四阶段挑战编排（primary → specialist → synthesis → closure），迭代到无 open P0/P1。
-- **其余部分**（次要 AC、外围任务）：只在 primary breadth 轮被覆盖**一次**，无 in-scope P0
-  即收——不派 specialist、不进入多轮 closure。两点论兜底：这一轮 breadth 不许跳过。
-- 例外：次要部分暴露出 in-scope P0，或与主要矛盾解法存在结构耦合 → 升入完整挑战范围。
-- **增量补丁**（已上线功能上只动已有次要 AC，不新增决定性 AC、不改已上线决定性 AC 的行为）：挑战 = primary 一轮 +
-  closure 一轮；决定性 AC 只做回归测试，不重开挑战。改到决定性 AC 行为的不算增量补丁。
-- **机器门兑现**（FULL clustered loop）：synthesis 里把次要且已闭环的 canonical finding 标 `contradiction_role: secondary`，
-  closure 轮只须逐 ID 复核其余 finding。gate 按该 finding 全部历史记录推导地位：没绑 AC、碰到 `primary_contradiction.acceptance_ids`、
-  任一轮是 P0、仍 open、曾是 scope-change-proposal 的，标了 secondary 也必须复核；不标 = 旧行为（全部复核）。字段与模板：`print-schema --target synthesis`。
-- challenger 对主要矛盾有固定质询：写成复合句、防御排第一优先 = P0 打回；
-  **plan 是否在用补丁绕过真架构问题**（判定见下方强约束）。
+- 主要矛盾相关（决定性 AC 任务、解法核心链路）→ 完整四阶段，到无 open P0/P1。
+- 其余（次要 AC、外围）→ 一轮 primary breadth，无 in-scope P0 即收，不派 specialist、不多轮 closure，这轮不许跳过；出 in-scope P0 或与主要矛盾解法结构耦合 → 升完整范围。
+- 增量补丁（已上线功能只动已有次要 AC，不新增/不改决定性 AC 行为）→ primary + closure 各一轮，决定性 AC 只回归。
+- challenger 固定质询：主要矛盾写成复合句、防御排第一 = P0 打回；是否用补丁绕过真架构问题。
 
-### 记账方式（按路径分档，反对文牍主义）
+### 记账与编排（LEAN）
 
-- **LEAN（默认）**：不启用 gate CLI 的 challenge loop 记账。challenger 仍输出结构化 findings
-  JSON，主 agent 把每轮产物按 `round-N-findings.json` / `closure-N.json` 存入 plan 文件夹，
-  自行维护 open/resolved 清单并核对闭环；3/5/8 轮出口照旧执行（人判，不靠机器推导）。
-- **FULL（`MACHINE_GATE` 启用时）**：用 gate CLI 全程入账，按下方命令执行——收敛由 gate 从
-  finding ledger 推导，reviewer 自报 PASS 没有 authority。
+- 不用 gate 记账：findings 存 `round-N-findings.json` / `closure-N.json`，主 agent 自维护 open/resolved 清单；3/5/8 轮出口人判（RULES R9）。首轮可用标明待决项的草案，实现前核对授权或合并 review（RULES R11）。
+- 派子代理给 `references/challenge-orchestration.md` 原文 + role prompt + 最小上下文包，不抄规则进 prompt；流程与各阶段动作见 `references/challenge-main-agent.md`。
+- primary → specialist → synthesis → closure；specialist/closure 只围绕主要矛盾 cluster。closure 仍有 open P0/P1、出现新主要结构根因或需 architecture reset → 立即升级 FULL。
 
-开始前已有源自用户需求的 `acceptance.md`（FULL 路径含同目录 `assurance-contract.json`）。首次计划的调查/挑战可基于标明待决项的草案；实现前按 `references/user-attention.md` 核对已有授权或完成合并 review。已冻结的 contract 变化仍走原批准机制。
-FULL 路径启动循环时冻结 contract、scope hash、threat-model hash 和 plan baseline：
+### 收敛判据（当前片全满足才实施）
 
-```bash
-loop_id=$(python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-test/scripts/plan_test_gate.py" start-challenge-loop \
-  --run-dir <run-dir> --loop-type plan-iteration --orchestration clustered \
-  --target-file <plan.md> --assurance-contract <assurance-contract.json> \
-  --baseline-hash $(sha256sum <plan.md> | cut -d' ' -f1))
-```
+0. 每片承诺经实际入口可验，前片产物可用，整体 MUST AC 无漏；底层准备不冒充交付，只有 mock 不证明真实入口。
+1. Primary coverage 完整，范围内 P0/P1 均进 root-cause cluster。
+2. required cluster 均完成专项，或有理由 + 用户批准 hash 的 waiver。
+3. Synthesis 已记录、冲突已裁决、required spike 已成显式动作。
+4. 关键假设（含 phase-1 清单）有 spike 实测（命令+输出）在 plan，新暴露的当轮补；"理论可行"不算；spike 即弃。
+5. Closure 完成，open in-scope P0/P1 为零。
+6. 当前片代码层已真读并写进 plan（怎么做、为什么），改动点确认到代码级；不确定项不许模糊收尾，调研闭环补回 plan。
+7. 功能可达预期且满足 `BEHAVIOR_POLICY = preserve-approved`（RULES R13）。
+8. 无绕过真架构问题的补丁式收尾。
+9. acceptance/assurance contract 无未批准变化。
+10. 不打无把握之仗：逐任务核对假设已 spike、现状已真读，没把握回去补，不靠开工后回炉。
 
-每轮挑战前调用（下同，`python3` 与脚本路径同上，简写为 `GATE`）：
+收敛不靠 reviewer PASS 或轮数：LEAN 主 agent 逐条核对，FULL 由 gate 推导。
 
-```bash
-GATE check-loop-limit --run-dir <run-dir> --loop-id $loop_id
-```
+### 强约束：真架构问题优先重构
 
-- exit 0：允许进入下一轮；
-- exit 1：按输出状态完成 specialist、synthesis、closure 或控制动作；不得跳过状态直接推进。
+- 判定须证据全中：根因在结构层、补丁造技术债、同类会复发。
+- 命中 → 写最佳实践结构改法 + 适配分析，禁"临时绕过/hack/TODO 再重构"；不受 preserve-approved 阻挡（保已批准行为 + 回归兜底）。
+- 范围闸：显著超原需求 → 列补丁 vs 重构代价，标 BLOCKED 请用户拍板（plan-bs 直接讨论）；可控直接纳入。局部实现问题改对即可。
 
-### 四阶段挑战编排
+### 行为契约与 oracle
 
-开始本节前完整读取 `references/challenge-orchestration.md`。派发时把该 reference、对应 role prompt
-和最小上下文包一起交给子代理，不把规则复制进多份临时 prompt。
+- 触及易混实体或改变既有行为 → 定稿前做 conditional §行为契约。
+- 每个 AC 预期结果先于实现写下；frozen oracle 删/反转/放宽走批准（RULES R3）。
 
-**LEAN 的 2-lite**：四阶段顺序不变，范围按上面"挑战范围"节收窄——specialist/closure 只围绕
-主要矛盾相关 cluster 展开；次要部分一轮 breadth 即收。若 closure 仍有 open P0/P1、出现新主要
-结构根因或需要 architecture reset，立即升级 FULL，不在 LEAN 中反复压缩。
+### Minimality pass（收敛后、用户 review 前，只一次）
 
-#### Stage 1：Primary breadth challenge
+不与正确性挑战混跑；`MODE: plan-pass` 存 `minimality-plan-pass.json`，只自动应用不改范围/行为/assurance 的建议，无建议即结束。步骤见 orchestration reference §Minimality pass。
 
-派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-primary-challenger.md`（职责范围见
-orchestration reference 的“固定流程”节）。主 agent 将其唯一 JSON 输出中的 `round` 与
-`clusters` 原样拆成两个文件，先后入账：
+### 定稿
 
-```bash
-GATE record-challenge-round --run-dir <run-dir> --loop-id $loop_id --round 1 \
-  --plan-hash $(sha256sum <plan.md> | cut -d' ' -f1) --findings primary-round.json
-GATE record-challenge-clusters --run-dir <run-dir> --loop-id $loop_id --input primary-clusters.json
-```
-
-Gate 校验 coverage、finding ID、AC/assurance binding、parent finding、plan/contract hash，并拒绝
-漏聚类的范围内 P0/P1。Primary 不得把预设修法写成 cluster 问题来要求专项代理背书。
-
-#### Stage 2：Specialist fan-out
-
-为每个 `specialist_required=true` 的 cluster 分别派一个 `{CHALLENGER_ENGINE}`，使用
-`prompts/plan-specialist-challenger.md`。每个代理只获得该 cluster、parent findings、相关 contract 原文
-和 `required_evidence`（并发上限与分批规则见 orchestration reference）。每项完成后立即入账：
-
-```bash
-GATE record-specialist-challenge --run-dir <run-dir> --loop-id $loop_id \
-  --cluster-id <cluster-id> --status completed --output specialist-<cluster-id>.json
-```
-
-`specialist_required=false` 的 cluster 不派子代理；required cluster 不得事后自行降级（见
-orchestration reference）。确需跳过时必须取得用户明确批准并记录原始消息 hash：
-
-```bash
-GATE record-specialist-challenge --run-dir <run-dir> --loop-id $loop_id --cluster-id <cluster-id> \
-  --status waived --waiver-reason "<reason>" --approval-hash <64-char-message-sha256>
-```
-
-#### Stage 3：Synthesis
-
-主 agent 按 `prompts/plan-synthesis-reviewer.md` 合并 primary 与全部 specialist 结果；这一步不是再派一个
-reviewer 投票（去重/裁决/分类规则见 orchestration reference）。生成 synthesis JSON 后入账：
-
-```bash
-GATE record-challenge-synthesis --run-dir <run-dir> --loop-id $loop_id --input challenge-synthesis.json
-```
-
-Synthesis 入账前不得修改 plan 后直接进入 closure。入账后完成 plan 修订；关键技术假设先运行真代码
-spike，并把命令与实际输出回写 plan。意见冲突未解决时 canonical finding 保持 open。
-
-#### Stage 4：Closure diff review
-
-修订后派一个 `{CHALLENGER_ENGINE}`，使用 `prompts/plan-closure-challenger.md`。它只复核 open findings、
-当前 diff、专项冲突、patch-induced 风险和 primary 不可知的新事实；不得无理由重做全量 breadth。
-入账命令同 Stage 1 的 `record-challenge-round`，round 用 `$N`、findings 用 `closure-round-$N.json`，
-另加 `--based-on-plan-hash <上一轮-plan-hash>`。
-
-通常使用 `review_mode=diff`；改用 `consolidated` 的条件与 ID/轮次保留规则见 orchestration
-reference（需已记录对应 control）。Closure 仍有 open P0/P1 时修订 plan 并继续 closure round，
-不重跑无关 specialist；若暴露新的主要结构根因，按 gate 状态做 scope audit 或 architecture
-reset，不用局部补丁强行收敛。
-
-### 控制状态
-
-- `CONTINUE`：修订 plan 后进入下一轮；
-- `CONVERGED`：无 open in-scope P0/P1，核对授权；需要用户决定时进入合并 review；
-- `SPECIALIST_CHALLENGE_REQUIRED`：完成所有 required cluster 的专项挑战；
-- `SYNTHESIS_REQUIRED`：完成并记录统一 synthesis；
-- `CLOSURE_REVIEW_REQUIRED`：修订 plan 后执行统一 closure diff review；
-- `SCOPE_AUDIT_REQUIRED` / `USER_REVIEW_REQUIRED` / `BLOCKED`：3/5/8 轮出口（阈值与语义见
-  config"轮次与出口"）——先审计范围/根因 / 向用户报告原因 / 当前 loop 阻断；
-- `ARCHITECTURE_RESET_REQUIRED`：连续两轮 patch-induced P0 或 scope audit 判定结构重置；
-- `USER_SCOPE_APPROVAL_REQUIRED`：需要改变 profile/scope/trusted boundary。
-
-控制动作必须入账，例如：
-
-```bash
-GATE record-challenge-control --run-dir <run-dir> --loop-id $loop_id \
-  --action scope-audit --outcome <continue|architecture-reset|scope-change> --evidence "<审计证据>"
-```
-
-用户批准 scope change 时使用 `--action scope-change-approved --approval-hash <消息 SHA-256>`；
-如 acceptance/contract 变化，同时提供 `--acceptance <新文件>` / `--assurance-contract <新文件>`。
-Gate 每轮复验两者 hash；未经批准的静默改写直接拒绝。Architecture reset 留在同一 loop，
-随后做 consolidated review，不得重开 loop 规避轮次。
-
-### 收敛判据（当前片全部满足才可实施）
-
-0. 每片的承诺能经实际入口使用并验证；前片产物可用，整体 MUST AC 无漏项。底层准备不冒充交付，只有 mock 不证明真实入口。
-1. Primary breadth coverage 完整，且其所有范围内 P0/P1 已进入 root-cause cluster。
-2. 所有 required cluster 已完成专项挑战，或有理由与用户批准 hash 的显式 waiver。
-3. Synthesis 已记录，冲突已裁决，required spike 已成为显式动作。
-4. **关键技术假设已用真代码验证**：phase-1"实践先行"的假设清单全部有 spike 实测证据
-   （命令 + 实际输出）在 plan 里；挑战中暴露的**新**关键假设，当轮补 spike 再进下一轮。
-   "读过源码应该支持 / 理论上可行"不算闭环；spike 代码即弃，不滚成实现。
-5. Closure review 已完成，且 open in-scope P0/P1 为零。
-6. **相对于已批准范围的 100% 代码可执行**：当前交付片已**认真调研过当前代码层**（相关文件、函数、调用链、
-   依赖、现有实现方式都已读过并写进 plan）；每个改动点已**确认代码级别的修改方式**（改哪个文件/
-   哪段/怎么改/改成什么样，不是假设）；调研中发现的问题/不确定项（接口不清、改动牵连别处、
-   最佳实践存疑）**不允许带着模糊收尾**——必须继续调研到闭环，把结论补回 plan。
-7. 功能可达预期，且满足 `BEHAVIOR_POLICY = preserve-approved`（全文见 config“行为开关”）。
-8. plan 含实现细节调研结论（"怎么做、为什么这样做"）。
-9. **无"绕过真架构问题的补丁式收尾"**（见下方强约束）。
-10. acceptance/assurance contract 没有未经批准的变化。
-11. **不打无把握之仗**：逐个当前片任务核对开工前提——该任务的关键假设已 spike 实测、改动点的现状
-    代码已真读过（plan 现状栏有证据）。任一任务"没把握"（假设未验证、现状是猜的）→ 不算
-    收敛，回去补调查/补实践，而不是开工后靠 A2 回炉兜底。
-
-> 收敛不是 reviewer 写 PASS，也不是迭代满 N 轮；LEAN 由主 agent 对照 findings 清单逐条核对
-> 闭环后判定，FULL 由 gate 从 finding ledger 推导出 `CONVERGED`（3/5/8 轮出口见 config
-> "轮次与出口"）。
-
-### 强约束：真架构问题优先重构，不许小修小补
-
-迭代中挑战者暴露出问题时，先判定它是**真架构问题**还是局部实现问题：
-
-**真架构问题的判定（须有证据，全部命中才算，防止把一切都当架构问题去过度重写）：**
-
-- 问题的**根因在结构层**：职责错位、模块边界穿透、循环依赖、抽象缺失/错位、扩展点不存在，而非某个函数写错；
-- **补丁会制造技术债**：为绕过它要加 hack、加特例分支、复制粘贴、埋下"下次还得再绕"的坑；
-- **同类问题会复发**：不从结构上解决，后续同类需求会反复撞同一堵墙（对照 `methods/research-method.md` 的"主要矛盾"——它常常就是主要矛盾本身）。
-
-**判定为真架构问题 → 铁律：**
-
-1. **按最佳实践重构，不许小修小补**。plan 里对这一处不能写"临时绕过 / 先 hack 一下 / TODO 以后再重构"——必须写出**符合最佳实践的结构改法**（怎么调整边界/抽象/依赖方向），并附本项目适配分析（反对本本主义，见 research-method 第 3 条）。
-2. **不受 `BEHAVIOR_POLICY = preserve-approved` 阻挡**：该策略约束的是已批准外部行为不得
-   静默缩水，不是结构不许改。重构可以改动或删除既有实现，只要保持已批准行为并有回归测试兜底。
-3. **范围闸（防过度重构 + 尊重用户知情权）**：若重构显著超出原需求范围（大面积改动、影响 plan 之外的模块、明显拉长工期），**不自决**——列出"补丁方案 vs 重构方案"的代价对比，标记 BLOCKED 升级给用户拍板（plan-bs 里则直接和用户讨论）。范围可控的重构按铁律 1 直接纳入 plan。
-
-**判定为局部实现问题** → 正常在 plan 里改对即可，不必上纲上线到重构。
-
-> 挑战者提示词已加入"这是真架构问题吗、plan 是不是在用补丁绕过它"的质疑项；我据其结论按上面判定。
-
-### 行为契约冻结（P0：防"单入口"被扩张成"单 Session"式语义跳跃）
-
-需求触及**易混实体**（Session、Run、Task、话题、窗口、Profile、Driver 等）或会改变既有行为时，定稿前必须：
-
-1. 产出**结构化行为契约**，将未获授权的重要行为变化纳入一次 plan review；已明确授权的行为逐项绑定原始请求，不换措辞反复问：
-   - 术语表与实体关系（一个入口 ≠ 一个 Session；一个 Session 可有多个 Run……）；
-   - **before / after 行为表**：现有行为 vs 目标行为逐行对照；
-   - 明确**保留、删除、改变**的旧行为清单。
-2. 行为契约与用户批准记录存 plan 文件夹；FULL（`MACHINE_GATE` 启用时）另把原始用户消息
-   hash、行为契约、批准事件写进 gate 账本（init manifest 的 `behavior_contract` /
-   `source_request`，见 `gate/PROTOCOL.md`）。acceptance 的每个行为断言都要能回溯到这张表
-   ——**acceptance 事实源写错，后面 100% 只会更稳定地做错**。
-3. 可选派 `prompts/acceptance-challenger.md`（qualitative reviewer）挑战语义遗漏；它只产出
-   风险与建议，**不能替代**上述结构化批准与 deterministic gate。
-
-### oracle 先于实现（P0：防测试被反转成验证错误行为）
-
-- **普适规则（所有路径）**：任何 AC 的"什么算对"（验收断言/预期结果）必须在写它的实现
-  代码**之前**写下（plan 任务的验证栏或 testcase 草稿）；禁止实现后照实现补预期——
-  "照着实现写测试"会把 bug 测成预期行为。
-- **FULL（`MACHINE_GATE` 启用时）额外**：定稿后、实现前，把外部 black-box testcase 的
-  逐文件 hash 冻结进 gate 账本（init manifest 的 `testcase_files` → `testcase_lock`）。
-  冻结语义与唯一例外（`behavior_changes` 批准 artifact）见 config `ORACLE_FREEZE`；
-  "看起来只是重写文案"不得自动放行。
-- 实现后**新增**测试可单独记录；**删除、反转、放宽** frozen oracle 必须走上述批准。
-  repo 内部 unit/integration test 的 mutation report 只能作审计信号，不能替代冻结的
-  black-box oracle，也不能单独证明行为变更获得授权。
-
-### Ponytail minimality pass（正确性收敛后、用户 review 前，只跑一次）
-
-正确性 challenger 与最小化 reviewer 不在同一轮混跑：前者寻找遗漏，后者删除冗余，混跑会互相
-制造 finding。Gate 推导 `CONVERGED` 后：
-
-1. 派子代理读取 `prompts/minimality-reviewer.md`，声明 `MODE: plan-pass`；上下文只附定稿 plan、
-   acceptance、assurance contract 与 Ponytail policy。
-2. 将 JSON 保存为 plan 目录的 `minimality-plan-pass.json`。
-3. 仅自动应用 `scope_change=false`、不改变用户行为、不降低 assurance 且保持 AC/risk 覆盖的建议；
-   用户可见行为变化仅带入 review 作为选项。
-4. 修改后同步 AC/任务映射；不得制造 MUST AC 覆盖空洞。无建议即结束，不循环、不凑 finding。
-
-收敛后按 `references/user-attention.md` 核对授权：需要确认时，向用户一起展示 acceptance、行为差异、plan 和决策简报并等待（该 review 消息按 `checklists/handoff.md` 走**轻量评估 + 表 1 原话对照**）；已有授权覆盖时直接定稿。写入 `<!-- plan-status: finalized -->`，同时记录真实授权来源与适用范围，不自造批准记录。
+需确认时一并展示 acceptance、行为差异、plan、决策简报并等（R11；按 `checklists/handoff.md` 轻量评估 + 表 1 原话对照）；已授权覆盖则直接定稿。写 `<!-- plan-status: finalized -->` 并记真实授权来源与范围，不自造批准记录。
 
 ## B. 锁定绿色基线（执行前必做）
 
-首片改代码前记录基线，后续片按已验证内容身份和影响范围检查差异、补必要 smoke；身份未知或新风险才扩大验证，不机械重跑整套基线。供 phase-3/4 回归比对：
-
-1. 跑现有构建（build）、现有测试套件、lint/类型检查，记录结果。
-   - **大型仓库（测试文件 ≥ 200 或单套件预计 > 5 分钟）必须用 `scripts/baseline_runner.py`**，
-     不许用单条全量命令裸跑（DeskPet 实测：15 分钟静默无终态、手工找 PID 精确终止）。
-     仓库根维护 `baseline-shards.json` 分片清单（没有就本次建好留给下次）；runner 提供
-     每片心跳/超时精确杀进程树/既有失败签名（`baseline-known-failures.json`）/新红即停/
-     `--resume` 跳过已绿分片。
-2. 若基线本身就是红的，**先如实告知用户**当前哪些已经是坏的，区分"本次引入的回归"与"既有问题"
-   （既有红用 `--accept-current-failures` 记入签名文件，新红永远阻断）。
-3. 把基线快照（命令 + 结果摘要 + runner 的 state/known-failures 文件路径）记进 plan 文件夹，
-   命名 `baseline.md`。
+1. 首片改代码前跑 build、测试、lint/类型检查并记录。大仓（测试文件 ≥200 或单套件 >5 分钟）→ conditional §大仓基线。
+2. 基线已红 → 先如实告知用户，区分本次回归与既有；既有红记失败签名，新红永远阻断。
+3. 快照（命令、结果摘要、状态/签名文件路径）存 `baseline.md`。
+4. 后续片按内容身份与影响范围查差异、补 smoke；身份未知或新风险才扩大，不机械重跑（RULES R8）。
 
 ## 出口
 
-- plan 已定稿且当前授权覆盖 + 绿色基线已记录 → 进入 phase-3。
+plan 定稿且授权覆盖 + 绿色基线已记录 → phase-3。

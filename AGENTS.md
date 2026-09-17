@@ -8,9 +8,10 @@
 
 1. 改动门禁资产（`skills/plan-test/scripts/plan_test_gate.py` 及配套）必须过它自己的
    全部测试套件：`python3 -m unittest discover -s skills/plan-test/scripts -p 'test*.py'`。
-2. 行为性改动须走 plan-test 验证 run（唯一状态账本 + deterministic validator）；
-   交付判定**只接受** `plan_test_gate.py finalize --run-dir <run-dir>` 的 exit code，
-   手写 SHIP/100% COMPLETE 无效。
+2. 行为性改动须走 plan-test 流程并留可复跑证据。启用 `MACHINE_GATE`（FULL 且高外部性）的
+   run：交付判定**只接受** `plan_test_gate.py finalize --run-dir <run-dir>` 的 exit code，
+   手写 SHIP/100% COMPLETE 无效；默认路径：完成记录 = journal 终态行 + DoD 逐条证据
+   （`skills/plan-test/RULES.md` R12），不得使用 receipt/SHIP 措辞。
 3. 在册 run 的账本只能经 gate CLI 写（手改即 `LEDGER_TAMPERED`）。注意生命周期耦合：
    receipt 绑定**全仓内容指纹**，任何提交都会让既有 receipt 过期；历史轮处置
    （retire/acknowledge）本身也是内容变更——新 run 的 manifest 应把既有
