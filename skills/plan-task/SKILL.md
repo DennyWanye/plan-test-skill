@@ -1,6 +1,6 @@
 ---
 name: plan-task
-description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色基线 → 执行（集中/分兵自决）+ 100% 完成度审计 → 围绕主要矛盾的验收（测试策略路由：MCP 真人测试/自动化脚本）+ testcase 收尾 → 收尾 DoD + 文档回写。当用户说"执行这份 plan""按计划执行并测试""把 plans/xxx 跑了""实施这个计划""/plan-task"时使用。输入是一份现成的 plan（通常由 plan-bs 产出）。注意：还没有 plan、需要先讨论或先写 → 用 plan-bs 或 plan-test；只想写 plan 不执行 → writing-plans。
+description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色基线 → 执行（主 Agent 亲手写代码，子代理只评测）+ 100% 完成度审计 → 围绕主要矛盾的验收（测试策略路由：MCP 真人测试/自动化脚本）+ testcase 收尾 → 收尾 DoD + 文档回写。当用户说"执行这份 plan""按计划执行并测试""把 plans/xxx 跑了""实施这个计划""/plan-task"时使用。输入是一份现成的 plan（通常由 plan-bs 产出）。注意：还没有 plan、需要先讨论或先写 → 用 plan-bs 或 plan-test；只想写 plan 不执行 → writing-plans。
 ---
 
 # plan-task
@@ -40,7 +40,7 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 ### 3. 执行+完成度审计
 
-按 `../plan-test/phase-3-execute.md`：执行模式自决（分兵不降门强度）、与本机 hook 共处、A4 code review、`{AUDITOR_ENGINE}` 审计、回归门对照 baseline；里程碑 PASS 后异步 demo+矛盾再分析。plan 失效即回炉（A2），执行子代理只能上报，无权自行绕行。
+按 `../plan-test/phase-3-execute.md`：主 Agent 亲手写全部代码、不派执行子代理（R15）、主体跑通前只跑便宜层与单次价值 smoke（R16）、与本机 hook 共处、A4 code review、`{AUDITOR_ENGINE}` 审计、回归门对照 baseline；里程碑 PASS 后异步 demo+矛盾再分析。plan 失效即回炉（A2），评测子代理只能上报，无权自行改代码或绕行。
 
 ### 4. 验收
 

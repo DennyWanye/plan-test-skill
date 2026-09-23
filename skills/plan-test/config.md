@@ -3,10 +3,10 @@
 键=默认值→细则(Rn=RULES.md，full=full/config.md，cond§X=conditional/config.md §X)。项目 `.claude/plan-test.config.md` 同名键覆盖，不得视沉默为批准、扩大授权或降 required 证据。(交接)=按 checklists/handoff.md 评估。
 
 ## 引擎与路径
-- `EXECUTOR_ENGINE`: current — 继承当前会话模型(不指定 model)
+- `EXECUTOR_ENGINE`: 已撤销(v0.9.1) — 仓库代码只由主 Agent 写，无执行子代理 → R15；FULL manifest `executor_engine` 填主 Agent 当前模型
 - `CHALLENGER_ENGINE`: claude；`AUDITOR_ENGINE`: opus-4.8
 - `PLANS_DIR`: ./plans；`TESTCASE_DIR`: ./testcase；`ACCEPTANCE_FILE`: ./acceptance.md
-- 已撤销：ARCH_DIR、PARALLEL_TRACKS
+- 已撤销：ARCH_DIR、PARALLEL_TRACKS、EXECUTOR_ENGINE
 
 ## 流程分档
 裁剪须明示有边界，不偷偷跳步；疑义往高判。
@@ -44,7 +44,8 @@
 - `COMMIT_STATE_GATE`: required → R6
 - → R8：`FULL_SURFACE_SMOKE`: required；`INCREMENTAL_AC_MODE`: on(小功能也走流程)；`REVALIDATION_SCOPE`: change-scoped
 - 冒烟：脚本存盘可复跑；affected 按入口依赖/impact_paths；全量另含改启动装配/中间件、映射覆盖不全
-- `WIRING_CHECK`: required → phase-4；`EXECUTION_MODE`: self-decide → phase-3
+- `WIRING_CHECK`: required → phase-4
+- `EXECUTION_MODE`: main-agent；`SUBAGENT_SCOPE`: eval-and-test-only → R15/phase-3；`COSTLY_TESTS_AFTER_CORE`: required → R16
 - cond§输入语义敏感：MANUAL_SCENARIO_MATRIX, MANUAL_MIN_DISTINCT_CLASSES, MANUAL_REQUIRE_NEGATIVE_CLASS, MANUAL_REQUIRED_PENDING_POLICY(交接), MANUAL_MIN_POSITIVE_SAMPLES
 - cond§LLM 载荷：LLM_PAYLOAD_ADVERSARIAL, STOCHASTIC_MIN_RUNS；cond§冷启动：COLD_START_SCENARIO
 

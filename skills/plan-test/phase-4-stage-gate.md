@@ -11,12 +11,13 @@
 - 有 UI：MCP 真人点击/输入（`checklists/manual-test-mcp.md`），`MANUAL_TEST = required`。
 - API/CLI/数据管道/库/定时任务：自动化脚本（正确手段非降级），必须存盘、可复跑、纳入回归套件。
 - 兼有：两者都做（脚本验逻辑，MCP 验交互）。
+- 并行测试子代理：仅在主体跑通后（RULES R16）跑主 Agent 已写好的可复跑脚本或独立场景，每个子代理独占测试库/端口/worktree，共享资源的串行跑；只交结果与证据，不改代码（RULES R15）。
 
 ## ② 便宜门序（红则先修，不进下一层；冷启动适用时排最前）
 1 类型检查 → 2 lint →
 3 接线断言（`WIRING_CHECK = required`）：新 export/枚举/入参在入口层须有真实引用（无引用→人工确认，漏接即 FAIL）；运行时白名单用 `satisfies` + exhaustiveness 断言与类型全集同步 →
 4 单元/集成 →
-5 核心价值 smoke：跑 acceptance 声明的最小验证动作，失败立即 BLOCKED 早停，不进任何昂贵步骤（RULES R4）→
+5 核心价值 smoke：跑 acceptance 声明的最小验证动作，失败立即 BLOCKED 早停，不进任何昂贵步骤（RULES R4/R16）→
 6 分级冒烟（`FULL_SURFACE_SMOKE`）：范围内每个入口打一枪，任一 404/500/未接通即 FAIL；点了没反应先 grep 路由是否存在/挂载/取用新入参 →
 7 含 LLM 结构化输出：provider 契约门（conditional）。
 

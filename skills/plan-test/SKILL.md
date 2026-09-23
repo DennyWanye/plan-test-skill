@@ -24,7 +24,7 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 
 ## 铁律索引（正文 RULES.md）
 
-R1 唯一真相·R2 主要矛盾·R3 oracle·R4 价值 smoke·R5 真人测试·R6 提交态·R7 review·R8 复验·R9 BLOCKED/出口·R10 交接·R11 用户注意力·R12 终态行/retro·R13 行为不缩水·R14 禁自造防御/语言
+R1 唯一真相·R2 主要矛盾·R3 oracle·R4 价值 smoke·R5 真人测试·R6 提交态·R7 review·R8 复验·R9 BLOCKED/出口·R10 交接·R11 用户注意力·R12 终态行/retro·R13 行为不缩水·R14 禁自造防御/语言·R15 主 Agent 写代码·R16 高成本测试后置
 
 ## 阶段全景
 
@@ -43,13 +43,13 @@ delivery 规划/执行同时读 `references/delivery-slices.md`。
 1. A 草案→1→2→授权核对：可基于标注草案调查挑战，不先改用户目标；review 时验收+plan+决策简报合并一次提交。
 2. 授权覆盖定稿方案且无重要未决取舍→直接进 phase-3，否则等对应决定（R11）。
 3. 每片：真实入口 PASS→其余验证/review/审计/提交身份核对→异步 demo→细化下一片；FAIL→修复/A2 或真实阻塞；片内/整体分别报告。
-4. phase-4：便宜门→核心价值 smoke（FAIL 即停）→决定性深测→次要各一遍→testcase 收尾。
+4. phase-4：便宜门→核心价值 smoke（FAIL 即停）→决定性深测→次要各一遍→testcase 收尾；高成本测试只在此处、主体跑通后做（R16）。
 5. final：文档回写→DoD→终态行→retro→提交→（要推送）push 前 review（FULL 加 re-attest/full-audit/finalize）。
 - 每阶段先读文档（防跳步硬闸）：完整读 phase 文档，在 plan/journal 记必做项清单逐项核对；调研按 `methods/research-method.md`。
 
 ## 子代理
 
-- prompt 在 `prompts/`，引擎 `CHALLENGER_ENGINE`/`AUDITOR_ENGINE`，分兵执行 `{EXECUTOR_ENGINE}`；编排/authority 见 `references/challenge-orchestration.md`。
+- 只做评测（挑战/审计/review/评估/只读调研）与主体跑通后的并行测试，不写仓库代码（RULES R15/R16）；prompt 在 `prompts/`，引擎 `CHALLENGER_ENGINE`/`AUDITOR_ENGINE`；编排/authority 见 `references/challenge-orchestration.md`。
 - 上下文包（派发必附）：嵌入 acceptance 原文、plan 片段、open/resolved 清单（不只给摘要）；圈定范围禁全仓扫描；后续轮只传 diff+ID。
 
 ## 何时不要用

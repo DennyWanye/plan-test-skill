@@ -21,6 +21,7 @@
 ## 设计原则
 
 - **减少用户打断（v0.8.0）**：根据已有目标和授权调查、制定计划并自主执行，不重复询问阶段切换或是否继续修复。确需用户决策时，先提供事实、推荐、代价与剩余未知；保留明确的等待、停止和操作授权边界。详见 [RULES R11](skills/plan-test/RULES.md)，续接与授权细则见 [user-attention](skills/plan-test/references/user-attention.md)。
+- **主 Agent 写代码、高成本测试后置（v0.9.1）**：仓库代码只由主 Agent 亲手写、改、修；子代理只做评测类（挑战/审计/code review/评估/只读调研）和主体跑通后的并行测试，输出只有 findings/verdict/证据。主体跑通（最短价值路径接线完整 + 便宜门绿 + 核心价值 smoke 单次 PASS）之前只跑便宜层，真人矩阵/多样本采样/全量回归/生产真跑等高成本测试后置到 phase-4 一次做全。详见 [RULES R15/R16](skills/plan-test/RULES.md)。
 - **交接前检查与分层加载（v0.9.0）**：结束一轮回复前命中交接四问（做少了、要用户动手、要用户决策、交付完成）就按 `checklists/handoff.md` 过档并派独立评估员，PASS 才发。LEAN 一次完整运行的必读文档压到 60KB 以内；closure 轮对已解决的次要 finding 可按历史推导跳过复核（仍由 gate 校验）。
 - **按可交付能力切片（v0.8.0）**：整体目标 → 可用能力切片 → 片内技术任务。每片有真实入口、实现前测试预期、依赖和保留能力；当前片细化后实施，整体风险提前调查。每片实际验证并形成可追溯提交后自主推进，原始全部验收与必要组合验证保留；小需求可以只有一片。详见 [切片规则](skills/plan-test/references/delivery-slices.md)。
 - **战略上藐视，战术上重视（v0.7.0 总纲）**：战略上敢裁剪仪式——默认 LEAN、默认一页 journal 收尾、挑战与测试力度按矛盾地位收窄、说不出理由的门跳过留痕；战术上每条声明必须有实测证据——决定性 AC 必须真验证、真人测试不降级、提交态必须干净。**砍的是仪式，不是证据。**
@@ -93,7 +94,7 @@ git pre-push 与 CI 锚点不随插件自动启用，见 `hooks/README.md`。
 常用覆盖：
 
 ```markdown
-EXECUTOR_ENGINE: claude     # 默认 current=跟随当前会话模型；这里固定为 Claude 子代理
+CHALLENGER_ENGINE: claude   # 挑战/评审子代理引擎（执行子代理已撤销：v0.9.1 起仓库代码只由主 Agent 写）
 MAX_ROUNDS: 10              # 修复/复审循环上限（默认 15），超限 BLOCKED
 MANUAL_TEST: required
 ```
