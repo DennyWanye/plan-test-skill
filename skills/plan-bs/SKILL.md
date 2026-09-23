@@ -15,9 +15,9 @@ description: 头脑风暴式计划共创：通过多轮对话引导用户澄清�
 4. 判任务类型（`TASK_TYPE`，见 config"流程分档"）：ops 走 OPS（快照/回滚先行、1 轮实测挑战、journal 收尾，不套交付仪式）；delivery 读 `../plan-test/references/delivery-slices.md`：当前片细化定稿后交 plan-task 实施
 5. 建 TodoWrite：按下面 5 步
 
-**交接前检查（`HANDOFF_CHECK`）**：每次结束本轮回复前先问四问——让用户动手？要用户表态（含汇报里顺带一句）？说完成/通过/可推送？停下等用户？任一为是 = 交接：读 `../plan-test/checklists/handoff.md` 按对应档过一遍并派评估员（`MODE: full|light`），PASS 或（文字类问题改完）才发；消息第一段先写需要用户做什么。上下文压缩后第一次交接前必须重读该文件。
+**交接前检查（`HANDOFF_CHECK`）**：结束本轮回复前按 `../plan-test/RULES.md` R10 交接卡走（四问 → 档位 → 派评估员 → fix_class 处置 → 末行）。
 
-上下文压缩后重读本文件、`RULES.md`、当前阶段文档。
+上下文压缩后重读 `RULES.md` 与 `{PLANS_DIR}/<feature>/checklist.md`（当前步必做项清单）；phase 文档只在清单不够用时再读。
 
 ## 流程
 

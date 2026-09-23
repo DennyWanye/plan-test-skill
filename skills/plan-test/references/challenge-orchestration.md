@@ -1,6 +1,6 @@
 # Plan challenge orchestration protocol
 
-挑战子代理的共同协议：派发时把本文件原文与对应 role prompt 一起放入上下文包；子代理不自行全仓扫描。主 agent 的流程与各阶段动作在 `challenge-main-agent.md`（LEAN 必读）。FULL 入账命令与 gate 集成见 `full/phase-2-iterate-plan.md`。
+挑战子代理的共同协议：派发时给本文件与对应 role prompt 的路径，子代理先读完再开工；子代理不自行全仓扫描。主 agent 的流程与各阶段动作在 `challenge-main-agent.md`（LEAN 必读）。FULL 入账命令与 gate 集成见 `full/phase-2-iterate-plan.md`。
 
 ## 流程位置
 

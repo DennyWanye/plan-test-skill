@@ -18,9 +18,9 @@ description: 端到端"矛盾分析→调查写plan→挑战定稿→执行→�
 5. 列门清单存入 plan：跑/跳过各附一句理由；条件门只在真命中时生效。
 6. 建 TodoWrite：按路径阶段逐项推进
 
-**交接前检查（`HANDOFF_CHECK`）**：每次结束本轮回复前先问四问——让用户动手？要用户表态（含汇报里顺带一句）？说完成/通过/可推送？停下等用户？任一为是 = 交接：读 `checklists/handoff.md` 按对应档过一遍并派评估员（`MODE: full|light`），PASS 或（文字类问题改完）才发；消息第一段先写需要用户做什么。上下文压缩后第一次交接前必须重读该文件。
+**交接前检查（`HANDOFF_CHECK`）**：结束本轮回复前按 RULES R10 交接卡走（四问 → 档位 → 派评估员 → fix_class 处置 → 末行）。
 
-上下文压缩后先重读本文件、`RULES.md`、当前阶段文档。续接按 `references/user-attention.md` 恢复事实，重跑声明范围分级冒烟（R8）。
+上下文压缩后重读 `RULES.md` 与 `{PLANS_DIR}/<feature>/checklist.md`（当前阶段必做项清单）；phase 文档只在清单不够用时再读。续接按 `references/user-attention.md` 恢复事实，重跑声明范围分级冒烟（R8）。
 
 ## 铁律索引（正文 RULES.md）
 
@@ -45,7 +45,7 @@ delivery 规划/执行同时读 `references/delivery-slices.md`。
 3. 每片：真实入口 PASS→其余验证/review/审计/提交身份核对→异步 demo→细化下一片；FAIL→修复/A2 或真实阻塞；片内/整体分别报告。
 4. phase-4：便宜门→核心价值 smoke（FAIL 即停）→决定性深测→次要各一遍→testcase 收尾；高成本测试只在此处、主体跑通后做（R16）。
 5. final：文档回写→DoD→终态行→retro→提交→（要推送）push 前 review（FULL 加 re-attest/full-audit/finalize）。
-- 每阶段先读文档（防跳步硬闸）：完整读 phase 文档，在 plan/journal 记必做项清单逐项核对；调研按 `methods/research-method.md`。
+- 防跳步：每阶段开工前读一次对应 phase 文档，把必做项清单写进 `{PLANS_DIR}/<feature>/checklist.md` 逐项核对；之后按清单推进，不为同一阶段重读。调研按 `methods/research-method.md`。
 
 ## 子代理
 

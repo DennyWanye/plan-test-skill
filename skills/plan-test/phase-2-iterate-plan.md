@@ -16,7 +16,7 @@
 ### 记账与编排（LEAN）
 
 - 不用 gate 记账：findings 存 `round-N-findings.json` / `closure-N.json`，主 agent 自维护 open/resolved 清单；3/5/8 轮出口人判（RULES R9）。首轮可用标明待决项的草案，实现前核对授权或合并 review（RULES R11）。
-- 派子代理给 `references/challenge-orchestration.md` 原文 + role prompt + 最小上下文包，不抄规则进 prompt；流程与各阶段动作见 `references/challenge-main-agent.md`。
+- 派子代理时给 `references/challenge-orchestration.md` 与对应 role prompt 的路径（子代理自读）+ 最小上下文包，不抄规则、不贴原文进 prompt；流程与各阶段动作见 `references/challenge-main-agent.md`。
 - primary → specialist → synthesis → closure；specialist/closure 只围绕主要矛盾 cluster。closure 仍有 open P0/P1、出现新主要结构根因或需 architecture reset → 立即升级 FULL。
 
 ### 收敛判据（当前片全满足才实施）
@@ -52,7 +52,7 @@
 
 ### 定稿
 
-需确认时一并展示 acceptance、行为差异、plan、决策简报并等（R11；按 `checklists/handoff.md` 轻量评估 + 表 1 原话对照）；已授权覆盖则直接定稿。写 `<!-- plan-status: finalized -->` 并记真实授权来源与范围，不自造批准记录。
+需确认时一并展示 acceptance、行为差异、plan、决策简报并等（R11；按 R10 `MODE: light` 评估 + 表 1 原话对照）；已授权覆盖则直接定稿。写 `<!-- plan-status: finalized -->` 并记真实授权来源与范围，不自造批准记录。
 
 ## B. 锁定绿色基线（执行前必做）
 

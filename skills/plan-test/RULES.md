@@ -42,13 +42,19 @@
 - plan challenge 3/5/8：`SCOPE_AUDIT_REQUIRED`/`USER_REVIEW_REQUIRED`/loop BLOCKED。reset 不清零历史。
 - plan 缺陷禁打补丁→A2，A2≥3 次回 phase-2。
 
-## R10 交接检查与独立评估
-- **交接检查与独立评估**（`HANDOFF_CHECK`）— 触发时点：结束本轮回复前四问任一为是；要求：按 `checklists/handoff.md` 过档并派评估员，PASS 才发（文字类/DISPUTED 按该文件）；防的逃逸：做少、自测不净、决策讲不清。
+## R10 交接卡（`HANDOFF_CHECK`）
+- **四问**（结束本轮回复前，任一为是即交接，拿不准就当是）：①让用户动手？②要用户表态（含汇报里顺带一句）？③说完成/通过/已修/可推送，或断言系统能不能做某事？④停下等用户？
+- **档位**：①③ → `MODE: full`（H1 需求没做少、H2 自测到位、H3 决策讲清）；只有 ②④ → `MODE: light`（H3，决策依据的事实断言附来源）；都没有 → 自查 H3 自问句与 H4，不派。一条消息只评一次，按最高档。
+- **派评估员**：只读子代理；prompt 给 `prompts/test-result-evaluator.md` 路径（评估员自读）+ 上下文包（草稿、plan 文件夹、HEAD、`MODE`、`ROUND: n`）；每交接点 ≤ `HANDOFF_EVAL_MAX_ROUNDS` 轮。
+- **fix_class 处置**：`硬伤` → 修好重评（`ROUND+1`）PASS 才发；`文字` → 按 fix 改完即发，不重评，改了哪几条记 journal；3 轮仍 block → BLOCKED 请用户定；评估员误读事实且已给反证 → 可发，首段写"交接评估有 N 条分歧"并逐条说明。
+- **评估员输出异常 = FAIL 重派，不自评**：`scripts/handoff_eval_result.py` 判定（JSON 取不到唯一对象、缺 verdict/findings/fix_class、空或拒答）→ 重派一次，仍异常 → BLOCKED 记 journal；不得当 PASS，不得改用自评替代。
+- **有效期与末行**：PASS 只对被评的代码与草稿有效，之后改代码/改声明或待决项/新问题/用户新决定 → 重评。消息第一段先写需要用户做什么（H0）；末行固定 `交接评估：PASS | 文字类已改 | DISPUTED（评估文件名）`；评估输出原样存 plan 文件夹，发前确认文件在且与末行一致。
+- 细则（H0–H4 条文、改写纪律）见 `checklists/handoff.md`；防的逃逸：做少、自测不净、决策讲不清。
 
 ## R11 用户注意力
 - `USER_ATTENTION`/`EXECUTE_AUTONOMY`：授权覆盖且无重要未决取舍→自主执行，技术选择自决；只在意图缺失、可感知行为变化或缩 AC、增成本扩范围、无授权、需用户动作、用户要求确认时问；沉默不算批准。
-- `DECISION_BATCHING`：攒批编号，`checklists/handoff.md` H3；不挂起，继续不依赖它的工作。
-- `PROGRESS_REPORTING`：先总进度表，用户语言，格式按 `checklists/handoff.md` H3；demo 异步不等待（事先约定或用户要求先验收除外）。提问/汇报/续接细则见 `references/user-attention.md`。
+- `DECISION_BATCHING`：攒批编号，交接单 H3；不挂起，继续不依赖它的工作。
+- `PROGRESS_REPORTING`：先总进度表，用户语言，格式按 交接单 H3；demo 异步不等待（事先约定或用户要求先验收除外）。提问/汇报/续接细则见 `references/user-attention.md`。
 
 ## R12 终态行与自我批评
 - **终态行**（`JOURNAL_VERDICT`）— 触发时点：final DoD 后、提交前；要求：journal 末行 `VERDICT: SHIPPED | BLOCKED — <TESTED SCOPE> — <日期> — <被测 HEAD sha>`，HEAD 写被验证的代码提交，与 DoD 一致；定不了 SHIPPED 写 BLOCKED+一句卡点（合法终态），无终态行=未闭环；防的逃逸：通读 journal 才知是否通过。
@@ -68,3 +74,9 @@
 
 ## R16 主体跑通前不做高成本测试
 - **高成本测试后置**（`COSTLY_TESTS_AFTER_CORE`）— 触发时点：phase-1 spike、phase-3 执行中、phase-4 门序；要求："主体跑通"= 当前片最短价值路径接线完整 + 便宜门绿 + 核心价值 smoke 单次 PASS（R4）；此前只允许便宜层（类型/lint/受影响单测与集成测试）和单次价值 smoke，spike 只跑最小一次；高成本测试（MCP 真人多场景/矩阵、多样本随机采样、全量回归或大仓套件、生产/大数据集真跑、并行测试子代理、任何要人/外部资源/长耗时/花钱的验证）只在主体跑通后按 phase-4 门序做，一次做全不反复；修复后按 R8 只回受影响面；防的逃逸：主链没通就堆测试凑覆盖率，把返工成本乘上测试成本。
+
+## R17 轮次与输出纪律（指引，不设门）
+- `OUTPUT_SPILL_THRESHOLD`=8000 字符。做法指引，不自检、不设门；理由：v0.9.0 一周主会话占成本 77%，每轮上下文中位 272K，96% 的消息只调一个工具，这些主 Agent 自己就能省，不影响交付质量。
+- ① 连续的只读查证命令合并成一次 Bash；② 互不依赖的调用放同一轮并行。
+- ③ 预计输出 > 阈值的命令重定向到 `{PLANS_DIR}/<feature>/artifacts/<名>.log`（`artifacts/` 进 `{PLANS_DIR}` 的 `.gitignore`），按类型带固定摘要回上下文：测试 `grep -nE 'FAILED|ERROR|passed|failed' <log> | tail -n 40`；diff `git diff --stat`；查询 `head -n 20` + `wc -l`；journal 记路径。
+- ④ 测试套件、生产查询、全量 diff 一律走 ③。

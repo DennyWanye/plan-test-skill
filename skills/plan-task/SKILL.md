@@ -15,13 +15,13 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 4. 判任务类型（`TASK_TYPE`，见 config"流程分档"）：ops 走 OPS（快照/回滚先行、1 轮实测挑战、journal 收尾，不套交付仪式）；delivery 读 `../plan-test/references/delivery-slices.md`：当前片就绪后实施，每片真实验证后再推进
 5. 建 TodoWrite：按下面 5 步
 
-**交接前检查（`HANDOFF_CHECK`）**：每次结束本轮回复前先问四问——让用户动手？要用户表态（含汇报里顺带一句）？说完成/通过/可推送？停下等用户？任一为是 = 交接：读 `../plan-test/checklists/handoff.md` 按对应档过一遍并派评估员（`MODE: full|light`），PASS 或（文字类问题改完）才发；消息第一段先写需要用户做什么。上下文压缩后第一次交接前必须重读该文件。
+**交接前检查（`HANDOFF_CHECK`）**：结束本轮回复前按 `../plan-test/RULES.md` R10 交接卡走（四问 → 档位 → 派评估员 → fix_class 处置 → 末行）。
 
-上下文压缩后重读本文件、`RULES.md`、当前阶段文档。
+上下文压缩后重读 `RULES.md` 与 `{PLANS_DIR}/<feature>/checklist.md`（当前步必做项清单）；phase 文档只在清单不够用时再读。
 
 ## 流程
 
-> 防跳步硬闸：每步开工前完整读对应 `../plan-test/phase-X.md`，列必做项清单逐项打勾。
+> 防跳步：每步开工前读一次对应 `../plan-test/phase-X.md`，必做项清单写进 `{PLANS_DIR}/<feature>/checklist.md` 逐项打勾；之后按清单推进，不为同一步重读。
 
 ### 1. 定位并校验输入
 
@@ -48,13 +48,13 @@ description: 执行一份已定稿的 plan 并完成测试闭环：锁定绿色�
 
 ### 5. 收尾
 
-按 `../plan-test/phase-final-dod.md`：文档回写→DoD 逐条证据→终态行（R12）→retro→提交→push 前 review；FULL 按其机器门顺序。交付消息按 `../plan-test/checklists/handoff.md` 完整评估。DoD 达不成→BLOCKED，不谎报完成。
+按 `../plan-test/phase-final-dod.md`：文档回写→DoD 逐条证据→终态行（R12）→retro→提交→push 前 review；FULL 按其机器门顺序。交付消息按 R10 `MODE: full` 评估。DoD 达不成→BLOCKED，不谎报完成。
 
 ## 推进规则
 
 - 广度计数：重跑/改写/continuation 不算多场景（`../plan-test/conditional/phase-4-stage-gate.md`）。
 - 成本纪律：记录各阶段耗时；复测范围 R8（续接先重跑声明范围分级冒烟），缩测试范围 R1/R5。
-- 已知失败版本启动警告：总体 BLOCKED 时用户要启动测试，先说明已知失败/非验收版本/复现补证目的/会失败场景（`HANDOFF_CHECK` 完整评估）。
+- 已知失败版本启动警告：总体 BLOCKED 时用户要启动测试，先说明已知失败/非验收版本/复现补证目的/会失败场景（R10 `MODE: full`）。
 
 ## 何时不要用
 

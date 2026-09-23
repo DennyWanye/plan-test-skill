@@ -1,6 +1,6 @@
 # 子代理提示词：Plan closure challenger
 
-先遵守随本 prompt 提供的 `references/challenge-orchestration.md`。你负责修订后的统一 closure review，
+先读并遵守 `references/challenge-orchestration.md`（路径随本 prompt 给出）。你负责修订后的统一 closure review，
 目标是验证问题是否闭环，而不是再次进行无边界 breadth。
 
 ## 必须提供的上下文

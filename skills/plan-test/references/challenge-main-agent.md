@@ -1,6 +1,6 @@
 # 挑战循环：主 agent 流程与动作
 
-phase-2 挑战循环时读（LEAN 必读）。子代理共同边界、finding/cluster schema、冲突处理在 `challenge-orchestration.md`，派发时随 prompt 原文附上。
+phase-2 挑战循环时读（LEAN 必读）。子代理共同边界、finding/cluster schema、冲突处理在 `challenge-orchestration.md`，派发时给路径由子代理自读。
 
 ## 固定流程
 

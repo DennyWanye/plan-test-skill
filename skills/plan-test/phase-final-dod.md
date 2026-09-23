@@ -12,8 +12,9 @@
 2. DoD 清单逐条核对（下节）。
 3. `journal.md` 末尾写终态行（RULES R12）。
 4. 自我批评（RULES R12 各项＋哪些用户打断可消除）写 `{PLANS_DIR}/<feature>/retro.md`。
+4b. 成本报表：`python3 <skill>/scripts/run_cost_report.py --session-id $CLAUDE_CODE_SESSION_ID` 输出附在 retro.md 末尾（只记录，不判定）；取不到会话 ID 写一行原因。
 5. 提交：全部改动提交，工作树干净（RULES R6）。
-5b. **交接复核（`HANDOFF_CHECK`）**：第 6 步之后、发完成消息之前，按 `checklists/handoff.md` H1 真实入口对照原话表、H0 消息结构，派评估员 `MODE: full`；硬伤修好重评 PASS 才发，文字类改完即发；记录行写 journal。
+5b. **交接复核（`HANDOFF_CHECK`）**：第 6 步之后、发完成消息之前，按 RULES R10 交接卡派 `MODE: full`（H1 真实入口对照原话表、H0 消息结构）；记录行写 journal。
 6. push 前 code review（仅推送远程时；不推送留理由）：P0/P1 修完再推；修复动代码 → 分层复验，触及用户可见行为 → 重跑受影响场景 + 至少 1 个未受影响类别；结论入 journal（RULES R7、R8）。
 7. FULL（`MACHINE_GATE`）→ `full/phase-final-dod.md` 固定顺序。
 8. 存储卫生：`du` 查大体积证据，超保留策略的只留可追溯指针或摘要；不删 active run、唯一证据、用户要求留存的；清理已完成且无未提交改动的临时 worktree，不动用户在用或来源不明的。
@@ -23,7 +24,7 @@
 > 附不上证据 → BLOCKED 升级（RULES R9）；验证针对已提交状态（RULES R6）。
 
 - [ ] 决定性 AC 实测达成 —— 价值 smoke 输出 + 审计结论；此条 FAIL 不可救场（RULES R4）
-- [ ] 整体可用性：核心路径整机走通（`checklists/handoff.md` H2.2–H2.3）—— journal/审计
+- [ ] 整体可用性：核心路径整机走通（交接单 H2.2–H2.3）—— journal/审计
 - [ ] MUST AC 全有测试证据 —— phase-4 兑现表，无 ❌、无未批准降级（RULES R5）
 - [ ] `a2-events.md` 全部已回炉闭环
 - [ ] 工作树干净已提交 —— porcelain 空 + `git log -1`；警惕未跟踪接线文件（RULES R6）
@@ -43,7 +44,7 @@
 
 ## 升级与交付措辞
 
-- 升级按 `checklists/handoff.md` H0/H3（首段写用户要做什么），走轻量评估（RULES R9）。
+- 升级按 R10 `MODE: light`（H0 首段写用户要做什么、H3 三段）（RULES R9）。
 - "100%"只指声明范围内 required 门全绿；总体 BLOCKED 时用户要启动测试 → 先告知是已知失败版本、目的、已知失败场景。
 - 交付措辞：写明"完成判定依据 journal 与 DoD 清单（无机器 receipt）"+ 测试范围 + 证据位置 + KNOWN GAPS（RULES R12）。
 - 全绿总结：做了什么、主要矛盾如何被验证、覆盖哪些 AC、证据/文档更新在哪、新增回归。

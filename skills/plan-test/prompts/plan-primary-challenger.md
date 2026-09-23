@@ -1,6 +1,6 @@
 # 子代理提示词：Plan primary breadth challenger
 
-先遵守随本 prompt 提供的 `references/challenge-orchestration.md`。你负责且只负责挑战循环的第一阶段：
+先读并遵守 `references/challenge-orchestration.md`（路径随本 prompt 给出）。你负责且只负责挑战循环的第一阶段：
 用一轮 breadth review 找出主要矛盾、当前输入可推导的全部范围内 P0/P1，并按结构根因聚类。
 
 ## 必须提供的上下文

@@ -1,6 +1,6 @@
 # Phase 4 — 验收（围绕主要矛盾）
 
-- 失败先自修；BLOCKED 不自动要求用户接管，升级消息按 `checklists/handoff.md` 轻量评估；只有实际解锁需要用户时才给调查结果与最小动作，保持未通过事实（RULES R9）。
+- 失败先自修；BLOCKED 不自动要求用户接管，升级消息按 R10 `MODE: light` 评估；只有实际解锁需要用户时才给调查结果与最小动作，保持未通过事实（RULES R9）。
 - **便宜的门在前，贵的门在后**；**主要矛盾先测深测，次要 AC 各过一遍**（RULES R2）。
 - 条件命中读 `conditional/phase-4-stage-gate.md`；FULL 读 `full/phase-4-stage-gate.md`。
 
@@ -23,14 +23,14 @@
 
 ## ③ 场景测试
 1. 决定性 AC 先测深测；任一 FAIL → 停一切收尾（打包/发布/DoD/"接近完成"），只能 BLOCKED，修后重过门序。已知 BLOCKER 还继续收尾 = 谎报进度。
-2. 次要 AC 各一个场景；确定性 UI（设置/开关/CRUD/导航）不套多问题门槛。"一个场景"只指输入类别数，不豁免 `checklists/handoff.md` H2 证据。
+2. 次要 AC 各一个场景；确定性 UI（设置/开关/CRUD/导航）不套多问题门槛。"一个场景"只指输入类别数，不豁免 交接单 H2 证据。
 3. **兑现表（必产出）**，每条必须 AC 一行：AC | 矛盾地位 | 含 UI | 方式 | 驾驶者 | 真机证据位置 | 状态。
    - 含 UI 的 AC 证据须是实际 MCP 操作，"代码审计/逻辑等价"记 ❌；后端 AC 用可复跑脚本断言。
-   - 任何 required 测试无法执行（环境受阻、设备缺失）→ BLOCKED 升级（发前按 `checklists/handoff.md` 轻量评估）不静默降级，等价方案须用户批准并表注（RULES R5）。
-   - 待批项（等价方案/全 AI 驾驶/豁免/范围缩减）攒一批一次问（RULES R11）；发出前按 `checklists/handoff.md` 轻量评估。
+   - 任何 required 测试无法执行（环境受阻、设备缺失）→ BLOCKED 升级（发前按 R10 `MODE: light` 评估）不静默降级，等价方案须用户批准并表注（RULES R5）。
+   - 待批项（等价方案/全 AI 驾驶/豁免/范围缩减）攒一批一次问（RULES R11）；发出前按 R10 `MODE: light` 评估。
    - 主流程外逐条照见设置项、开关态、权限隔离、空态、错误态。
 4. 输入语义敏感：广度账本见 conditional。全 AI 驾驶须用户批准，否则至少 1 个 required 场景由用户亲自驾驶，排在交接评估 PASS 之后作用户验收。
-5. **`HANDOFF_CHECK`**：叫用户验收、给 demo 或宣布完成前，按 `checklists/handoff.md` H0–H4 自查后派 `MODE: full` 评估（评估员自跑 `scripts/handoff_evidence.py`；fix_class 与轮次按该文件）；排在 ⑤ 之后、发消息之前。
+5. **`HANDOFF_CHECK`**：叫用户验收、给 demo 或宣布完成前，按 RULES R10 交接卡派 `MODE: full` 评估（评估员自跑 `scripts/handoff_evidence.py`）；排在 ⑤ 之后、发消息之前。
 
 ## ④ journal.md
 1 核心 smoke 命令+摘要；2 兑现表；3 冒烟脚本路径+摘要；4 广度账本（适用时）；5 遗留问题（不许悬空"留待后续"）；5b 交接记录行（每次一行：时间|类型|模式|轮次|verdict|fix_class 处置|HEAD|草稿 sha256|评估文件）；6 终态行，phase-final 填（RULES R12）。

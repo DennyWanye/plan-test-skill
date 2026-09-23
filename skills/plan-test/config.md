@@ -1,6 +1,6 @@
 # plan-test 配置
 
-键=默认值→细则(Rn=RULES.md，full=full/config.md，cond§X=conditional/config.md §X)。项目 `.claude/plan-test.config.md` 同名键覆盖，不得视沉默为批准、扩大授权或降 required 证据。(交接)=按 checklists/handoff.md 评估。
+键=默认值→细则(Rn=RULES.md，full=full/config.md，cond§X=conditional/config.md §X)。项目 `.claude/plan-test.config.md` 同名键覆盖，不得视沉默为批准、扩大授权或降 required 证据。(交接)=按 R10 交接卡评估。
 
 ## 引擎与路径
 - `EXECUTOR_ENGINE`: 已撤销(v0.9.1) — 仓库代码只由主 Agent 写，无执行子代理 → R15；FULL manifest `executor_engine` 填主 Agent 当前模型
@@ -34,6 +34,7 @@
 - `PLAN_ITERATIONS`: 1 — 无 open P0/P1 即收敛不凑轮 → phase-2
 - → R9，细则 full：`PLAN_CHALLENGE_SOFT_LIMIT`: 3；`PLAN_CHALLENGE_USER_REVIEW_ROUND`: 5；`PLAN_CHALLENGE_HARD_LIMIT`: 8
 - `MAX_ROUNDS`: 15 — 执行/审计兜底，非挑战预算 → R9
+- `OUTPUT_SPILL_THRESHOLD`: 8000 — 大输出落 `{PLANS_DIR}/<feature>/artifacts/` 只带摘要回上下文 → R17（指引，不设门）
 - `TESTCASE_ITERATIONS`: 2 → cond§testcase 迭代
 - `AUDIT_RETRY`: until-100 — 未达 100% 循环补完
 
@@ -55,7 +56,7 @@
 
 ## 用户与行为
 - → R11：`USER_ATTENTION`: protect；`EXECUTE_AUTONOMY`: high；`DECISION_BATCHING`: required；`PROGRESS_REPORTING`: user-language(交接)
-- `HANDOFF_CHECK`: required → checklists/handoff.md
+- `HANDOFF_CHECK`: required → R10 交接卡（细则 checklists/handoff.md）
 - `HANDOFF_EVAL_MAX_ROUNDS`: 3 — 每交接点独立计，不走 MAX_ROUNDS；两轮 open block ID 不变且无新证据即早停
 - `SELF_BUILT_DEFENSE`: forbidden → R14；`BEHAVIOR_POLICY`: preserve-approved → R13
 - → R12：`JOURNAL_VERDICT`: required(终态行格式唯一出处；journal 随 `{PLANS_DIR}` 进 git)；`SELF_CRITICISM`: required

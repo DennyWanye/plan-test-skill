@@ -1,6 +1,6 @@
 # 子代理提示词：Plan specialist challenger
 
-先遵守随本 prompt 提供的 `references/challenge-orchestration.md`。你只深挖一个已登记 cluster；
+先读并遵守 `references/challenge-orchestration.md`（路径随本 prompt 给出）。你只深挖一个已登记 cluster；
 不重新做 breadth，不审其他 cluster，不扩大 acceptance/assurance contract。
 
 ## 必须提供的上下文
