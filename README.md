@@ -14,13 +14,14 @@
 | `/plan-task` | 校验定稿 plan → 绿色基线 → 执行 + 审计 → 围绕主要矛盾的验收 + testcase 收尾 → DoD | 已有定稿 plan（通常来自 plan-bs），只要执行 + 测试 |
 | `/plan-test` | 上面两段的一条龙自动版（需求澄清不走头脑风暴对话，走快速确认） | 需求已基本清楚，直接端到端做完 |
 
-三个 skill 共享 `skills/plan-test/` 下的阶段文档、子代理提示词与配置。铁律与通用规则的正文只在 `skills/plan-test/RULES.md`（R1–R14），阶段文档只写本阶段怎么做并以 `（RULES Rn）` 指回；FULL 专用内容在 `full/`，条件命中才读的内容在 `conditional/`，病根与历史叙述在 `guides/history-*`（v0.9.0）。plan-bs 定稿时会在 `plan.md` 头部写 `<!-- plan-status: finalized -->` 标记，plan-task 开工前校验它——这是两段之间的交接契约。
+三个 skill 共享 `skills/plan-test/` 下的阶段文档、子代理提示词与配置。铁律与通用规则的正文只在 `skills/plan-test/RULES.md`（R1–R17），阶段文档只写本阶段怎么做并以 `（RULES Rn）` 指回；FULL 专用内容在 `full/`，条件命中才读的内容在 `conditional/`，病根与历史叙述在 `guides/history-*`（v0.9.0）。plan-bs 定稿时会在 `plan.md` 头部写 `<!-- plan-status: finalized -->` 标记，plan-task 开工前校验它——这是两段之间的交接契约。
 
 灵感来自 superpowers 的 plan / test 系列 skill，针对"代码级可执行 plan + 子代理对抗迭代 + 真人测试"的工作流做了端到端编排。
 
 ## 设计原则
 
 - **减少用户打断（v0.8.0）**：根据已有目标和授权调查、制定计划并自主执行，不重复询问阶段切换或是否继续修复。确需用户决策时，先提供事实、推荐、代价与剩余未知；保留明确的等待、停止和操作授权边界。详见 [RULES R11](skills/plan-test/RULES.md)，续接与授权细则见 [user-attention](skills/plan-test/references/user-attention.md)。
+- **LEAN 编排精简：可测量、少读、交接卡、轮次指引（v0.10.0）**：`scripts/run_cost_report.py` 从会话记录算出一次运行的轮次/上下文/文档读取/子代理/评估行，收尾时附进 retro 只记录不判定；RULES R10 改为 7 行交接卡（四问→档位→派评估员自读 prompt→fix_class 处置→末行，评估员输出异常 = FAIL 重派不自评）；R17 轮次与输出纪律只做指引（合并只读命令、并行独立调用、>8K 输出落 `artifacts/` 带摘要回上下文）；phase 文档读一次、清单进 `checklist.md`，派发协议给路径不贴原文；小改动 primary 零 P0/P1 不派 closure；需派子代理 review 时与 code-audit 合并成一个子代理两段独立 verdict；完成声明前 journal 须已有终态行。不主动清上下文、不加主 Agent 自检（业主决定）。详见 [rationale](skills/plan-test/rationale.md)。
 - **主 Agent 写代码、高成本测试后置（v0.9.1）**：仓库代码只由主 Agent 亲手写、改、修；子代理只做评测类（挑战/审计/code review/评估/只读调研）和主体跑通后的并行测试，输出只有 findings/verdict/证据。主体跑通（最短价值路径接线完整 + 便宜门绿 + 核心价值 smoke 单次 PASS）之前只跑便宜层，真人矩阵/多样本采样/全量回归/生产真跑等高成本测试后置到 phase-4 一次做全。详见 [RULES R15/R16](skills/plan-test/RULES.md)。
 - **交接前检查与分层加载（v0.9.0）**：结束一轮回复前命中交接四问（做少了、要用户动手、要用户决策、交付完成）就按 `checklists/handoff.md` 过档并派独立评估员，PASS 才发。LEAN 一次完整运行的必读文档压到 60KB 以内；closure 轮对已解决的次要 finding 可按历史推导跳过复核（仍由 gate 校验）。
 - **按可交付能力切片（v0.8.0）**：整体目标 → 可用能力切片 → 片内技术任务。每片有真实入口、实现前测试预期、依赖和保留能力；当前片细化后实施，整体风险提前调查。每片实际验证并形成可追溯提交后自主推进，原始全部验收与必要组合验证保留；小需求可以只有一片。详见 [切片规则](skills/plan-test/references/delivery-slices.md)。

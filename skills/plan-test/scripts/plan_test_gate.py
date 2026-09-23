@@ -2232,7 +2232,8 @@ def validate(run_dir, ledger, mode="full", fixture=False, skip_sibling_check=Fal
                 why, when = reasons[sid]
                 diags.append(Diag("RETEST_REQUIRED_AFTER_CHANGE",
                                   "场景 %s 的通过记录早于最近一次 behavioral 变更（%s；%s）——"
-                                  "代码/配置改过就必须重跑，不能沿用旧结论" % (sid, when, why),
+                                  "代码/配置改过就必须重跑，不能沿用旧结论；re-attest 之后只有 "
+                                  "record-run --kind root 且 result=pass 计入新鲜度（derived 不算）" % (sid, when, why),
                                   hint=sid))
 
     # 9b. 适用性判定入账 + 判"适用"时矩阵必须兑现
@@ -6813,6 +6814,11 @@ class _SuggestingParser(argparse.ArgumentParser):
                     message += "\n没有这个命令。%s" % intent
                 elif close:
                     message += "\n是不是想敲: %s" % "  ".join(close)
+                if message.startswith("argument --target:"):
+                    # v0.10 AC-8：print-schema --target 敲错时把全部可用值与 PROTOCOL 对应节一次给全
+                    message += ("\n可用值: %s；各载荷说明见 gate/PROTOCOL.md §4 稳定诊断码"
+                                "（SCHEMA_INVALID 条目 → findings；PRIMARY_CHALLENGE_REQUIRED 条目 → clusters/synthesis）"
+                                % " | ".join(choices))
         # v0.6.1 P1（2026-09-01 复验 handoff）：argparse 层的参数错误（缺必填、参数名
         # 写错）此前走 argparse 自己的退出路径，不经过 die()，refusal 账本对这一类
         # 摩擦完全不可见——出口成本度量缺了一角（复现：连撞三次 argparse 零记录）。

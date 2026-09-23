@@ -27,7 +27,7 @@
 子代理读 `prompts/minimality-reviewer.md`（`MODE: diff-review`），只附基线 diff/acceptance/Ponytail policy；子代理只出 findings，主 Agent 只应用不改 AC/行为、不降 assurance 的简化，再跑编译/类型/最小单测；`ALREADY_MINIMAL` 正常，不循环、不凑 finding。
 
 ## A4. 代码 review（`CODE_REVIEW`）
-适用 delivery 含非平凡代码（OPS/纯文档不适用，理由一句留痕）。A3 后、便宜检查绿、B 前，review 基线累计 `git diff`：优先 harness 自带能力，否则派独立 `{CHALLENGER_ENGINE}`（附 diff/相关 AC/行为契约）；深度与 findings 处理 RULES R7，修复由主 Agent 亲手做（R15）。用户可见 P2 交用户验收前按 交接单 H2.4 清零；补丁关 finding 但 AC 仍不达成 → A2。修复后分层复验（RULES R8）；结论一行进 journal；复验红再修（`{MAX_ROUNDS}` 兜底）。
+适用 delivery 含非平凡代码（OPS/纯文档不适用，理由一句留痕）。A3 后、便宜检查绿、B 前，review 基线累计 `git diff`：优先 harness 自带能力（此时 B 照旧单独派）；否则与 B 合并派发：一个 `{AUDITOR_ENGINE}` 子代理先按 `CODE_REVIEW` 审正确性、再按 `prompts/completion-auditor.md` `MODE: code-audit` 审 AC→任务→代码，两段各出独立 verdict 与 findings（附 diff/相关 AC/行为契约）；复审只跑 audit 段，review 的 P0/P1 修复后由主 Agent 按 R8 分层复验。深度与 findings 处理 RULES R7，修复由主 Agent 亲手做（R15）。用户可见 P2 交用户验收前按 交接单 H2.4 清零；补丁关 finding 但 AC 仍不达成 → A2。修复后分层复验（RULES R8）；结论一行进 journal；复验红再修（`{MAX_ROUNDS}` 兜底）。
 
 ## B. 完成度审计（`AUDIT_RETRY = until-100`）
 `{AUDITOR_ENGINE}` 用 `prompts/completion-auditor.md`，`MODE: code-audit`（审 AC→任务→代码 + plan 层缺陷），复审只核上轮缺口与新改动；先审决定性 AC 真达成，否则直接 FAIL；锚点是 AC 达成非任务打勾，任务全 ✅ 而必须 AC 不达成 → FAIL 标 plan 层缺陷走 A2；按可追溯矩阵核对 AC↔任务↔代码。FAIL → 补缺口再审；缺结论行按 FAIL 处理；超 `{MAX_ROUNDS}` → BLOCKED 升级。

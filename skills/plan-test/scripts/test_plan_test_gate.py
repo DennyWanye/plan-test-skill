@@ -1148,6 +1148,15 @@ class ReAttestTestCase(RealRepoAttestationTestCase):
                   "--kind", "root", "--result", "pass"], cwd=self.repo)
         self.assertEqual(self.check().returncode, 0, self.check().stdout)
 
+    def test_retest_diag_says_only_kind_root_counts(self):
+        """v0.10 AC-8：新鲜度诊断要写明 re-attest 之后只有 --kind root 的 pass 计入（run log 实证代理拿 derived 记录去凑新鲜度）。"""
+        self.init_real_run()
+        self.write("src.py", "print('v3')\n")
+        self.assertEqual(self.re_attest("修 bug").returncode, 0)
+        out = self.check()
+        self.assertIn("RETEST_REQUIRED_AFTER_CHANGE", out.stdout)
+        self.assertIn("--kind root", out.stdout)
+
     def test_behavioral_text_is_never_doc_only(self):
         """提示词、skill、依赖清单不算文档——独立审计实测过这两个反例。
 
@@ -1478,8 +1487,9 @@ class StopHookTestCase(RealRepoAttestationTestCase):
         self.git("commit", "-qm", "install gate+hook")
 
         def run():
+            # stdin 显式给空：hook 在 stdin 非 tty 时会 cat 它，继承到一个不关闭的 socket 会永久挂住
             return subprocess.run(["bash", "hooks/stop-gate-check.sh"], cwd=self.repo,
-                                  capture_output=True, text=True,
+                                  capture_output=True, text=True, stdin=subprocess.DEVNULL,
                                   env=dict(os.environ, CLAUDE_PROJECT_DIR=self.repo))
         return run
 
@@ -3579,3 +3589,16 @@ class FindingSchemaHelpTestCase(GateHarness):
                 self.assertIn(v, out, "print-schema 漏了取值 %s" % v)
         for field in g.FINDING_ITEM_REQUIRED:
             self.assertIn(field, out, "print-schema 漏了必填字段 %s" % field)
+
+
+class PrintSchemaTargetHelpTestCase(unittest.TestCase):
+    """v0.10 AC-8：print-schema --target 敲错时列出全部可用值并指向 PROTOCOL 对应节。"""
+
+    def test_unknown_target_lists_values_and_protocol_section(self):
+        proc = run_gate(["print-schema", "--target", "foo"])
+        self.assertEqual(proc.returncode, 2)
+        for v in ("findings", "clusters", "synthesis"):
+            self.assertIn(v, proc.stderr)
+        self.assertIn("可用值:", proc.stderr)
+        self.assertIn("gate/PROTOCOL.md", proc.stderr)
+

@@ -10,7 +10,7 @@
 
 - 主要矛盾相关（决定性 AC 任务、解法核心链路）→ 完整四阶段，到无 open P0/P1。
 - 其余（次要 AC、外围）→ 一轮 primary breadth，无 in-scope P0 即收，不派 specialist、不多轮 closure，这轮不许跳过；出 in-scope P0 或与主要矛盾解法结构耦合 → 升完整范围。
-- 增量补丁（已上线功能只动已有次要 AC，不新增/不改决定性 AC 行为）→ primary + closure 各一轮，决定性 AC 只回归。
+- 增量补丁或单文件簇改动（≤ 3 文件，已上线功能只动已有次要 AC，不新增/不改决定性 AC 行为）→ primary 一轮；无 in-scope P0/P1 → 直接收敛，不派 closure，plan 记一行「closure 跳过：primary 零 P0/P1」；有 P0/P1 → closure 一轮。决定性 AC 只回归。
 - challenger 固定质询：主要矛盾写成复合句、防御排第一 = P0 打回；是否用补丁绕过真架构问题。
 
 ### 记账与编排（LEAN）
